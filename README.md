@@ -21,7 +21,11 @@ Ephemeris flips the axis. It rebuilds every day from all the windows you touched
 
 - **A diary entry for every day.** It's written in the first person from your own messages: what you worked on, what you finished, and what's still open.
 - **A theme ledger.** Each ongoing thread (a project, an application, an assignment) is tracked across days. Entries show "day 23 of X" or "back to X after 41 days". A Themes panel shows every thread on one timeline.
-- **A per-window view.** Pick one long conversation and see a one-line summary for each day it was active, plus the overall arc.
+- **A per-window view.** Pick one long conversation and see a one-line summary for each day it was active, plus the overall arc. When you keep chatting in that window, only the new or changed days get summarized; old summaries stay as they are.
+- **Your handwritten diary, too.** Pages you wrote yourself in Notion are pulled in read-only and shown above the AI entry for that day. They extend the calendar back years before your chat history starts. Anything Ephemeris appended to those pages is stripped out first.
+- **Two mood signals, kept apart.** *How the day went* comes from what you say yourself: a check-in, or your handwritten diary. *How stuck you were* (0–4) comes from your chats with the AI. An experiment showed chats capture the struggle, not the day: the good moments usually happen outside the chat, so the two are never merged into one number.
+- **A full-screen check-in page.** Pick a word, add a line if you want, and record. You can log several moments a day or backfill earlier days. Each check-in gets a short reply that knows what you've been working on lately. A month view shows the mood mix, a star per day on the calendar, a mood constellation, and a one-line summary.
+- **A topic river.** Every theme is sorted into a handful of categories, and a streamgraph shows how your attention moved between them week by week.
 - **Full-text search** over everything you've ever sent.
 - **Daily auto-sync from claude.ai at 08:30.** New conversations come in, missing diaries get written, and nothing needs clicking.
 - **Optional Notion sync.** Diaries go into a Notion database. If you already wrote a page for that day, Ephemeris appends below it and never touches your text.
@@ -43,6 +47,8 @@ manual imports ─────────┘   dedupe,      SQLite +     one en
 - **Days** are in UTC+8 and end at 4 a.m., so late-night sessions count toward the day they started.
 - **Chat windows** are identified by the claude.ai conversation uuid. Sources without a stable id fall back to a fingerprint of the first message.
 - **Each diary entry** also sees the previous entry and the theme ledger, so it can pick up where yesterday left off.
+- **What the model reads** is every message you typed yourself, in full. Pasted material (articles, code, subtitles, AI replies) is cut down to its first and last few hundred characters, so a long paste can't crowd out your own words.
+- **Two voices.** Diaries and reviews are a mirror: what you did and how you said you felt, with no advice. The check-in reply is a companion: warm, concrete, sometimes one small suggestion.
 - **Matching a day's work to existing themes** is a separate, small model call. Putting it inside the diary prompt made themes drift. The code does all the counting ("day N", "N days since"); the model only makes judgments.
 
 ## Supported imports
@@ -76,7 +82,7 @@ python app.py               # http://localhost:5055
 
 ## Privacy
 
-Everything stays on your machine: the database, diaries, imports, the Chrome profile, and `.env`. `.gitignore` is a **whitelist**, so only source code is ever tracked. Model calls send one day of *your own* messages to the model provider you configured.
+Everything stays on your machine: the database, diaries, check-ins, handwritten pages, imports, the Chrome profile, and `.env`. `.gitignore` is a **whitelist**, so only source code is ever tracked. Model calls send one day of *your own* messages to the model provider you configured.
 
 ## Cost
 

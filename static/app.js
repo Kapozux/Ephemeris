@@ -24,7 +24,38 @@ function heat(threads) {
   return threads < 2 ? 'var(--h1)' : threads < 5 ? 'var(--h2)' : threads < 10 ? 'var(--h3)' : 'var(--h4)';
 }
 
+// 日历颜色三档：活跃（窗口数）/ 过得（手写的 -2..+2）/ 卡得（聊天的 0..4）
+let CMODE = 'act';
+try { CMODE = localStorage.getItem('cmode') || 'act'; } catch (e) { /* 无痕模式 */ }
+const FEEL = { '-2': 'var(--f-2)', '-1.5': 'var(--f-2)', '-1': 'var(--f-1)', '-0.5': 'var(--f-1)', '0': 'var(--f0)',
+               '0.5': 'var(--f1)', '1': 'var(--f1)', '1.5': 'var(--f2)', '2': 'var(--f2)' };
+// 打卡是多条取平均，可能不是 .5 的整数倍：就近落到五档色上
+function feelColor(v) { const b = v <= -1.25 ? -2 : v <= -0.25 ? -1 : v < 0.25 ? 0 : v < 1.25 ? 1 : 2; return `var(--f${b})`; }
+function cellColor(info) {
+  if (CMODE === 'feel') return info.feel == null ? 'transparent' : feelColor(info.feel);
+  if (CMODE === 'stuck') return info.stuck == null ? 'transparent' : `var(--s${info.stuck})`;
+  return heat(info.threads);
+}
+function renderLegend() {
+  const sw = c => `<i class="sw" style="background:${c}"></i>`;
+  $('#legend').innerHTML = CMODE === 'feel'
+    ? `<span>糟</span>${['--f-2', '--f-1', '--f0', '--f1', '--f2'].map(v => sw(`var(${v})`)).join('')}<span>好</span><span class="sp"></span><i class="sw empty"></i><span>没手写</span>`
+    : CMODE === 'stuck'
+    ? `<span>顺</span>${[0, 1, 2, 3, 4].map(v => sw(`var(--s${v})`)).join('')}<span>崩</span><span class="sp"></span><i class="sw empty"></i><span>没聊天</span>`
+    : `<span>少</span>${[1, 2, 3, 4].map(v => sw(`var(--h${v})`)).join('')}<span>多</span><span class="sp"></span><i class="sw jr"></i><span>手写</span><i class="sw faded"></i><span>还没日记</span>`;
+}
+document.querySelectorAll('.cm-item').forEach(b => {
+  b.classList.toggle('active', b.dataset.c === CMODE);
+  b.onclick = () => {
+    CMODE = b.dataset.c;
+    try { localStorage.setItem('cmode', CMODE); } catch (e) { /* 无痕模式 */ }
+    document.querySelectorAll('.cm-item').forEach(x => x.classList.toggle('active', x === b));
+    buildCalendar(); if (SEL) document.querySelector(`.day[data-d="${SEL}"]`)?.classList.add('sel');
+  };
+});
+
 function buildCalendar() {
+  renderLegend();
   const months = [];
   DAYS.forEach(d => {
     const ym = d.date.slice(0, 7);
@@ -39,10 +70,18 @@ function buildCalendar() {
       const date = `${ym}-${String(d).padStart(2, '0')}`;
       const info = BYDATE[date];
       if (!info) { cells += '<i class="day"></i>'; continue; }
-      const tip = `${date}　${info.threads} 个窗口 · ${info.msgs} 条` +
-                  (info.headline ? `\n${info.headline}` : '\n（还没有日记）');
-      cells += `<i class="day on ${info.has_diary ? '' : 'nodiary'}" data-d="${date}"
-                   style="background:${heat(info.threads)}" title="${esc(tip)}"></i>`;
+      const onlyJ = !info.threads && info.journal;
+      const tip = onlyJ ? `${date}　只有手写日记 · ${info.journal.toLocaleString()} 字`
+        : `${date}　${info.threads} 个窗口 · ${info.msgs} 条` +
+          (info.journal ? ` · 手写 ${info.journal.toLocaleString()} 字` : '') +
+          (info.headline ? `\n${info.headline}` : '\n（还没有日记）');
+      const act = CMODE === 'act';
+      const cls = (!act || info.has_diary || onlyJ ? '' : 'nodiary') + (act && info.journal ? ' jr' : '') +
+                  (cellColor(info) === 'transparent' ? ' blank' : '');
+      const sig = (info.feel != null ? `\n过得 ${info.feel > 0 ? '+' : ''}${info.feel}` : '') +
+                  (info.stuck != null ? `　卡得 ${info.stuck}/4` : '');
+      cells += `<i class="day on ${cls}" data-d="${date}"
+                   style="background:${cellColor(info)}" title="${esc(tip + sig)}"></i>`;
     }
     return `<div class="mon" id="m-${ym}"><h4>${ym.slice(2).replace('-', '.')}</h4>
               <div class="grid">${cells}</div></div>`;
@@ -56,11 +95,50 @@ function markDiary(date) {
   refreshBatchButton();
 }
 
+// 两个指标：过得怎么样（手写）、卡得多狠（聊天）。分开放，不合成一个数 —— 它们量的是一天里不同的部分
+function renderSignals(sg) {
+  const f = sg.mood, k = sg.friction, out = [];
+  if (f) out.push(`<span class="sig" title="${esc(f.evidence || '')}"><i style="background:${feelColor(f.valence)}"></i>过得 <b>${f.valence > 0 ? '+' : ''}${f.valence}</b> ${esc(f.label || '')}<em>${f.src === 'checkin' ? '打卡' : '手写'}</em></span>`);
+  if (k) out.push(`<span class="sig" title="${esc(k.evidence || '')}"><i style="background:var(--s${k.valence})"></i>卡得 <b>${k.valence}/4</b> ${esc(k.label || '')}<em>聊天</em></span>`);
+  out.push(`<a class="sig sig-add" href="/checkin?date=${SEL}">${(sg.checkins || []).length ? '改打卡' : '补打卡'}</a>`);
+  $('#daySig').innerHTML = out.join('');
+}
+
+// ---------------------------------------------------------------- 手写日记
+// 我自己在 Notion 里写的，放在 AI 日记上面。只读；长的先收起来。
+
+const J_FOLD = 700;
+
+function renderJournal(list, open) {
+  const box = $('#journal');
+  const pages = list.filter(j => (j.text || '').trim());
+  if (!pages.length) { box.className = 'journal hidden'; box.innerHTML = ''; return; }
+  const para = t => t.split('\n').map(l => {
+    const h = l.match(/^(#{1,3}) (.*)$/);
+    if (h) return `<h4>${esc(h[2])}</h4>`;
+    return l.trim() ? `<p>${esc(l)}</p>` : '';
+  }).join('');
+  box.className = 'journal card-shell';
+  box.innerHTML = `<div class="j-head"><span class="j-tag">我当天写的</span>
+      <span class="dim tnum">${pages.reduce((a, j) => a + j.chars, 0).toLocaleString()} 字</span>
+      <span class="sp"></span>${pages.map(j => `<a href="${j.url}" target="_blank" rel="noopener">在 Notion 打开</a>`).join(' · ')}</div>` +
+    pages.map((j, i) => {
+      const long = j.text.length > J_FOLD && !open;
+      return `<div class="j-body${long ? ' folded' : ''}" data-i="${i}">${para(j.text)}</div>` +
+             (long ? `<a class="j-more" data-i="${i}">展开全文</a>` : '');
+    }).join('');
+  box.querySelectorAll('.j-more').forEach(a => a.onclick = () => {
+    box.querySelector(`.j-body[data-i="${a.dataset.i}"]`).classList.remove('folded'); a.remove();
+  });
+  if (open) box.scrollIntoView({ block: 'start' });
+}
+
 // ---------------------------------------------------------------- 日记
 
 function renderDiary(r) {
   const box = $('#diary');
   box.className = 'diary';
+  if (!r.threads.length && !r.diary) { box.className = 'hidden'; box.innerHTML = ''; return; }
   if (r.generating) {
     box.classList.add('gen');
     box.innerHTML = `<span class="pulse"></span>正在读这天的 ${r.threads.length} 个窗口，写日记…`;
@@ -129,6 +207,7 @@ function msgHtml(m, target) {
 
 function renderThreads(threads, focus) {
   $('#threadCount').textContent = `${threads.length}`;
+  if (!threads.length) { $('#threads').innerHTML = '<div class="empty-note">这天没有和 AI 聊天</div>'; return; }
   $('#threads').innerHTML = threads.map((t, i) => {
     const open = focus && t.conv_id === focus.conv;
     return `<div class="thread ${open ? 'hl' : ''}" data-conv="${t.conv_id}">
@@ -206,9 +285,14 @@ async function openDay(date, focus) {
   const info = BYDATE[date] || {};
   const wd = '日一二三四五六'[new Date(date + 'T12:00:00').getDay()];
   $('#dayTitle').innerHTML = `<span class="num">${date}</span><span class="wd">周${wd}</span>`;
-  $('#dayMeta').textContent =
-    `${r.threads.length} 个对话窗口 · ${info.msgs || 0} 条 · ${(info.chars || 0).toLocaleString()} 字 · ${info.first_at || ''}–${info.last_at || ''}`;
+  const jChars = (r.journal || []).reduce((a, j) => a + (j.chars || 0), 0);
+  $('#dayMeta').textContent = r.threads.length
+    ? `${r.threads.length} 个对话窗口 · ${info.msgs || 0} 条 · ${(info.chars || 0).toLocaleString()} 字 · ${info.first_at || ''}–${info.last_at || ''}` +
+      (jChars ? ` · 手写 ${jChars.toLocaleString()} 字` : '')
+    : `这天没有 AI 聊天，只有手写日记 · ${jChars.toLocaleString()} 字`;
 
+  renderSignals(r.signals || {});
+  renderJournal(r.journal || [], focus && focus.journal);
   renderDiary(r);
   renderThreads(r.threads, focus);
   requestAnimationFrame(() => {
@@ -241,12 +325,15 @@ $('#q').addEventListener('input', e => {
     box.classList.remove('hidden');
     box.innerHTML = `<div class="rhead"><span>${r.hits.length} 条${r.hits.length >= 100 ? '（只显示前 100）' : ''}</span><a id="rclose">关闭</a></div>` +
       (r.hits.length
-        ? r.hits.map(h => `<div class="hit" data-d="${h.date}" data-c="${h.conv_id}" data-m="${h.msg_id}">
+        ? r.hits.map(h => h.kind === 'journal'
+            ? `<div class="hit jhit" data-d="${h.date}" data-j="1"><b>${h.date}　手写日记</b>${h.snip}</div>`
+            : `<div class="hit" data-d="${h.date}" data-c="${h.conv_id}" data-m="${h.msg_id}">
              <b>${h.date} ${h.hhmm}　${esc(h.conv_title || '')}</b>${h.snip}</div>`).join('')
         : '<div class="hit"><b>没找到</b></div>');
     box.onclick = ev => {
       if (ev.target.id === 'rclose') { closeResults(); return; }
       const el = ev.target.closest('.hit');
+      if (el?.dataset.j) { closeResults(); navigate(`day/${el.dataset.d}/journal`); return; }
       if (el?.dataset.d) { closeResults(); navigate(`day/${el.dataset.d}/conv/${el.dataset.c}/msg/${el.dataset.m}`); }
     };
   }, 240);
@@ -265,6 +352,7 @@ function refreshBatchButton() {
 }
 
 async function pollBatch() {
+  refreshCkDot();
   const s = await fetch('/api/diary/batch').then(r => r.json());
   const bar = $('#batchBar');
   if (s.running) {
@@ -450,6 +538,7 @@ function openModal(pane, arg) {
   $('#overlay').classList.remove('hidden');
   showPane(pane);
   if (pane === 'themes') loadThemes(arg);
+  if (pane === 'river') loadRiver();
   if (!RDATA) loadReflect(false);
   if (pane === 'convs') { pollCSync(); if (!CONVS.length) loadConvs(); }
   if (pane === 'notion') {
@@ -459,6 +548,7 @@ function openModal(pane, arg) {
 }
 function closeModal() { $('#overlay').classList.add('hidden'); clearTimeout(RPOLL); }
 $('#reflectOpen').onclick = () => navigate('panel/reflect');
+$('#ckOpen').onclick = () => { location.href = '/checkin'; };
 $('#convsOpen').onclick = () => navigate('panel/convs');
 $('#modalClose').onclick = () => navigate(mainRoute());
 $('#overlay').addEventListener('click', e => { if (e.target.id === 'overlay') navigate(mainRoute()); });
@@ -474,6 +564,158 @@ document.querySelectorAll('.modal-nav-item[data-pane]').forEach(b =>
   b.onclick = () => navigate('panel/' + b.dataset.pane));
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#overlay').classList.contains('hidden')) navigate(mainRoute()); });
 
+
+// ================================================================ 打卡（单独的全屏页 /checkin）
+async function refreshCkDot() {
+  const r = await fetch('/api/checkin').then(r => r.json());
+  $('#ckDot').classList.toggle('hidden', r.items.length > 0);
+}
+
+// ================================================================ 话题河流
+// 每周各大类占了多少「主题·天」。颜色 = 类别身份，固定顺序（已过配色校验）；叠放顺序 = 颜色顺序。
+const RV_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948', '#b3aea3'];
+let RV = null, RV_SCALE = 'share', RV_FROM = '2025-08-18', RV_HI = -1;
+
+async function loadRiver() {
+  $('#rvChart').innerHTML = '<div class="reflect-loading">在数…</div>';
+  RV = await fetch('/api/river?from=' + RV_FROM).then(r => r.json());
+  renderRiver();
+}
+
+// 单调三次插值（Fritsch–Carlson）：平滑但不过冲。返回分段的贝塞尔 [p0, c1, c2, p1]，
+// 这样同一条边界既能正着画（上面那条带子的下沿）也能倒着画（下面那条的上沿），两边严丝合缝。
+// 以前是把点倒过来再插值一次，陡的地方两次插值对不上，会裂出白缝。
+function monoSegs(pts) {
+  const n = pts.length, dx = [], m = [], t = [], segs = [];
+  if (n < 2) return segs;
+  for (let i = 0; i < n - 1; i++) { dx[i] = pts[i + 1][0] - pts[i][0]; m[i] = (pts[i + 1][1] - pts[i][1]) / dx[i]; }
+  t[0] = m[0]; t[n - 1] = m[n - 2];
+  for (let i = 1; i < n - 1; i++) t[i] = m[i - 1] * m[i] <= 0 ? 0 : (m[i - 1] + m[i]) / 2;
+  for (let i = 0; i < n - 1; i++) {
+    if (m[i] === 0) { t[i] = t[i + 1] = 0; continue; }
+    const a = t[i] / m[i], b = t[i + 1] / m[i], h = a * a + b * b;
+    if (h > 9) { const k = 3 / Math.sqrt(h); t[i] = k * a * m[i]; t[i + 1] = k * b * m[i]; }
+  }
+  for (let i = 0; i < n - 1; i++) {
+    const [x0, y0] = pts[i], [x1, y1] = pts[i + 1], h = dx[i] / 3;
+    segs.push([[x0, y0], [x0 + h, y0 + t[i] * h], [x1 - h, y1 - t[i + 1] * h], [x1, y1]]);
+  }
+  return segs;
+}
+const _f = p => p[0].toFixed(1) + ',' + p[1].toFixed(1);
+const segsFwd = segs => segs.map(s => `C${_f(s[1])} ${_f(s[2])} ${_f(s[3])}`).join('');
+const segsRev = segs => segs.slice().reverse().map(s => `C${_f(s[2])} ${_f(s[1])} ${_f(s[0])}`).join('');
+
+function rvValues() {
+  return RV.smooth.map(row => {
+    if (RV_SCALE === 'count') return row;
+    const s = row.reduce((a, b) => a + b, 0);
+    return s < 0.34 ? null : row.map(v => v / s);      // 这周（平滑后）基本没记录：留空档，不假装各类都归零
+  });
+}
+
+function renderRiver() {
+  const box = $('#rvChart');
+  if (!RV.weeks.length) { box.innerHTML = '<div class="reflect-loading">还没有数据</div>'; return; }
+  const vals = rvValues(), n = vals.length, K = RV.cats.length;
+  const W = Math.max(box.clientWidth, 300), H = 400, L = 38, R = 10, T = 10, B = 26;
+  const stacks = vals.map(row => { if (!row) return null; let acc = 0; return row.map(v => { const y0 = acc; acc += v; return [y0, acc]; }); });
+  const max = RV_SCALE === 'share' ? 1 : Math.max(...stacks.filter(Boolean).map(s => s[K - 1][1]), 1);
+  const x = i => L + (n === 1 ? 0 : i / (n - 1)) * (W - L - R);
+  const y = v => T + (1 - v / max) * (H - T - B);
+
+  // 连续有数据的几段分开画；段与段之间是没记录的空档
+  const segs = [];
+  stacks.forEach((s, i) => { if (!s) return; const g = segs[segs.length - 1]; if (g && g[g.length - 1] === i - 1) g.push(i); else segs.push([i]); });
+  const half = (W - L - R) / Math.max(n - 1, 1) / 2;
+  // 每段先算出 K+1 条边界曲线（第 k 条 = 第 k 类的下沿 = 第 k-1 类的上沿），带子用相邻两条围出来
+  const bands = segs.map(g => {
+    const xs = g.length === 1 ? [x(g[0]) - half, x(g[0]) + half] : g.map(x);   // 孤零零一周：画成一小截
+    const at = j => g.length === 1 ? g[0] : g[j];
+    const edges = [];
+    for (let k = 0; k <= K; k++)
+      edges.push(monoSegs(xs.map((xx, j) => [xx, y(k === 0 ? stacks[at(j)][0][0] : stacks[at(j)][k - 1][1])])));
+    return RV.cats.map((c, k) => {
+      const lo = edges[k], hi = edges[k + 1];
+      return `<path class="rv-band" data-k="${k}" d="M${_f(hi[0][0])}${segsFwd(hi)}L${_f(lo[lo.length - 1][3])}${segsRev(lo)}Z" fill="${RV_COLORS[k]}"/>`;
+    }).join('');
+  }).join('');
+  const gaps = segs.slice(1).map((g, j) => {
+    const a = x(segs[j][segs[j].length - 1]), b = x(g[0]);
+    return `<rect x="${a}" y="${T}" width="${b - a}" height="${H - T - B}" class="rv-gap"/>` +
+      (b - a > 40 ? `<text x="${(a + b) / 2}" y="${T + 16}" text-anchor="middle" class="rv-ax">没记录</text>` : '');
+  }).join('');
+
+  // 纵轴：占比 0/50/100%，数量取 3 个整数刻度
+  const yt = RV_SCALE === 'share' ? [0, .5, 1] : [0, Math.round(max / 2), Math.round(max)];
+  const grid = yt.map(v => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="rv-grid"/>
+    <text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="rv-ax">${RV_SCALE === 'share' ? Math.round(v * 100) + '%' : v}</text>`).join('');
+  // 横轴：每月第一周标一下，太挤就隔几个月
+  const months = [];
+  RV.weeks.forEach((w, i) => { const m = w.slice(0, 7); if (!months.length || months[months.length - 1].m !== m) months.push({ m, i }); });
+  const every = Math.ceil(months.length / Math.max(1, Math.floor((W - L - R) / 46)));
+  let lastX = -99;
+  const xt = months.filter((_, j) => j % every === 0).filter(({ i }) => { const ok = x(i) - lastX >= 40; if (ok) lastX = x(i); return ok; }).map(({ m, i }) =>
+    `<text x="${x(i)}" y="${H - 8}" text-anchor="middle" class="rv-ax">${m.slice(2).replace('-', '.')}</text>`).join('');
+
+  box.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="各类事情每周占比的变化">
+    ${grid}${gaps}<g class="rv-bands">${bands}</g>${xt}
+    <line id="rvCross" class="rv-cross hidden" y1="${T}" y2="${H - B}"/>
+    <rect id="rvHit" x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent"/></svg>`;
+
+  $('#rvLegend').innerHTML = RV.cats.map((c, k) =>
+    `<span class="rv-li" data-k="${k}"><i style="background:${RV_COLORS[k]}"></i>${c}</span>`).join('');
+  $('#rvLegend').querySelectorAll('.rv-li').forEach(el => {
+    el.onmouseenter = () => rvEmph(+el.dataset.k); el.onmouseleave = () => rvEmph(-1);
+  });
+  rvEmph(RV_HI);
+  $('#rvSub').textContent = `${RV.weeks[0]} → ${RV.weeks[n - 1]}，${n} 周。每周算各类事情占了多少：一件事做了一天算一份，AI 聊天和手写日记都算；前后 3 周平滑过。`;
+
+  const hit = $('#rvHit'), tip = $('#rvTip'), cross = $('#rvCross');
+  hit.onmousemove = e => {
+    const r = box.getBoundingClientRect();
+    const i = Math.max(0, Math.min(n - 1, Math.round((e.clientX - r.left - L) / (W - L - R) * (n - 1))));
+    cross.setAttribute('x1', x(i)); cross.setAttribute('x2', x(i)); cross.classList.remove('hidden');
+    const raw = RV.raw[i], v = vals[i] || RV.cats.map(() => 0);
+    const rows = RV.cats.map((c, k) => ({ c, k, v: v[k], raw: raw[k], top: RV.top[i][k] }))
+      .filter(r => r.v > 0.004).reverse();
+    tip.innerHTML = `<b>${RV.weeks[i]} 那周</b>` + (rows.length ? rows.map(r =>
+      `<div class="rv-tr"><i style="background:${RV_COLORS[r.k]}"></i><span>${r.c}</span>
+         <em>${RV_SCALE === 'share' ? Math.round(r.v * 100) + '%' : r.v.toFixed(1)}</em></div>` +
+      (r.top.length ? `<div class="rv-top">${r.top.map(esc).join('、')}</div>` : '')).join('') : '<div class="dim">这周没记录</div>');
+    tip.classList.remove('hidden');
+    const pane = tip.parentElement.getBoundingClientRect();
+    let left = e.clientX - pane.left + 14;
+    if (left + 260 > pane.width) left = e.clientX - pane.left - 274;
+    tip.style.left = Math.max(0, left) + 'px';
+    tip.style.top = (box.offsetTop + 8) + 'px';
+  };
+  hit.onmouseleave = () => { tip.classList.add('hidden'); cross.classList.add('hidden'); };
+  if (!$('#rvTableBox').classList.contains('hidden')) renderRiverTable();
+}
+
+function rvEmph(k) {
+  RV_HI = k;
+  document.querySelectorAll('.rv-band').forEach(p => p.style.opacity = k < 0 || +p.dataset.k === k ? 1 : .18);
+}
+
+// 表格视图：按月合计的占比（低对比度的几个颜色靠它补上可读性）
+function renderRiverTable() {
+  const by = {};
+  RV.weeks.forEach((w, i) => { const m = w.slice(0, 7); by[m] = by[m] || RV.cats.map(() => 0); RV.raw[i].forEach((v, k) => by[m][k] += v); });
+  $('#rvTableBox').innerHTML = `<table class="rv-table"><tr><th>月份</th>${RV.cats.map(c => `<th>${c}</th>`).join('')}</tr>` +
+    Object.entries(by).map(([m, row]) => { const s = row.reduce((a, b) => a + b, 0) || 1;
+      return `<tr><td>${m}</td>${row.map(v => `<td>${v ? Math.round(v / s * 100) + '%' : ''}</td>`).join('')}</tr>`; }).join('') + '</table>';
+}
+
+document.querySelectorAll('#rvScale button').forEach(b => b.onclick = () => {
+  RV_SCALE = b.dataset.v; document.querySelectorAll('#rvScale button').forEach(x => x.classList.toggle('on', x === b)); if (RV) renderRiver();
+});
+document.querySelectorAll('#rvRange button').forEach(b => b.onclick = () => {
+  RV_FROM = b.dataset.v; document.querySelectorAll('#rvRange button').forEach(x => x.classList.toggle('on', x === b)); loadRiver();
+});
+$('#rvTable').onclick = () => { const t = $('#rvTableBox'); t.classList.toggle('hidden'); if (!t.classList.contains('hidden') && RV) renderRiverTable(); };
+window.addEventListener('resize', () => { if (RV && !$('#overlay').classList.contains('hidden')) renderRiver(); });
 
 // ================================================================ 主题账本
 let THEMES = null, TH_OPEN = null, TH_ONES = false;
@@ -516,7 +758,7 @@ function renderThemes() {
       </div>
       <div class="th-state">${esc(t.state || '')}</div>
       ${TH_OPEN === t.id ? `<ol class="th-days">${t.days.slice().reverse().map(d =>
-        `<li><a data-open="${d.date}">${d.date}</a><span>${esc(d.note || '')}</span></li>`).join('')}</ol>` : ''}
+        `<li><a data-open="${d.date}">${d.date}</a><span>${(d.srcs || '').includes('hand') ? '<em class="src-hand">手写</em>' : ''}${esc(d.note || '')}</span></li>`).join('')}</ol>` : ''}
     </div>`).join('') + (!kw && ones.length
       ? `<a class="th-more" id="thOnes">${TH_ONES ? '收起' : `还有 ${ones.length} 个只出现过一天的`}</a>` : '');
   const more = $('#thOnes');
@@ -717,7 +959,7 @@ function tlRow(d) {
   return `<div class="tlrow ${d.note ? '' : 'nonote'}" data-d="${d.date}">
     <div class="tldate"><span class="n">${d.date.slice(5)}</span><span class="y">${d.date.slice(0, 4)}</span></div>
     <div class="tlmain">
-      <div class="tlnote">${d.note ? esc(d.note) : '<span class="dim">还没生成小结</span>'}</div>
+      <div class="tlnote">${d.note ? esc(d.note) : '<span class="dim">还没生成小结</span>'}${d.stale ? '<span class="tl-stale">这天后来又聊了，会重写</span>' : ''}</div>
       <div class="tlmeta">${d.msgs} 条 · ${(d.chars || 0).toLocaleString()} 字 · ${d.a}–${d.b}
         <a class="tlopen" data-d="${d.date}">展开原文</a>
         ${d.has_diary ? `<a class="tlday" data-day="${d.date}">看这天的日记</a>` : ''}</div>
@@ -736,11 +978,11 @@ function renderWin(r) {
     `${days.reduce((s, d) => s + (d.chars || 0), 0).toLocaleString()} 字 · ` +
     `${days[0]?.date} → ${days[days.length - 1]?.date} · ${c.source}`;
 
-  const missing = days.filter(d => !d.note).length;
+  const missing = r.pending || 0;
   $('#winArc').innerHTML = j.running
     ? `<div class="r"><span class="pulse"></span>在读这个窗口… ${j.done}/${j.total}${j.current && j.current !== 'arc' ? ` · ${j.current}` : ''}</div>`
     : r.arc
-      ? `<p>${esc(r.arc)}</p><div class="foot">${days.length} 天的小结汇总而成${r.generated_at ? ` · ${rel(r.generated_at)}` : ''}${missing ? ` · 还有 ${missing} 天没做` : ''}</div>`
+      ? `<p>${esc(r.arc)}</p><div class="foot">${days.length} 天的小结汇总而成${r.generated_at ? ` · ${rel(r.generated_at)}` : ''}${missing ? ` · 有 ${missing} 天是新的或有更新，在补` : ''}</div>`
       : `<p class="dim">还没给这个窗口生成回顾。会为它活跃的 ${days.length} 天各写一句小结，再汇总成一段。</p>
          <button id="winGen" class="btn-primary" style="margin-top:14px">生成回顾</button>`;
 
@@ -751,8 +993,11 @@ function renderWin(r) {
 
   clearTimeout(WPOLL);
   if (j.running) WPOLL = setTimeout(() => openWindow(WSEL, true), 2000);
+  // 已经做过回顾的窗口，又多聊了几天：自动只补这几天，旧小结不动
+  else if (r.arc && missing && !WAUTO[WSEL]) { WAUTO[WSEL] = true; startWinGen(false); }
 }
 
+const WAUTO = {};      // 每个窗口每次打开页面只自动补一次，补失败了不会死循环
 async function startWinGen(refresh) {
   if (!WSEL) return;
   $('#winArc').innerHTML = '<div class="r"><span class="pulse"></span>起来了…</div>';
@@ -773,7 +1018,7 @@ async function openWindow(id, quiet) {
   renderWin(r);
 }
 
-$('#winRegen').onclick = () => { if (confirm('重新生成这个窗口的全部小结？')) startWinGen(true); };
+$('#winRegen').onclick = () => { if (confirm('把这个窗口的小结全部删掉重写？\n（平时不用：新聊的天打开时会自动补，旧的不会动）')) startWinGen(true); };
 $('#winFilter').addEventListener('input', () => { WIN_SHOWN = 80; renderWinList(); });
 $('#winlist').addEventListener('click', e => {
   const a = e.target.closest('.winrow');
@@ -833,10 +1078,12 @@ document.querySelectorAll('.ms-item').forEach(b => b.onclick = () =>
 //
 //   #/day/2026-09-19                        某一天
 //   #/day/2026-09-19/conv/<id>[/msg/<id>]   展开某个窗口 / 滚到某条消息（搜索结果用）
+//   #/day/2026-09-19/journal                那天的手写日记，展开全文
 //   #/win                                   窗口模式，还没选
 //   #/win/<conv_id>                         某个窗口的时间轴
-//   #/panel/reflect|themes|data|convs|notion  浮层里的面板
+//   #/panel/reflect|themes|river|data|convs|notion  浮层里的面板
 //   #/panel/themes/<id>                     展开某个主题
+//   /checkin[?date=]                         打卡：单独的全屏页（旧的 #/panel/checkin 会跳过去）
 
 function navigate(hash, { replace = false } = {}) {
   if (replace) { history.replaceState(null, '', '#/' + hash); applyRoute(); }
@@ -858,6 +1105,10 @@ function applyRoute() {
   const parts = raw ? raw.split('/').map(decodeURIComponent) : [];
   const head = parts[0];
 
+  if (head === 'panel' && parts[1] === 'checkin') {      // 老链接：打卡已经挪到单独的页面
+    location.href = '/checkin' + (parts[2] ? '?date=' + parts[2] : '');
+    return;
+  }
   if (head === 'panel') {
     openModal(parts[1] || 'reflect', parts[2]);
     return;
@@ -876,11 +1127,12 @@ function applyRoute() {
     if (!date) return LATEST ? navigate('day/' + LATEST, { replace: true }) : undefined;
     if (!BYDATE[date]) return LATEST ? navigate('day/' + LATEST, { replace: true }) : undefined;
     const focus = {};
+    if (parts[2] === 'journal') focus.journal = true;
     for (let i = 2; i < parts.length; i += 2) {
       if (parts[i] === 'conv') focus.conv = parts[i + 1];
       if (parts[i] === 'msg') focus.msg = parts[i + 1];
     }
-    const hasFocus = focus.conv || focus.msg;
+    const hasFocus = focus.conv || focus.msg || focus.journal;
     if (date === SEL && !hasFocus) return;      // 已经在看这天了（比如刚关掉浮层），别重拉
     openDay(date, hasFocus ? focus : undefined);
     return;

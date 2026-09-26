@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>打卡 · Ephemeris</title>
+<link rel="icon" type="image/svg+xml" href="/static/logo.svg">
+<link rel="stylesheet" href="/static/checkin.css?v={{ v }}">
+</head>
+<body>
+<div class="sky" aria-hidden="true"></div>
+
+<nav class="rail">
+  <a class="back" href="/" title="回 Ephemeris">
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><ellipse cx="12" cy="12" rx="9.4" ry="5.4" stroke="currentColor" stroke-width="1.7" transform="rotate(-32 12 12)"/><circle cx="17.4" cy="7.2" r="3.1" fill="#E9A45E"/></svg>
+  </a>
+  <button class="tab on" data-v="now">此刻</button>
+  <button class="tab" data-v="month">这个月</button>
+</nav>
+
+<main>
+  <!-- 此刻：只干一件事 -->
+  <section class="view" id="vNow">
+    <div class="now">
+      <div class="dateline">
+        <button class="nav" id="dPrev" title="前一天">‹</button>
+        <span id="dLabel"></span>
+        <button class="nav" id="dNext" title="后一天">›</button>
+        <a id="dToday" class="hidden">回到今天</a>
+      </div>
+      <h1 id="hTitle">此刻怎么样<span class="spark">✦</span></h1>
+
+      <div class="progress" id="prog"></div>
+
+      <div class="capture">
+        <textarea id="note" rows="3" placeholder="此刻在发生什么……（可以不写）" maxlength="500"></textarea>
+        <div class="tags-label">点一个</div>
+        <div class="tags" id="tags"></div>
+        <div class="actions">
+          <a id="cancelEdit" class="hidden">不改了</a>
+          <button class="record" id="record" disabled>记下 →</button>
+        </div>
+      </div>
+
+      <div class="oracle hidden" id="oracle">
+        <div class="o-head">✦ 它说</div>
+        <p id="oText"></p>
+      </div>
+
+      <div class="today" id="todayList"></div>
+
+      <div class="tube-head" id="tubeHead"></div>
+      <div class="tube" id="tube"></div>
+    </div>
+  </section>
+
+  <!-- 这个月 -->
+  <section class="view hidden" id="vMonth">
+    <div class="month">
+      <div class="m-left">
+        <div class="m-title">
+          <h2 id="mTitle"></h2>
+          <span class="m-nav"><button class="nav" id="mPrev">‹</button><button class="nav" id="mNext">›</button></span>
+        </div>
+        <div class="m-sub">这个月过得怎么样</div>
+        <div class="bar" id="bar"></div>
+        <div class="bar-legend" id="barLegend"></div>
+        <div class="cal" id="cal"></div>
+      </div>
+      <div class="m-right">
+        <div class="day-big" id="dayBig"></div>
+        <div class="constellation" id="stars"></div>
+        <div class="c-legend"><span><i class="lk solid"></i>自己打卡的</span><span><i class="lk ring"></i>从手写日记读出来的</span><span>越高越好 · 挨着的日子连成线</span></div>
+        <p class="m-note" id="mNote"></p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="tip hidden" id="tip"></div>
+<script src="/static/checkin.js?v={{ v }}"></script>
+</body>
+</html>

@@ -28,6 +28,11 @@
     <div id="batchBar" class="bar hidden"><i></i><span class="tnum"></span></div>
   </div>
 
+  <div class="colorswitch" id="colorswitch">
+    <button class="cm-item active" data-c="act" type="button" title="颜色 = 当天开了几个窗口">活跃</button>
+    <button class="cm-item" data-c="feel" type="button" title="颜色 = 那天过得怎么样（从手写日记来，没手写的天空着）">过得</button>
+    <button class="cm-item" data-c="stuck" type="button" title="颜色 = 那天和 AI 打交道时卡得多狠（从聊天原文来）">卡得</button>
+  </div>
   <div id="cal" class="cal"></div>
 
   <div id="winpane" class="winpane hidden">
@@ -35,12 +40,10 @@
     <div id="winlist" class="winlist"></div>
   </div>
 
-  <div class="legend">
-    <span>少</span><i class="sw" style="background:var(--h1)"></i><i class="sw" style="background:var(--h2)"></i><i class="sw" style="background:var(--h3)"></i><i class="sw" style="background:var(--h4)"></i><span>多</span>
-    <span class="sp"></span><i class="sw faded"></i><span>还没日记</span>
-  </div>
+  <div class="legend" id="legend"></div>
 
   <div class="sb-bottom">
+    <button id="ckOpen" class="sb-item" type="button"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6-5.3-3-5.3 3 1.2-6L3.4 9.3l6-.7z"/></svg>打卡<i class="ck-dot hidden" id="ckDot" title="今天还没打卡"></i></button>
     <button id="reflectOpen" class="sb-item" type="button" data-pane="reflect"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 7v5l3 2"/><path d="M17 3h4v4"/><path d="M21 3l-5 5"/></svg>回顾</button>
     <button id="convsOpen" class="sb-item" type="button" data-pane="convs"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>窗口与导入</button>
     <button id="notionOpen" class="sb-item" type="button" data-pane="notion"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h11l5 5v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M14 4v6h6"/><path d="M8 13h8M8 17h5"/></svg>Notion</button>
@@ -53,6 +56,7 @@
       <div class="pagehead-l">
         <h1 id="dayTitle" class="serif"></h1>
         <div id="dayMeta" class="tagline"></div>
+        <div id="daySig" class="daysig"></div>
       </div>
       <div class="pagehead-r">
         <button class="btn-secondary btn-small" id="prevBtn" title="前一天 ←">‹ 前一天</button>
@@ -62,6 +66,7 @@
 
     <div class="cols">
       <section class="col-l">
+        <div id="journal" class="journal hidden"></div>
         <div id="diary" class="card-shell diary"></div>
       </section>
       <section class="col-r">
@@ -84,7 +89,7 @@
         <div id="winMeta" class="tagline"></div>
       </div>
       <div class="pagehead-r">
-        <button class="btn-secondary btn-small" id="winRegen" title="重新生成全部小结">↻</button>
+        <button class="btn-secondary btn-small" id="winRegen" title="全部重写（平时不用，新的天会自动补）">↻</button>
       </div>
     </header>
     <div id="winArc" class="card-shell diary"></div>
@@ -100,6 +105,7 @@
     <nav class="modal-nav">
       <button class="modal-nav-item active" data-pane="reflect">回顾</button>
       <button class="modal-nav-item" data-pane="themes">主题</button>
+      <button class="modal-nav-item" data-pane="river">河流</button>
       <button class="modal-nav-item" data-pane="data">数据</button>
       <button class="modal-nav-item" data-pane="convs">窗口</button>
       <button class="modal-nav-item" data-pane="notion">Notion</button>
@@ -145,6 +151,20 @@
           <div class="reflect-ctl"><input id="thFilter" type="search" placeholder="筛主题…" class="btn-secondary btn-small" style="width:180px"></div>
         </div>
         <div id="thBody" class="themes"></div>
+      </section>
+      <section class="pane" data-pane="river">
+        <div class="reflect-top">
+          <div><div class="reflect-title">精力流向</div><div class="reflect-sub" id="rvSub">每周各类事情占了多少：一件事做了一天算一份，AI 聊天和手写日记都算。</div></div>
+          <div class="reflect-ctl">
+            <div class="seg" id="rvScale"><button data-v="share" class="on">占比</button><button data-v="count">数量</button></div>
+            <div class="seg" id="rvRange"><button data-v="2025-08-18" class="on">近一年</button><button data-v="2022-01-01">全部</button></div>
+            <button class="btn-secondary btn-small" id="rvTable">表格</button>
+          </div>
+        </div>
+        <div id="rvLegend" class="rv-legend"></div>
+        <div id="rvChart" class="rv-chart"></div>
+        <div id="rvTip" class="rv-tip hidden"></div>
+        <div id="rvTableBox" class="hidden"></div>
       </section>
       <section class="pane" data-pane="data">
         <div class="reflect-top"><div><div class="reflect-title">数据</div><div class="reflect-sub">同一个时间范围，纯统计，没有模型参与。</div></div></div>

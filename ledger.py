@@ -43,6 +43,18 @@ def ensure_tables():
         # 这时用人写的一句话当身份锚
         if 'desc' not in [r[1] for r in db.execute('PRAGMA table_info(themes)')]:
             db.execute('ALTER TABLE themes ADD COLUMN desc TEXT')
+        # src：这条记录从哪来 —— ai（从聊天推出的日记）| hand（我在 Notion 手写的）。
+        # 同一主题同一天两边都写到，就是两行；「第几天」按不同日期数，不按行数。
+        if 'src' not in [r[1] for r in db.execute('PRAGMA table_info(theme_days)')]:
+            db.executescript("""
+            CREATE TABLE theme_days_new (
+              theme_id INTEGER NOT NULL, date TEXT NOT NULL, note TEXT, src TEXT NOT NULL DEFAULT 'ai',
+              PRIMARY KEY (theme_id, date, src));
+            INSERT INTO theme_days_new SELECT theme_id, date, note, 'ai' FROM theme_days;
+            DROP TABLE theme_days;
+            ALTER TABLE theme_days_new RENAME TO theme_days;
+            CREATE INDEX IF NOT EXISTS theme_days_date ON theme_days(date);
+            """)
         db.commit()
 
 
@@ -58,24 +70,35 @@ def _gap(a, b):
 def as_of(date):
     """截至 date 之前（不含当天）的账本，最近出现的在前。"""
     ensure_tables()
-    rows = _q("""SELECT t.id, t.name, t.desc, COUNT(*) n_days, MIN(d.date) first, MAX(d.date) last
+    rows = _q("""SELECT t.id, t.name, t.desc, COUNT(DISTINCT d.date) n_days, MIN(d.date) first, MAX(d.date) last
                    FROM themes t JOIN theme_days d ON d.theme_id = t.id
                   WHERE d.date < ?
                   GROUP BY t.id ORDER BY last DESC, n_days DESC""", date)
     for r in rows:
         r['ago'] = _gap(r['last'], date)
-        note = _q("SELECT note FROM theme_days WHERE theme_id=? AND date=?", r['id'], r['last'])
-        r['state'] = note[0]['note'] if note else ''
+        note = _q("SELECT group_concat(note, '；') note FROM theme_days WHERE theme_id=? AND date=?",
+                  r['id'], r['last'])
+        r['state'] = (note[0]['note'] or '') if note else ''
         # 起头那天在干什么 —— 身份的锚。只给「当时到哪」的话，主题会一天漂一点：
         # 实测「CS IA」两周后装进了全部 CS 复习，最后连 Math 都算进去了
-        first = _q("SELECT note FROM theme_days WHERE theme_id=? AND date=?", r['id'], r['first'])
+        first = _q("SELECT note FROM theme_days WHERE theme_id=? AND date=? LIMIT 1", r['id'], r['first'])
         r['origin'] = r.get('desc') or (first[0]['note'] if first else '')
     return rows
 
 
-def render_for_prompt(date):
+def later_themes(date):
+    """date 当天及以后才第一次出现的主题。补手写日记时用：
+    手写比聊天记录早好几年，一件事可能手写里先开了头，账本里却是后来才从聊天建的。"""
+    return _q("""SELECT t.id, t.name, t.desc, MIN(d.date) first FROM themes t
+                   JOIN theme_days d ON d.theme_id = t.id GROUP BY t.id
+                 HAVING MIN(d.date) >= ? AND (COUNT(DISTINCT d.date) >= 2 OR t.desc IS NOT NULL)
+                  ORDER BY COUNT(DISTINCT d.date) DESC""", date)
+
+
+def render_for_prompt(date, future=False):
     rows = as_of(date)
-    if not rows:
+    later = later_themes(date) if future else []
+    if not rows and not later:
         return '（账本还是空的——这是第一篇，今天出现的都是新主题。）'
     active = [r for r in rows if r['ago'] <= ACTIVE_DAYS][:MAX_ACTIVE]
     ids = {r['id'] for r in active}
@@ -97,6 +120,11 @@ def render_for_prompt(date):
         out.append('更早的（只列名字，今天又聊到的话照样用编号）：')
         out.append('　'.join(f"#{r['id']} {r['name']}（{r['n_days']} 天，{when(r['ago'])}）"
                               for r in dormant))
+    if later:
+        out.append('')
+        out.append('之后才开始的（今天如果就是它的开头或同一件事，也用它的编号）：')
+        out.append('　'.join(f"#{r['id']} {r['name']}" + (f"（{r['desc'][:40]}）" if r.get('desc') else '')
+                              for r in later[:MAX_DORMANT]))
     return '\n'.join(out)
 
 
@@ -131,15 +159,15 @@ MATCH_PROMPT = """你在维护一本「主题账本」。每个主题是一件�
 """
 
 
-def match(date, items, call_model):
+def match(date, items, call_model, future=False):
     """今天的 [{name, note}] 对到账本编号上。单独一次调用：
     跟日记写在同一个 prompt 里时，模型被几万字聊天分了心，匹配规则基本不管用 ——
     实测 30 天里「CS IA」吞掉了全部 CS 复习，一个兴趣类主题吞掉了一整段不相干的生活线。"""
     items = [t for t in (items or []) if isinstance(t, dict) and (t.get('name') or '').strip()]
     if not items:
         return []
-    led = render_for_prompt(date)
-    if not as_of(date):                       # 账本是空的，全是新的，不用问
+    led = render_for_prompt(date, future=future)
+    if not as_of(date) and not (future and later_themes(date)):   # 账本是空的，全是新的，不用问
         return [{'id': None, 'name': t['name'], 'note': t.get('note', '')} for t in items]
     lines = '\n'.join(f"{i}. {t['name']}：{t.get('note', '')}" for i, t in enumerate(items, 1))
     raw = call_model(MATCH_PROMPT.format(ledger=led, items=lines))
@@ -155,7 +183,7 @@ def match(date, items, call_model):
     return out
 
 
-def record(date, threads):
+def record(date, threads, src='ai'):
     """把模型给的 threads 落进账本。返回实际记下的 [(theme_id, name)]。
 
     threads: [{"id": 12, "note": "..."} 或 {"id": null, "name": "新主题", "note": "..."}]
@@ -167,7 +195,7 @@ def record(date, threads):
     done = {}
     with idx.LOCK:
         db = idx.connect()
-        db.execute('DELETE FROM theme_days WHERE date=?', (date,))
+        db.execute('DELETE FROM theme_days WHERE date=? AND src=?', (date, src))
         for t in threads or []:
             if not isinstance(t, dict):
                 continue
@@ -191,10 +219,10 @@ def record(date, threads):
                     by_name[name] = tid
             if tid in done:                      # 同一天同一主题只记一次，note 拼起来
                 if note:
-                    db.execute("UPDATE theme_days SET note = note || '；' || ? WHERE theme_id=? AND date=?",
-                               (note, tid, date))
+                    db.execute("UPDATE theme_days SET note = note || '；' || ? WHERE theme_id=? AND date=? AND src=?",
+                               (note, tid, date, src))
                 continue
-            db.execute('INSERT INTO theme_days VALUES (?,?,?)', (tid, date, note))
+            db.execute('INSERT INTO theme_days VALUES (?,?,?,?)', (tid, date, note, src))
             done[tid] = known[tid]
         db.commit()
     return list(done.items())
@@ -203,10 +231,11 @@ def record(date, threads):
 def chips(date):
     """这一天碰了哪些主题，第几天、距上次隔多久 —— 日记页底下那一行。"""
     ensure_tables()
-    rows = _q("""SELECT t.id, t.name, d.note FROM theme_days d JOIN themes t ON t.id = d.theme_id
-                  WHERE d.date = ?""", date)
+    rows = _q("""SELECT t.id, t.name, group_concat(d.note, '；') note, group_concat(d.src) srcs
+                   FROM theme_days d JOIN themes t ON t.id = d.theme_id
+                  WHERE d.date = ? GROUP BY t.id""", date)
     for r in rows:
-        prev = _q("""SELECT COUNT(*) n, MAX(date) last FROM theme_days
+        prev = _q("""SELECT COUNT(DISTINCT date) n, MAX(date) last FROM theme_days
                       WHERE theme_id=? AND date < ?""", r['id'], date)[0]
         r['nth'] = prev['n'] + 1
         r['gap'] = _gap(prev['last'], date) if prev['last'] else None
@@ -217,13 +246,14 @@ def chips(date):
 def all_themes():
     """主题页：每个主题一条时间线。"""
     ensure_tables()
-    rows = _q("""SELECT t.id, t.name, COUNT(*) n_days, MIN(d.date) first, MAX(d.date) last
+    rows = _q("""SELECT t.id, t.name, COUNT(DISTINCT d.date) n_days, MIN(d.date) first, MAX(d.date) last
                    FROM themes t JOIN theme_days d ON d.theme_id = t.id
                   GROUP BY t.id ORDER BY last DESC, n_days DESC""")
-    days = _q('SELECT theme_id, date, note FROM theme_days ORDER BY date')
+    days = _q("""SELECT theme_id, date, group_concat(note, '；') note, group_concat(src) srcs
+                   FROM theme_days GROUP BY theme_id, date ORDER BY date""")
     by = {}
     for d in days:
-        by.setdefault(d['theme_id'], []).append({'date': d['date'], 'note': d['note']})
+        by.setdefault(d['theme_id'], []).append({'date': d['date'], 'note': d['note'], 'srcs': d['srcs']})
     for r in rows:
         r['days'] = by.get(r['id'], [])
         r['state'] = r['days'][-1]['note'] if r['days'] else ''
@@ -243,22 +273,23 @@ def merge(into_name, theme_ids=(), days=()):
             first = db.execute(f"SELECT MIN(date) FROM theme_days WHERE theme_id IN ({','.join('?' * len(theme_ids)) or 'NULL'})",
                                tuple(theme_ids)).fetchone()[0]
             tid = db.execute('INSERT INTO themes(name, created_on) VALUES (?,?)', (into_name, first)).lastrowid
-        moves = [(i, d) for i in theme_ids
-                 for (d,) in db.execute('SELECT date FROM theme_days WHERE theme_id=?', (i,)).fetchall()]
-        moves += list(days)
-        for src, d in moves:
-            if src == tid:
+        moves = [(i, d, sr) for i in theme_ids
+                 for (d, sr) in db.execute('SELECT date, src FROM theme_days WHERE theme_id=?', (i,)).fetchall()]
+        moves += [(i, d, sr) for i, d in days
+                  for (sr,) in db.execute('SELECT src FROM theme_days WHERE theme_id=? AND date=?', (i, d)).fetchall()]
+        for frm, d, sr in moves:
+            if frm == tid:
                 continue
-            r = db.execute('SELECT note FROM theme_days WHERE theme_id=? AND date=?', (src, d)).fetchone()
+            r = db.execute('SELECT note FROM theme_days WHERE theme_id=? AND date=? AND src=?', (frm, d, sr)).fetchone()
             if not r:
                 continue
-            have = db.execute('SELECT note FROM theme_days WHERE theme_id=? AND date=?', (tid, d)).fetchone()
+            have = db.execute('SELECT note FROM theme_days WHERE theme_id=? AND date=? AND src=?', (tid, d, sr)).fetchone()
             if have:
-                db.execute('UPDATE theme_days SET note=? WHERE theme_id=? AND date=?',
-                           (f'{have[0]}；{r[0]}' if r[0] and r[0] not in have[0] else have[0], tid, d))
+                db.execute('UPDATE theme_days SET note=? WHERE theme_id=? AND date=? AND src=?',
+                           (f'{have[0]}；{r[0]}' if r[0] and r[0] not in (have[0] or '') else have[0], tid, d, sr))
             else:
-                db.execute('INSERT INTO theme_days VALUES (?,?,?)', (tid, d, r[0]))
-            db.execute('DELETE FROM theme_days WHERE theme_id=? AND date=?', (src, d))
+                db.execute('INSERT INTO theme_days VALUES (?,?,?,?)', (tid, d, r[0], sr))
+            db.execute('DELETE FROM theme_days WHERE theme_id=? AND date=? AND src=?', (frm, d, sr))
         db.execute('DELETE FROM themes WHERE id NOT IN (SELECT theme_id FROM theme_days)')
         db.commit()
     return tid
@@ -293,6 +324,21 @@ EXTRACT_PROMPT = """下面是一篇日记。列出这天实际花了功夫的几
 """
 
 
+EXTRACT_HAND_PROMPT = """下面是一篇手写日记。列出这天写到的、有分量的几件事，通常 1-5 条。
+
+- 可以是在做的事（作业、项目、备考），也可以是生活里的事：家里、人际、感情、身体、习惯、情绪上在处理的问题。
+- 一条只说一件事，是具体的那件事（「和爸吵架」「英语 Paper2 备考」），不是领域（「家庭」「学习」不行）。
+- 只是一句感叹、一个链接、一张图，或者整篇没说具体的事，就返回空数组。
+- name 2-10 字；note 写这天在这件事上发生了什么或推进到哪，一句话，不超过 40 字，不要写「第几天」。
+
+只输出 JSON 数组，不要 markdown：
+[{{"name": "...", "note": "..."}}]
+
+--- {date} ---
+{text}
+"""
+
+
 def _diary_text(d):
     out = [d.get('headline') or '', d.get('narrative') or '']
     for key, label in (('artifacts', '做出来的'), ('open_loops', '没做完的')):
@@ -305,8 +351,8 @@ def _diary_text(d):
     return '\n'.join(x for x in out if x)
 
 
-def extract(d, call_model):
-    raw = call_model(EXTRACT_PROMPT.format(date=d['date'], text=_diary_text(d)))
+def extract(d, call_model, prompt=None):
+    raw = call_model((prompt or EXTRACT_PROMPT).format(date=d['date'], text=_diary_text(d)))
     try:
         arr = json.loads(re.search(r'\[.*\]', raw or '', re.S).group(0))
         return [x for x in arr if isinstance(x, dict) and x.get('name')]
@@ -338,9 +384,34 @@ def backfill(call_model, start=None, say=print):
     return fails
 
 
+def backfill_hand(call_model, say=print, max_chars=4000):
+    """把手写日记也记进账本（src='hand'）。按日期从早到晚；只动 hand 的行，AI 那边一行不碰。
+    手写比聊天早好几年，所以匹配时也给模型看「之后才开始的」主题，免得同一件事建两条。"""
+    import journal
+    ensure_tables()
+    dates = sorted(d for d, c in journal.dates().items() if c >= 30)
+    fails = []
+    for i, date in enumerate(dates, 1):
+        text = '\n\n'.join(j['text'] for j in journal.for_date(date) if j['text'])[:max_chars]
+        d = {'date': date, 'headline': '', 'narrative': text}
+        items = extract(d, call_model, EXTRACT_HAND_PROMPT)
+        if items is None:
+            items = extract(d, call_model, EXTRACT_HAND_PROMPT)
+        if items is None:
+            fails.append(date)
+            say(f"{i}/{len(dates)} {date} 抽不出来")
+            continue
+        got = record(date, match(date, items, call_model, future=True), src='hand')
+        say(f"{i}/{len(dates)} {date} " + ' · '.join(n for _, n in got))
+    return fails
+
+
 if __name__ == '__main__':
     import sys
     import diary
-    f = backfill(diary._call_model, start=sys.argv[1] if len(sys.argv) > 1 else None,
-                 say=lambda m: print(m, flush=True))
+    say = lambda m: print(m, flush=True)                    # noqa: E731
+    if sys.argv[1:2] == ['--hand']:
+        f = backfill_hand(diary._call_model, say=say)
+    else:
+        f = backfill(diary._call_model, start=sys.argv[1] if len(sys.argv) > 1 else None, say=say)
     print('DONE', '失败：' + ','.join(f) if f else '')

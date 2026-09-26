@@ -129,6 +129,7 @@ def compute(conn, range_key='1m', now=None):
 # ------------------------------------------------------------- 叙事
 
 PROMPT = """下面是 __NAME__ 在 {start} 到 {end} 之间每天的日记标题（他和 AI 聊天记录按天压成的），以及按出现次数算的话题占比。
+有的日期后面跟着一个心情词，那是他那天**自己**打卡或手写日记里的感受（不是 AI 推的），没有就是没记。
 请写一份简短的回顾。
 
 风格：直接、具体、说人话。像朋友看完你这段时间的日记后直接告诉你"你这段时间主要在干什么"。
@@ -137,7 +138,9 @@ PROMPT = """下面是 __NAME__ 在 {start} 到 {end} 之间每天的日记标题
 
 输出三部分：
 1. headline：一句话概括这段时间在干什么，直接陈述，不要冒号、感叹号、书名号，不超过 20 个字。
-2. narrative：一段话，80-130 字。第一句说最主要在弄什么；然后第二、第三大块；有明显变化（比如后半段转向了别的）说一句；最后提一个反复出现的具体事。
+2. narrative：一段话，80-150 字。做了什么，也说感觉怎样：第一句说最主要在弄什么；然后第二、第三大块；
+   有心情词的话，用一句话说这段时间整体过得怎样、哪几天明显好或糟、跟在做的事有没有对得上（只按心情词说，不要猜）；
+   有明显变化（比如后半段转向了别的）说一句。
 3. groups：把下面的话题标签归成 5-8 组。每组给：
    name（不超过 10 个字，比标签更具体，例如「IB 各科复习和作业」）、desc（不超过 30 字，说这组实际在干什么）、
    keywords（2-5 个短词，凡是标签里含这个词就算这组，例如 ["IB","复习","作业","IA"]）、
@@ -155,6 +158,21 @@ PROMPT = """下面是 __NAME__ 在 {start} 到 {end} 之间每天的日记标题
 PROMPT = PROMPT.replace('__NAME__', _index.who())
 
 
+def _feel_words(d):
+    """这段时间每天的心情词：打卡优先（最后一条），其次手写日记读出来的。"""
+    s, e = d['period']['start'], d['period']['end']
+    with _index.LOCK:
+        db = _index.connect()
+        hand = {r[0]: r[1] for r in db.execute(
+            "SELECT date, label FROM mood_scores WHERE src='hand' AND date BETWEEN ? AND ?", (s, e))}
+        try:
+            ck = {r[0]: r[1] for r in db.execute(
+                "SELECT date, word FROM checkins WHERE date BETWEEN ? AND ? ORDER BY created_at", (s, e))}
+        except Exception:                                    # noqa: BLE001  还没建表
+            ck = {}
+    return {**{k: v for k, v in hand.items() if v}, **ck}
+
+
 def _fingerprint(d):
     """回顾是基于日记写的，所以指纹必须跟着日记**内容**变。
 
@@ -164,13 +182,17 @@ def _fingerprint(d):
     t = d['totals']
     stamps = ''.join(sorted((x.get('generated_at') or '') for x in d.get('_diaries', [])))
     h = hashlib.sha1(stamps.encode()).hexdigest()[:10] if stamps else '0'
-    return f"{d['period']['start']}|{d['period']['end']}|{t['days']}|{t['msgs']}|{t['diaries']}|{h}"
+    # 心情词也算进去：新打了卡，回顾要跟着变
+    f = hashlib.sha1(json.dumps(sorted(_feel_words(d).items()), ensure_ascii=False).encode()).hexdigest()[:8]
+    return f"{d['period']['start']}|{d['period']['end']}|{t['days']}|{t['msgs']}|{t['diaries']}|{h}|{f}"
 
 
 def _generate(d):
     from reflect import _call_model
     from diary import _extract_json
-    items = '\n'.join(f"{x['date']} | {x['headline']}" for x in sorted(d['_diaries'], key=lambda x: x['date']))
+    feel = _feel_words(d)
+    items = '\n'.join(f"{x['date']} | {x['headline']}" + (f" | {feel[x['date']]}" if x['date'] in feel else '')
+                      for x in sorted(d['_diaries'], key=lambda x: x['date']))
     topics = '\n'.join(f"{k} {v}" for k, v in d['raw_tags'][:200])   # 按次数降序，长尾靠 keywords
     prompt = PROMPT.format(start=d['period']['start'], end=d['period']['end'],
                            topics=topics or '（还没有日记）', items=items or '（无）', n=len(d['_diaries']))

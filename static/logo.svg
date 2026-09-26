@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <!-- Ephemeris：天体在轨道上的位置。倾斜椭圆=轨道，珊瑚点=今天所在的位置。 -->
+  <ellipse cx="12" cy="12" rx="9.4" ry="5.4" stroke="#8A8078" stroke-width="1.7"
+           transform="rotate(-32 12 12)"/>
+  <circle cx="17.4" cy="7.2" r="3.1" fill="#D97757"/>
+</svg>

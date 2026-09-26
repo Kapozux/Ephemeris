@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>情绪实验 · Ephemeris</title>
+<link rel="icon" type="image/svg+xml" href="/static/logo.svg">
+<link rel="stylesheet" href="/static/style.css?v={{ v }}">
+<style>
+  body { overflow:auto; }
+  .lab { max-width:1080px; margin:0 auto; padding:28px clamp(16px,4vw,48px) 60px; }
+  .lab h1 { font-size:24px; font-weight:600; margin-bottom:6px; }
+  .lab .sub { color:var(--muted); font-size:13px; line-height:1.7; margin-bottom:22px; max-width:760px; }
+  .prog { display:flex; gap:4px; margin-bottom:18px; flex-wrap:wrap; }
+  .prog i { width:22px; height:6px; border-radius:3px; background:var(--line-2); cursor:pointer; }
+  .prog i.done { background:var(--ink-soft); }
+  .prog i.cur { background:var(--coral); }
+  .dhead { display:flex; align-items:baseline; gap:12px; margin-bottom:12px; }
+  .dhead h2 { font-size:20px; font-weight:600; font-variant-numeric:tabular-nums; }
+  .dhead a { font-size:12.5px; color:var(--muted); }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .src { padding:16px 20px; max-height:46vh; overflow:auto; }
+  .src h5 { font-size:11px; font-weight:600; letter-spacing:.08em; color:var(--muted); margin-bottom:8px; }
+  .src p { font-size:14px; line-height:1.8; white-space:pre-wrap; word-break:break-word; }
+  .src.hand { border-left:3px solid var(--ink-soft); }
+  .rate { margin-top:18px; padding:16px 20px; }
+  .rate .q { font-size:14px; font-weight:600; margin-bottom:10px; }
+  .scale { display:flex; gap:6px; flex-wrap:wrap; }
+  .scale button { min-width:52px; padding:9px 8px; border:1px solid var(--line-2); border-radius:8px; background:var(--card);
+    font:inherit; font-size:13px; cursor:pointer; font-variant-numeric:tabular-nums; color:var(--ink); }
+  .scale button:hover { border-color:var(--ink); }
+  .scale button.on { background:var(--ink); color:var(--paper); border-color:var(--ink); }
+  .ends { display:flex; justify-content:space-between; font-size:11.5px; color:var(--faint); margin-top:6px; max-width:520px; }
+  .rate input { width:100%; margin-top:12px; padding:8px 11px; border:1px solid var(--line-2); border-radius:8px; font:inherit; font-size:13px; background:var(--card); color:var(--ink); }
+  .nav { display:flex; gap:8px; margin-top:12px; }
+  .res table { width:100%; border-collapse:collapse; font-size:13.5px; margin:10px 0 24px; }
+  .res th, .res td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); font-variant-numeric:tabular-nums; }
+  .res th { font-size:12px; color:var(--muted); font-weight:600; }
+  .res tr.best td { background:var(--coral-soft); font-weight:600; }
+  .res h3 { font-size:15px; font-weight:600; margin-top:8px; }
+  .res .note { font-size:13px; color:var(--muted); line-height:1.7; }
+  @media (max-width:700px) { .two { grid-template-columns:1fr; } .src { max-height:none; } }
+</style>
+</head>
+<body>
+<div class="lab">
+  <h1>情绪实验</h1>
+  <div class="sub">同一天有两份材料：从 AI 聊天推出来的日记，和你自己手写的。模型分别看一份、两份一起看，各打了一个分。
+    现在请你<b>凭两份材料加上你自己的记忆</b>，给那天整体的状态打分。你打完之前看不到模型打的分，免得被带偏。
+    评完就能看到哪种算法离你的感觉最近。</div>
+  <div id="app" class="reflect-loading">在准备…</div>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const SCALE = [-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2];
+let D = null, I = 0;
+
+async function load() {
+  D = await fetch('/api/lab/mood').then(r => r.json());
+  if (!D.ready) { $('#app').innerHTML = '模型还在打分，打完才能开始。过几分钟刷新一下。'; setTimeout(load, 15000); return; }
+  if (D.done) return renderResult();
+  I = Math.max(0, D.items.findIndex(x => x.rated === null || x.rated === undefined));
+  render();
+}
+
+function render() {
+  const it = D.items[I];
+  $('#app').className = '';
+  $('#app').innerHTML = `
+    <div class="prog">${D.items.map((x, i) => `<i class="${i === I ? 'cur' : (x.rated != null ? 'done' : '')}" data-i="${i}" title="${x.date}"></i>`).join('')}</div>
+    <div class="dhead"><h2>${it.date}</h2><span class="dim">${I + 1} / ${D.items.length}</span>
+      <a href="/#/day/${it.date}" target="_blank">在 Ephemeris 里打开这天</a></div>
+    <div class="two">
+      <div class="card-shell src"><h5>AI 日记（从聊天推出来的）</h5><p>${esc(it.ai)}</p></div>
+      <div class="card-shell src hand"><h5>我手写的</h5><p>${esc(it.hand)}</p></div>
+    </div>
+    <div class="card-shell rate">
+      <div class="q">那天整体过得怎么样？</div>
+      <div class="scale">${SCALE.map(v => `<button data-v="${v}" class="${it.rated === v ? 'on' : ''}">${v > 0 ? '+' + v : v}</button>`).join('')}</div>
+      <div class="ends"><span>−2 很糟</span><span>0 平平</span><span>+2 很好</span></div>
+      <input id="note" placeholder="（可选）一句话：为什么" value="${esc(it.note || '')}">
+      <div class="nav">
+        <button class="btn-secondary btn-small" id="prev" ${I === 0 ? 'disabled' : ''}>‹ 上一天</button>
+        <button class="btn-secondary btn-small" id="skip">跳过</button>
+      </div>
+    </div>`;
+  document.querySelectorAll('.scale button').forEach(b => b.onclick = () => save(+b.dataset.v));
+  document.querySelectorAll('.prog i').forEach(p => p.onclick = () => { I = +p.dataset.i; render(); });
+  $('#prev').onclick = () => { I--; render(); };
+  $('#skip').onclick = () => { I = (I + 1) % D.items.length; render(); };
+  window.scrollTo(0, 0);
+}
+
+async function save(v) {
+  const it = D.items[I];
+  it.rated = v; it.note = $('#note').value;
+  await fetch(`/api/lab/mood/${it.date}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ valence: v, note: it.note }) });
+  const next = D.items.findIndex((x, i) => i > I && x.rated == null);
+  const any = D.items.findIndex(x => x.rated == null);
+  if (next >= 0) { I = next; render(); }
+  else if (any >= 0) { I = any; render(); }
+  else load();
+}
+
+function renderResult() {
+  const r = D.result, o = D.overview;
+  const best = r.methods.filter(m => m.mae != null).sort((a, b) => a.mae - b.mae)[0];
+  const f = v => v == null ? '—' : (v > 0 ? '+' + v : v);
+  const pct = v => Math.round(v * 100) + '%';
+  $('#app').className = 'res';
+  $('#app').innerHTML = `
+    <h3>哪种最接近你的感觉（${r.n} 天）</h3>
+    <table><tr><th>方法</th><th>平均差多少（越小越好）</th><th>相关（越接近 1 越好）</th></tr>
+      ${r.methods.map(m => `<tr class="${m === best ? 'best' : ''}"><td>${m.method}</td><td>${m.mae ?? '—'}</td><td>${m.corr ?? '—'}</td></tr>`).join('')}
+    </table>
+    <h3>整体看两条线</h3>
+    <table><tr><th>来源</th><th>天数</th><th>平均分</th><th>偏好的天</th><th>偏差的天</th></tr>
+      ${[['ai', 'AI 日记'], ['hand', '手写'], ['both', '两份一起']].filter(([k]) => o.dist[k]).map(([k, n]) =>
+        `<tr><td>${n}</td><td>${o.dist[k].n}</td><td>${f(o.dist[k].mean)}</td><td>${pct(o.dist[k].pos)}</td><td>${pct(o.dist[k].neg)}</td></tr>`).join('')}
+    </table>
+    <p class="note">两份都有的 ${o.pairs} 天里，AI 日记和手写打的分相关 ${o.corr_ai_hand}；手写比 AI 日记分高的占 ${pct(o.hand_higher)}。</p>
+    <h3 style="margin-top:22px">逐天</h3>
+    <table><tr><th>日期</th><th>你</th><th>只看 AI</th><th>只看手写</th><th>两份一起</th></tr>
+      ${r.days.map(d => `<tr><td><a href="/#/day/${d.date}" target="_blank">${d.date}</a></td><td><b>${f(d.me)}</b></td><td>${f(d.ai)}</td><td>${f(d.hand)}</td><td>${f(d.both)}</td></tr>`).join('')}
+    </table>
+    <button class="btn-secondary btn-small" id="redo">重新评</button>`;
+  $('#redo').onclick = () => { D.done = false; I = 0; render(); };
+}
+load();
+</script>
+</body>
+</html>

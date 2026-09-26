@@ -14,7 +14,11 @@ from datetime import datetime, timedelta
 from flask import Flask, jsonify, render_template, request
 from werkzeug.utils import secure_filename
 
+import bundle
+import checkin
 import claude_sync
+import journal
+import mood
 import ledger
 import conv_review
 import index as idx
@@ -79,6 +83,24 @@ def api_days():
         r['has_diary'] = bool(d)
         r['headline'] = d['headline'] if d else ''
         r['mood'] = d['mood'] if d else ''
+    # 手写日记：有聊天的那天打个标；只有手写的那天单独补一行（窗口数 0）
+    jd = journal.dates()
+    for r in rows:
+        r['journal'] = jd.get(r['date'], 0)
+    have = {r['date'] for r in rows}
+    rows += [{'date': d, 'threads': 0, 'msgs': 0, 'chars': 0, 'first_at': '', 'last_at': '',
+              'has_diary': False, 'headline': '', 'mood': '', 'journal': c}
+             for d, c in jd.items() if d not in have]
+    have = {r['date'] for r in rows}
+    rows += [{'date': d, 'threads': 0, 'msgs': 0, 'chars': 0, 'first_at': '', 'last_at': '',
+              'has_diary': False, 'headline': '', 'mood': '', 'journal': 0}
+             for d in checkin.dates() if d not in have]
+    rows.sort(key=lambda r: r['date'])
+    # 两个指标：feel = 过得怎么样（手写，-2..+2），stuck = 卡得多狠（聊天，0..4）
+    sig = mood.all_signals()
+    for r in rows:
+        s = sig.get(r['date'], {})
+        r['feel'], r['stuck'], r['ck'] = s.get('mood'), s.get('friction'), bool(s.get('checkin'))
     missing = [r for r in rows if not r['has_diary'] and (r['chars'] or 0) >= MIN_CHARS]
     return jsonify({'days': rows, 'total_days': len(rows),
                     'missing': len(missing),
@@ -118,12 +140,16 @@ def api_day(date):
 
     d = q('SELECT * FROM diaries WHERE date = ?', date)
     nav = q("""SELECT
-                 (SELECT MAX(date) FROM messages WHERE role='human' AND date < ?) prev,
-                 (SELECT MIN(date) FROM messages WHERE role='human' AND date > ?) next""",
-            date, date)[0]
+                 (SELECT MAX(d) FROM (SELECT date d FROM messages WHERE role='human' AND date < ?
+                                      UNION SELECT date FROM journal WHERE chars > 0 AND date < ?)) prev,
+                 (SELECT MIN(d) FROM (SELECT date d FROM messages WHERE role='human' AND date > ?
+                                      UNION SELECT date FROM journal WHERE chars > 0 AND date > ?)) next""",
+            date, date, date, date)[0]
     return jsonify({'date': date, 'threads': out,
                     'diary': _parse_diary(d[0]) if d else None,
                     'themes': ledger.chips(date),
+                    'journal': journal.for_date(date),
+                    'signals': mood.day_signals(date),
                     'generating': date in _generating,
                     'prev': nav['prev'], 'next': nav['next']})
 
@@ -153,55 +179,15 @@ def api_search():
                   FROM msg_fts f JOIN messages m ON m.id = f.msg_id
                  WHERE msg_fts MATCH ?
                  ORDER BY f.date DESC LIMIT 100""", safe)
-    return jsonify({'hits': hits, 'q': kw})
+    # 手写日记单独一路，排在前面：自己写的比聊天里的更值得先看
+    jh = [{'date': h['date'], 'kind': 'journal', 'page_id': h['page_id'], 'snip': h['snip'],
+           'conv_title': '手写日记', 'hhmm': ''} for h in journal.search(kw)]
+    return jsonify({'hits': jh + hits, 'q': kw})
 
 
 # ---------------------------------------------------------------- 日记生成
 
-def _day_bundle(date):
-    """当天的消息，按窗口分组；每个窗口再补一段「前情」。
-
-    只喂当天的消息，模型看到的是一条线被切掉的中段，会缺背景（实测 65% 的天有这个问题、
-    30% 的「窗口·天」是接着前面聊的）。所以对每个在今天之前已经聊过的窗口，
-    带上：这条线什么时候开的、之前多少天多少条、开头问的是什么、昨天之前最后聊到哪儿。
-    全是确定性查询，不额外调模型。
-    """
-    rows = q("""SELECT m.*, c.title conv_title FROM messages m
-                  JOIN conversations c ON c.id = m.conv_id
-                 WHERE m.date = ? AND m.role='human' ORDER BY m.ts""", date)
-    threads = {}
-    for m in rows:
-        t = threads.setdefault(m['conv_id'], {'conv_id': m['conv_id'],
-                                              'conversation': m['conv_title'], 'messages': []})
-        t['messages'].append({'time': m['hhmm'], 'role': 'human', 'text': m['text']})
-    items = []
-    for t in threads.values():
-        t['first'] = t['messages'][0]['time']
-        t['last'] = t['messages'][-1]['time']
-        t['n_msgs'] = len(t['messages'])
-        t['chars'] = sum(len(x['text']) for x in t['messages'])
-        t['prior'] = _prior_context(t['conv_id'], date)
-        items.append(t)
-    items.sort(key=lambda x: x['first'])
-    return {'date': date, 'n_threads': len(items),
-            'n_user_msgs': sum(t['n_msgs'] for t in items),
-            'user_chars': sum(t['chars'] for t in items), 'threads': items}
-
-
-def _prior_context(conv_id, date, opening=320, recent=3, recent_chars=260):
-    """这个窗口在 date 之前聊过什么。没聊过就返回 None。"""
-    agg = q("""SELECT COUNT(*) n, COUNT(DISTINCT date) days, MIN(date) since
-                 FROM messages WHERE conv_id=? AND role='human' AND date < ?""", conv_id, date)[0]
-    if not agg['n']:
-        return None
-    first = q("""SELECT date, text FROM messages WHERE conv_id=? AND role='human' AND date < ?
-                  ORDER BY ts LIMIT 1""", conv_id, date)[0]
-    last = q("""SELECT date, hhmm, text FROM messages WHERE conv_id=? AND role='human' AND date < ?
-                 ORDER BY ts DESC LIMIT ?""", conv_id, date, recent)
-    return {'n': agg['n'], 'days': agg['days'], 'since': agg['since'],
-            'opening': first['text'][:opening],
-            'recent': [{'date': r['date'], 'hhmm': r['hhmm'], 'text': r['text'][:recent_chars]}
-                       for r in reversed(last)]}
+_day_bundle = bundle.day_bundle
 
 
 def _generate_one(date):
@@ -312,9 +298,121 @@ def api_batch_status():
     return jsonify(_batch)
 
 
+# ---------------------------------------------------------------- 打卡 + 星座图
+
+@app.route('/api/checkin')
+def api_checkin_get():
+    date = request.args.get('date') or checkin.today()
+    return jsonify({'date': date, 'today': checkin.today(), 'items': checkin.for_date(date),
+                    'words': [{'word': w, 'v': v} for w, v in checkin.WORDS]})
+
+
+@app.route('/api/checkin', methods=['POST'])
+def api_checkin_add():
+    j = request.get_json(force=True)
+    try:
+        cid = checkin.add(j.get('date') or checkin.today(), j['word'], j.get('note', ''))
+    except (ValueError, KeyError) as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'id': cid})
+
+
+@app.route('/api/checkin/<int:cid>', methods=['PUT'])
+def api_checkin_edit(cid):
+    j = request.get_json(force=True)
+    try:
+        checkin.update(cid, j.get('word'), j.get('note'))
+    except (ValueError, KeyError) as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True})
+
+
+@app.route('/api/checkin/<int:cid>', methods=['DELETE'])
+def api_checkin_del(cid):
+    checkin.delete(cid)
+    return jsonify({'ok': True})
+
+
+@app.route('/checkin')
+def checkin_page():
+    """打卡单独一个全屏页：只干一件事，要简单。"""
+    static = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+    v = int(max(os.path.getmtime(os.path.join(static, f)) for f in ('checkin.js', 'checkin.css')))
+    return render_template('checkin.html', v=v)
+
+
+@app.route('/api/checkin/home')
+def api_checkin_home():
+    date = request.args.get('date') or checkin.today()
+    return jsonify({'date': date, 'today': checkin.today(), 'items': checkin.for_date(date),
+                    'words': [{'word': w, 'v': v} for w, v in checkin.WORDS],
+                    'progress': checkin.progress(), 'orbs': checkin.orbs()})
+
+
+@app.route('/api/checkin/<int:cid>/reply', methods=['POST'])
+def api_checkin_reply(cid):
+    import diary
+    return jsonify({'reply': checkin.oracle(cid, diary._call_model)})
+
+
+@app.route('/api/checkin/month')
+def api_checkin_month():
+    return jsonify(checkin.month_view(request.args.get('month') or checkin.today()[:7]))
+
+
+@app.route('/api/stars')
+def api_stars():
+    month = request.args.get('month') or checkin.today()[:7]
+    return jsonify({'month': month, 'stars': checkin.month_stars(month),
+                    'stats': checkin.month_stats(month), 'note': checkin.month_note(month)})
+
+
+@app.route('/api/stars/note', methods=['POST'])
+def api_stars_note():
+    import diary
+    month = request.args.get('month') or checkin.today()[:7]
+    return jsonify({'note': checkin.month_note(month, diary._call_model, refresh=request.args.get('refresh') == '1')})
+
+
+@app.route('/api/river')
+def api_river():
+    import river
+    return jsonify(river.series(start=request.args.get('from') or '2025-08-18'))
+
+
 @app.route('/api/themes')
 def api_themes():
     return jsonify({'themes': ledger.all_themes()})
+
+
+# ---------------------------------------------------------------- 情绪实验（本地页面，不对外）
+
+@app.route('/lab/mood')
+def lab_mood_page():
+    static = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+    return render_template('lab_mood.html', v=int(os.path.getmtime(os.path.join(static, 'style.css'))))
+
+
+@app.route('/api/lab/mood')
+def api_lab_mood():
+    import mood
+    days = mood.lab_days()
+    rated = {r['date']: r for r in q('SELECT * FROM mood_ratings')} if days else {}
+    items = [{'date': d, 'ai': mood.ai_text(d), 'hand': mood.hand_text(d),
+              'rated': rated.get(d, {}).get('valence'), 'note': rated.get(d, {}).get('note', '')}
+             for d in days]
+    done = bool(days) and all(i['rated'] is not None for i in items)
+    return jsonify({'ready': bool(days), 'items': items, 'done': done,
+                    'result': mood.lab_result() if done else None,
+                    'overview': mood.overview() if done else None})
+
+
+@app.route('/api/lab/mood/<date>', methods=['POST'])
+def api_lab_rate(date):
+    import mood
+    j = request.get_json(force=True)
+    mood.rate(date, j['valence'], j.get('note', ''))
+    return jsonify({'ok': True})
 
 
 # ---------------------------------------------------------------- 窗口管理 / 导入
@@ -404,10 +502,12 @@ def api_window(conv_id):
     if not w:
         return jsonify({'error': 'not found'}), 404
     n = conv_review.notes_for(conv_id)
+    todo = set(conv_review.pending(conv_id, w))
     for d in w['days']:
         d['note'] = n['days'].get(d['date'])
+        d['stale'] = d['date'] in todo and d['note'] is not None     # 有小结，但这天后来又聊了
         d['has_diary'] = bool(q('SELECT 1 FROM diaries WHERE date=?', d['date']))
-    return jsonify({**w, 'arc': n['arc'], 'generated_at': n['at'],
+    return jsonify({**w, 'arc': n['arc'], 'generated_at': n['at'], 'pending': len(todo),
                     'job': conv_review.job(conv_id)})
 
 
@@ -492,6 +592,21 @@ def _csync_scheduler():
                     if dates:
                         print(f'[claude-sync] 接着写日记：{len(dates)} 天', flush=True)
                         _batch_worker(dates)
+                # 手写日记：只读 Notion，改过的才拉正文，平时几秒钟
+                try:
+                    jr = journal.sync(say=lambda m: None)
+                    if jr['fetched'] or jr['removed']:
+                        print(f"[journal] 拉了 {jr['fetched']} 页，删了 {jr['removed']} 页", flush=True)
+                except Exception as e:                       # noqa: BLE001
+                    print(f'[journal] 失败：{e}', flush=True)
+                # 两个指标：新的聊天天打「卡得多狠」，新的手写天打「过得怎么样」
+                try:
+                    import diary as _d
+                    n = mood.fill(_d._call_model, say=lambda m: None)
+                    if any(n):
+                        print(f'[mood] 卡得多狠 {n[0]} 天，过得怎么样 {n[1]} 天', flush=True)
+                except Exception as e:                       # noqa: BLE001
+                    print(f'[mood] 失败：{e}', flush=True)
         except Exception as e:                               # noqa: BLE001
             print(f'[claude-sync] 调度器出错：{e}', flush=True)
         time.sleep(60)

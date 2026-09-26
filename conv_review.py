@@ -89,30 +89,44 @@ def ensure_table():
                         text    TEXT NOT NULL,
                         generated_at TEXT NOT NULL,
                         PRIMARY KEY (conv_id, date))""")
+        # fp：写这条小结时，这个窗口这一天我发了几条、多少字。之后又聊了，fp 就对不上 → 只重写这一天。
+        # 老数据没有 fp：迁移时按现在的内容补上，当它是新的，免得一升级就把所有小结重写一遍。
+        if 'fp' not in [r[1] for r in c.execute('PRAGMA table_info(conv_notes)')]:
+            c.execute('ALTER TABLE conv_notes ADD COLUMN fp TEXT')
+            c.execute("""UPDATE conv_notes SET fp = (
+                           SELECT COUNT(*) || ':' || COALESCE(SUM(chars), 0) FROM messages m
+                            WHERE m.conv_id = conv_notes.conv_id AND m.date = conv_notes.date AND m.role='human')
+                         WHERE date <> ''""")
         c.commit()
 
 
-def _save(conv_id, date, text):
+def _fp(day):
+    """一天的内容指纹：我发了几条、多少字。"""
+    return f"{day['msgs']}:{day['chars'] or 0}"
+
+
+def _save(conv_id, date, text, fp=None):
     # 时间用本地 isoformat，跟 diaries.generated_at 一个口径。
     # SQLite 的 datetime('now') 是 UTC，前端 rel() 按本地算，会差 8 小时。
     now = datetime.now().isoformat(timespec='seconds')
     with LOCK:
         c = idx.connect()
-        c.execute('INSERT OR REPLACE INTO conv_notes VALUES (?,?,?,?)',
-                  (conv_id, date, text, now))
+        c.execute('INSERT OR REPLACE INTO conv_notes (conv_id, date, text, generated_at, fp) VALUES (?,?,?,?,?)',
+                  (conv_id, date, text, now, fp))
         c.commit()
 
 
 def notes_for(conv_id):
-    """-> {'arc': str|None, 'days': {date: text}, 'at': iso|None}"""
+    """-> {'arc': str|None, 'days': {date: text}, 'fps': {date: fp}, 'at': iso|None}"""
     ensure_table()
     with LOCK:
         rows = list(idx.connect().execute(
-            'SELECT date, text, generated_at FROM conv_notes WHERE conv_id=?', (conv_id,)))
-    out = {'arc': None, 'days': {}, 'at': None}
+            'SELECT date, text, generated_at, fp FROM conv_notes WHERE conv_id=?', (conv_id,)))
+    out = {'arc': None, 'days': {}, 'fps': {}, 'at': None}
     for r in rows:
         if r['date']:
             out['days'][r['date']] = r['text']
+            out['fps'][r['date']] = r['fp']
         else:
             out['arc'] = r['text']
             out['at'] = r['generated_at']
@@ -196,28 +210,46 @@ def job(conv_id):
     return _jobs.get(conv_id) or {'running': False, 'total': 0, 'done': 0, 'current': None}
 
 
+def pending(conv_id, w=None):
+    """要写的天：还没小结的，和写完之后这天又聊了的（fp 对不上）。"""
+    w = w or window(conv_id)
+    if not w:
+        return []
+    have = notes_for(conv_id)
+    days = _pick(w['days'])
+    return [d['date'] for d in days
+            if d['date'] not in have['days'] or (have['fps'].get(d['date']) not in (None, _fp(d)))]
+
+
+def _pick(days):
+    if len(days) > MAX_DAYS:                      # 太长就只取字数最多的那些天
+        return sorted(sorted(days, key=lambda d: -(d['chars'] or 0))[:MAX_DAYS], key=lambda d: d['date'])
+    return days
+
+
 def generate(conv_id, refresh=False, progress=None):
-    """把一个窗口的逐日小结 + 整体 arc 生成出来。已有的默认跳过。"""
+    """把一个窗口的逐日小结 + 整体 arc 生成出来。
+
+    **只写新的天和内容变了的天**，其余小结原样留着；有任何一天变了，arc 才重新汇总（一次调用）。
+    refresh=True 才是全部重写。"""
     ensure_table()
     w = window(conv_id)
     if not w:
         return {'error': 'not found'}
-    days = w['days']
-    if len(days) > MAX_DAYS:                      # 太长就只取字数最多的那些天
-        keep = sorted(sorted(days, key=lambda d: -(d['chars'] or 0))[:MAX_DAYS],
-                      key=lambda d: d['date'])
-        days = keep
+    days = _pick(w['days'])
     if refresh:
         clear(conv_id)
     have = notes_for(conv_id)
     notes = dict(have['days'])
-
-    todo = [d for d in days if d['date'] not in notes]
+    todo_dates = set(pending(conv_id, w))
+    if not todo_dates and have['arc']:
+        return have                                # 什么都没变，一次都不调
+    todo = [d for d in days if d['date'] in todo_dates]
     st = _jobs.setdefault(conv_id, {})
     st.update(running=True, total=len(todo) + 1, done=0, current=None)
     try:
         for i, d in enumerate(days):
-            if d['date'] in notes:
+            if d['date'] not in todo_dates:
                 continue
             st['current'] = d['date']
             body = day_text(conv_id, d['date'])
@@ -230,7 +262,7 @@ def generate(conv_id, refresh=False, progress=None):
             except Exception as e:                          # noqa: BLE001
                 txt = f'（生成失败：{e}）'
             notes[d['date']] = txt.split('\n')[0][:200]
-            _save(conv_id, d['date'], notes[d['date']])
+            _save(conv_id, d['date'], notes[d['date']], _fp(d))
             st['done'] += 1
             if progress:
                 progress(st['done'], st['total'], d['date'])

@@ -174,39 +174,72 @@ def slice_by_day(conversations, include_assistant=False):
     return out
 
 
+_TS = re.compile(r'\[\d{1,2}:\d{2}(:\d{2})?\]')
+_CODE = re.compile(r'^\s*(def |class |import |from \S+ import|function |const |let |#include|public |\$ |%)', re.M)
+
+
+def looks_pasted(t):
+    """长消息里，哪些是贴进来的材料（文章、字幕、代码、AI 的回答、网页），哪些是我自己打的一大段。
+
+    一天的字里 91% 是粘贴的，而我自己打的平均一天才 9 千字。只按长度截，
+    贴一篇长文就把同窗口后面我自己说的话全挤掉了（实测 324 天里丢了 35%，232 天受影响）。
+    """
+    n = len(t)
+    if n <= 800:
+        return False
+    if n > 4000:
+        return True
+    head = t.lstrip()[:200]
+    ascii_ratio = sum(c.isascii() for c in t) / n
+    return (t.count('\n') > 12 or ascii_ratio > 0.6 or bool(_TS.search(t)) or '```' in t
+            or bool(_CODE.search(t)) or head[:1] in '“"「\'' or 'http' in head or t.count('\t') > 5)
+
+
+def compact(t, head=300, tail=150):
+    """贴进来的长内容只留头尾：我的铺垫一般在开头（「你看看这个…」），提问一般在结尾。"""
+    if not looks_pasted(t):
+        return t
+    return f"{t[:head]}…〔粘贴的长内容，共 {len(t):,} 字，已省略〕…{t[-tail:]}"
+
+
 def render_day(day, char_budget=60000):
-    """把一天渲染成喂给模型的纯文本。按窗口分块，超预算时截长消息。
+    """把一天渲染成喂给模型的纯文本。按窗口分块。
+
+    **我自己打的全留，贴进来的只留头尾**（`compact`）。这样绝大多数天远在预算以内；
+    真超了，才从最长的手打段落开始截。以前是「按时间顺序装到预算满为止」，
+    结果前面一篇粘贴就把后面我说的话全截掉了。
 
     接着前面聊的窗口会先出一段【前情】——那是背景，prompt 里明确要求不能当成今天发生的事写。
     """
     head = (f"日期：{day['date']}\n"
             f"当天在 {day['n_threads']} 个对话窗口里发了 {day['n_user_msgs']} 条消息"
-            f"（共 {day['user_chars']:,} 字）\n")
-    budget = max(char_budget - len(head), 1000)
-    per = max(budget // max(day['n_threads'], 1), 400)
+            f"（共 {day['user_chars']:,} 字，贴进来的长内容只保留了头尾）\n")
+    msgs = [[compact(m['text']) for m in t['messages']] for t in day['threads']]
+
+    # 还超预算：把最长的那些手打段落压到同一个上限，逐步降，直到装得下
+    budget = max(char_budget - len(head) - 400 * len(msgs), 1000)
+    total = sum(len(x) for ms in msgs for x in ms)
+    cap = 4000
+    while total > budget and cap > 200:
+        cap = int(cap * 0.8)
+        msgs = [[x if len(x) <= cap else x[:cap] + '…〔后面省略〕' for x in ms] for ms in msgs]
+        total = sum(len(x) for ms in msgs for x in ms)
+
     blocks = []
-    for t in day['threads']:
+    for t, texts in zip(day['threads'], msgs):
         lines = [f"\n【窗口】{t['conversation']}  {t['first']}–{t['last']}  {t['n_msgs']}条"]
         p = t.get('prior')
         if p:
             lines.append(f"  【前情｜背景，不是今天发生的】这条线从 {p['since']} 开始，"
                          f"今天之前已聊 {p['days']} 天 {p['n']} 条。")
-            lines.append(f"    最初问的是：{p['opening']}")
+            lines.append(f"    最初问的是：{compact(p['opening'])}")
             if p.get('recent'):
                 lines.append("    今天之前最后聊到：")
                 for r in p['recent']:
                     lines.append(f"      [{r['date']} {r['hhmm']}] {r['text']}")
             lines.append("  ——以上是背景，以下才是今天——")
-        used = 0
-        for m in t['messages']:
-            txt = m['text']
-            if used + len(txt) > per:
-                txt = txt[:max(per - used, 0)]
-            if not txt:
-                lines.append('  …（本窗口后续省略）')
-                break
+        for m, txt in zip(t['messages'], texts):
             lines.append(f"  [{m['time']}] {txt}")
-            used += len(txt)
         blocks.append('\n'.join(lines))
     return head + '\n'.join(blocks)
 

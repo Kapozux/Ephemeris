@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ephemeris</title>
+<link rel="icon" type="image/svg+xml" href="/static/logo.svg?v={{ v }}">
+<link rel="stylesheet" href="/static/style.css?v={{ v }}">
+</head>
+<body>
+<div class="app">
+
+<aside class="sidebar" id="side">
+  <div class="sb-brand"><svg class="logo" viewBox="0 0 24 24" fill="none" aria-hidden="true"><ellipse cx="12" cy="12" rx="9.4" ry="5.4" stroke="currentColor" stroke-width="1.7" transform="rotate(-32 12 12)"/><circle cx="17.4" cy="7.2" r="3.1" fill="var(--coral)"/></svg>Ephemeris</div>
+
+  <div class="searchbox">
+    <input id="q" type="search" placeholder="搜我说过的话…" autocomplete="off">
+    <div id="results" class="results hidden"></div>
+  </div>
+
+  <div class="modeswitch">
+    <button class="ms-item active" data-mode="day" type="button">按天</button>
+    <button class="ms-item" data-mode="win" type="button">按窗口</button>
+  </div>
+
+  <div id="batch" class="batch hidden">
+    <button id="batchBtn" class="btn-secondary btn-small"></button>
+    <div id="batchBar" class="bar hidden"><i></i><span class="tnum"></span></div>
+  </div>
+
+  <div id="cal" class="cal"></div>
+
+  <div id="winpane" class="winpane hidden">
+    <input id="winFilter" type="search" placeholder="筛窗口…" autocomplete="off">
+    <div id="winlist" class="winlist"></div>
+  </div>
+
+  <div class="legend">
+    <span>少</span><i class="sw" style="background:var(--h1)"></i><i class="sw" style="background:var(--h2)"></i><i class="sw" style="background:var(--h3)"></i><i class="sw" style="background:var(--h4)"></i><span>多</span>
+    <span class="sp"></span><i class="sw faded"></i><span>还没日记</span>
+  </div>
+
+  <div class="sb-bottom">
+    <button id="reflectOpen" class="sb-item" type="button" data-pane="reflect"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 7v5l3 2"/><path d="M17 3h4v4"/><path d="M21 3l-5 5"/></svg>回顾</button>
+    <button id="convsOpen" class="sb-item" type="button" data-pane="convs"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>窗口与导入</button>
+    <button id="notionOpen" class="sb-item" type="button" data-pane="notion"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h11l5 5v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M14 4v6h6"/><path d="M8 13h8M8 17h5"/></svg>Notion</button>
+  </div>
+</aside>
+
+<main class="main" id="main">
+  <article id="day" class="hidden">
+    <header class="pagehead">
+      <div class="pagehead-l">
+        <h1 id="dayTitle" class="serif"></h1>
+        <div id="dayMeta" class="tagline"></div>
+      </div>
+      <div class="pagehead-r">
+        <button class="btn-secondary btn-small" id="prevBtn" title="前一天 ←">‹ 前一天</button>
+        <button class="btn-secondary btn-small" id="nextBtn" title="后一天 →">后一天 ›</button>
+      </div>
+    </header>
+
+    <div class="cols">
+      <section class="col-l">
+        <div id="diary" class="card-shell diary"></div>
+      </section>
+      <section class="col-r">
+        <div class="card-shell list-card">
+          <div class="list-head">
+            <h2 class="serif">当天的窗口</h2>
+            <span class="tnum dim" id="threadCount"></span>
+            <span class="srclegend"><i class="src claude"></i>Claude <i class="src gemini"></i>Gemini</span>
+          </div>
+          <div id="threads" class="list-body"></div>
+        </div>
+      </section>
+    </div>
+  </article>
+
+  <article id="win" class="hidden">
+    <header class="pagehead">
+      <div class="pagehead-l">
+        <h1 id="winTitle" class="serif"></h1>
+        <div id="winMeta" class="tagline"></div>
+      </div>
+      <div class="pagehead-r">
+        <button class="btn-secondary btn-small" id="winRegen" title="重新生成全部小结">↻</button>
+      </div>
+    </header>
+    <div id="winArc" class="card-shell diary"></div>
+    <div id="winTl" class="timeline"></div>
+  </article>
+</main>
+
+</div>
+<div id="pop" class="pop hidden"></div>
+
+<div id="overlay" class="overlay hidden">
+  <div class="modal">
+    <nav class="modal-nav">
+      <button class="modal-nav-item active" data-pane="reflect">回顾</button>
+      <button class="modal-nav-item" data-pane="themes">主题</button>
+      <button class="modal-nav-item" data-pane="data">数据</button>
+      <button class="modal-nav-item" data-pane="convs">窗口</button>
+      <button class="modal-nav-item" data-pane="notion">Notion</button>
+      <span class="sp"></span>
+      <button class="modal-nav-item" id="modalClose">关闭</button>
+    </nav>
+    <div class="modal-body">
+      <section class="pane active" data-pane="reflect">
+        <div class="reflect-top">
+          <div><div class="reflect-title">这段时间</div><div class="reflect-sub">基于按天生成的日记，不是聊天原文。</div></div>
+          <div class="reflect-ctl">
+            <select id="reflectRange" class="btn-secondary btn-small">
+              <option value="1w">最近 7 天</option><option value="1m" selected>最近 30 天</option>
+              <option value="3m">最近 90 天</option><option value="all">全部</option>
+            </select>
+            <button id="reflectRefresh" class="btn-secondary btn-small" title="重新生成叙事">↻</button>
+          </div>
+        </div>
+        <div id="reflectBody" class="reflect-body"><div class="reflect-loading">在读你的日记…</div></div>
+      </section>
+      <section class="pane" data-pane="convs">
+        <div class="reflect-top">
+          <div><div class="reflect-title">聊天窗口</div><div class="reflect-sub" id="convSub">正在数…</div></div>
+          <div class="reflect-ctl"><input id="convFilter" type="search" placeholder="筛标题 / 首句…" class="btn-secondary btn-small" style="width:200px"></div>
+        </div>
+        <div class="sync-box" id="syncBox"></div>
+
+        <div class="import-box" id="importBox">
+          <input type="file" id="importFile" multiple accept=".md,.json,.txt" hidden>
+          <div class="import-hint">
+            <b>导入新的聊天记录</b>
+            <span>拖文件到这里，或 <a id="importPick">选文件</a>。支持：范围式批量导出（.md / .json）、incognito 单个窗口的 transcript、Gemini 的 sess_*.md、Google Takeout 的 MyActivity JSON（Gemini Apps）。
+            已有的消息不会重复，只加新的；被改动的那几天日记会作废，等你再补全。</span>
+          </div>
+          <div id="importResult" class="import-result hidden"></div>
+        </div>
+        <div id="convList" class="convlist"></div>
+        <div class="reflect-sec" style="margin-top:30px"><div class="reflect-sec-head"><span class="reflect-sec-label">导入历史</span></div><div id="importHist" class="dlist"></div></div>
+      </section>
+      <section class="pane" data-pane="themes">
+        <div class="reflect-top">
+          <div><div class="reflect-title">主题</div><div class="reflect-sub" id="thSub">一件事聊了多少天、断过多久、现在到哪。每写一篇日记更新一次。</div></div>
+          <div class="reflect-ctl"><input id="thFilter" type="search" placeholder="筛主题…" class="btn-secondary btn-small" style="width:180px"></div>
+        </div>
+        <div id="thBody" class="themes"></div>
+      </section>
+      <section class="pane" data-pane="data">
+        <div class="reflect-top"><div><div class="reflect-title">数据</div><div class="reflect-sub">同一个时间范围，纯统计，没有模型参与。</div></div></div>
+        <div id="dataBody" class="reflect-body"></div>
+      </section>
+      <section class="pane" data-pane="notion">
+        <div class="reflect-top">
+          <div><div class="reflect-title">Notion 同步</div><div class="reflect-sub" id="ntSub">在看连接…</div></div>
+          <div class="reflect-ctl"><button id="ntRefresh" class="btn-secondary btn-small" title="重新核对">↻</button></div>
+        </div>
+        <div id="ntBody" class="reflect-body"></div>
+      </section>
+    </div>
+  </div>
+</div>
+<script src="/static/app.js?v={{ v }}"></script>
+</body>
+</html>

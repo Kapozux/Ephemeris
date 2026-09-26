@@ -1,0 +1,21 @@
+# 白名单：这个目录默认什么都不进仓库，只放行下面列出的代码文件。
+# 聊天记录、数据库、日记缓存、Chrome 登录态、.env，以及以后任何新下载 / 新建的文件和文件夹，
+# 都不在名单里，所以自动被挡住 —— 不用每次记得来加一行。
+/*
+!/.gitignore
+!/.env.example
+!/README.md
+!/README.zh-CN.md
+!/*.py
+!/run.sh
+!/export_claude.js
+!/static/
+!/templates/
+
+# 白名单里的目录也只放行代码类型
+/static/*
+!/static/*.js
+!/static/*.css
+!/static/*.svg
+/templates/*
+!/templates/*.html

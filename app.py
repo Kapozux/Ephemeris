@@ -14,6 +14,9 @@ from datetime import datetime, timedelta
 from flask import Flask, jsonify, render_template, request
 from werkzeug.utils import secure_filename
 
+import backup
+import daily
+import flashback
 import bundle
 import checkin
 import claude_sync
@@ -374,6 +377,22 @@ def api_stars_note():
     return jsonify({'note': checkin.month_note(month, diary._call_model, refresh=request.args.get('refresh') == '1')})
 
 
+@app.route('/api/backup')
+def api_backup():
+    return jsonify(backup.status())
+
+
+@app.route('/api/backup', methods=['POST'])
+def api_backup_run():
+    backup.run_bg()
+    return jsonify(backup.status())
+
+
+@app.route('/api/flashback')
+def api_flashback():
+    return jsonify(flashback.get(request.args.get('mode') or 'random'))
+
+
 @app.route('/api/river')
 def api_river():
     import river
@@ -383,36 +402,6 @@ def api_river():
 @app.route('/api/themes')
 def api_themes():
     return jsonify({'themes': ledger.all_themes()})
-
-
-# ---------------------------------------------------------------- 情绪实验（本地页面，不对外）
-
-@app.route('/lab/mood')
-def lab_mood_page():
-    static = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
-    return render_template('lab_mood.html', v=int(os.path.getmtime(os.path.join(static, 'style.css'))))
-
-
-@app.route('/api/lab/mood')
-def api_lab_mood():
-    import mood
-    days = mood.lab_days()
-    rated = {r['date']: r for r in q('SELECT * FROM mood_ratings')} if days else {}
-    items = [{'date': d, 'ai': mood.ai_text(d), 'hand': mood.hand_text(d),
-              'rated': rated.get(d, {}).get('valence'), 'note': rated.get(d, {}).get('note', '')}
-             for d in days]
-    done = bool(days) and all(i['rated'] is not None for i in items)
-    return jsonify({'ready': bool(days), 'items': items, 'done': done,
-                    'result': mood.lab_result() if done else None,
-                    'overview': mood.overview() if done else None})
-
-
-@app.route('/api/lab/mood/<date>', methods=['POST'])
-def api_lab_rate(date):
-    import mood
-    j = request.get_json(force=True)
-    mood.rate(date, j['valence'], j.get('note', ''))
-    return jsonify({'ok': True})
 
 
 # ---------------------------------------------------------------- 窗口管理 / 导入
@@ -583,6 +572,12 @@ def _csync_due(now):
 def _csync_scheduler():
     time.sleep(90)                       # 开机先让应用把自己的事做完
     while True:
+        # 每周备份：满 7 天就跑，跟同步互不等待（各自一个线程）
+        try:
+            if backup.due():
+                backup.run_bg()
+        except Exception as e:                               # noqa: BLE001
+            print(f'[backup] 调度出错：{e}', flush=True)
         try:
             if not _csync['running'] and _csync_due(datetime.now()):
                 _csync_worker()
@@ -592,21 +587,9 @@ def _csync_scheduler():
                     if dates:
                         print(f'[claude-sync] 接着写日记：{len(dates)} 天', flush=True)
                         _batch_worker(dates)
-                # 手写日记：只读 Notion，改过的才拉正文，平时几秒钟
-                try:
-                    jr = journal.sync(say=lambda m: None)
-                    if jr['fetched'] or jr['removed']:
-                        print(f"[journal] 拉了 {jr['fetched']} 页，删了 {jr['removed']} 页", flush=True)
-                except Exception as e:                       # noqa: BLE001
-                    print(f'[journal] 失败：{e}', flush=True)
-                # 两个指标：新的聊天天打「卡得多狠」，新的手写天打「过得怎么样」
-                try:
-                    import diary as _d
-                    n = mood.fill(_d._call_model, say=lambda m: None)
-                    if any(n):
-                        print(f'[mood] 卡得多狠 {n[0]} 天，过得怎么样 {n[1]} 天', flush=True)
-                except Exception as e:                       # noqa: BLE001
-                    print(f'[mood] 失败：{e}', flush=True)
+                # 之后的整理：手写日记 → 手写进账本 → 两个指标 → 主题归类 → 窗口回顾（见 daily.py）
+                import diary as _d
+                daily.run(_d._call_model)
         except Exception as e:                               # noqa: BLE001
             print(f'[claude-sync] 调度器出错：{e}', flush=True)
         time.sleep(60)
@@ -615,7 +598,7 @@ def _csync_scheduler():
 @app.route('/api/claude/sync')
 def api_csync_status():
     last = claude_sync.last_run()
-    return jsonify({'job': _csync, 'last_run': last,
+    return jsonify({'job': _csync, 'last_run': last, 'daily': daily.last(),
                     'configured': bool(claude_sync.env('CLAUDE_SESSION_KEY')),
                     'at': '%02d:%02d' % SYNC_AT})
 

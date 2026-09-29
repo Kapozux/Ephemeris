@@ -148,7 +148,7 @@ function renderDiary(r) {
   if (!d) {
     box.classList.add('empty');
     box.innerHTML = `<p>这天还没有日记。${r.threads.length} 个窗口、${(BYDATE[SEL]?.chars || 0).toLocaleString()} 字，压成 300 字大概要 20 秒。</p>
-                     <button class="pri" id="genBtn">生成这天的日记</button>`;
+                     <button class="btn-primary" id="genBtn">生成这天的日记</button>`;
     $('#genBtn').onclick = generateCurrent;
     return;
   }
@@ -289,7 +289,8 @@ async function openDay(date, focus) {
   $('#dayMeta').textContent = r.threads.length
     ? `${r.threads.length} 个对话窗口 · ${info.msgs || 0} 条 · ${(info.chars || 0).toLocaleString()} 字 · ${info.first_at || ''}–${info.last_at || ''}` +
       (jChars ? ` · 手写 ${jChars.toLocaleString()} 字` : '')
-    : `这天没有 AI 聊天，只有手写日记 · ${jChars.toLocaleString()} 字`;
+    : jChars ? `这天没有 AI 聊天，只有手写日记 · ${jChars.toLocaleString()} 字`
+    : '这天还没有 AI 聊天和手写日记' + ((r.signals?.checkins || []).length ? `，只有 ${r.signals.checkins.length} 条打卡` : '');
 
   renderSignals(r.signals || {});
   renderJournal(r.journal || [], focus && focus.journal);
@@ -432,7 +433,25 @@ function monotonePath(xs, ys) {
 const fmtW = v => v >= 10000 ? (v / 10000).toFixed(v >= 100000 ? 0 : 1).replace(/\.0$/, '') + '万' : Math.round(v);
 const rDate = iso => { const [y, m, d] = iso.split('-').map(Number); return `${m}月${d}日`; };
 
+// 长区间按周汇总：90 天按天画是一排锯齿，看不出走势（Claude 自己的 Reflect 也是按周）
+const WEEKLY_AFTER = 60;
+function toWeeks(series) {
+  const out = [];
+  series.forEach(p => {
+    const d = new Date(p.date + 'T12:00:00'), wd = (d.getDay() + 6) % 7;
+    d.setDate(d.getDate() - wd);
+    const wk = d.toISOString().slice(0, 10);
+    const last = out[out.length - 1];
+    if (last && last.date === wk) { last.msgs += p.msgs || 0; last.chars += p.chars || 0; last.threads += p.threads || 0; }
+    else out.push({ date: wk, msgs: p.msgs || 0, chars: p.chars || 0, threads: p.threads || 0 });
+  });
+  return out;
+}
+const chartWeekly = series => series.length > WEEKLY_AFTER;
+
 function reflectChart(series, prev, metric) {
+  const weekly = chartWeekly(series);
+  if (weekly) { series = toWeeks(series); prev = toWeeks(prev); }
   const W = 900, H = 250, L = 46, R = 12, T = 18, B = 34;
   const cur = series.map(p => p[metric]); const pv = prev.map(p => p[metric]);
   if (cur.length < 2) return '<div class="reflect-empty">数据不够画图</div>';
@@ -442,7 +461,7 @@ function reflectChart(series, prev, metric) {
   const grid = [maxV, maxV * 0.6].map(v => `<line class="grid" x1="${L}" x2="${W - R}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"/><text class="ylab" x="${L - 12}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${fmtW(v)}</text>`).join('');
   const base = `<line class="base" x1="${L}" x2="${W - R}" y1="${Y(0)}" y2="${Y(0)}"/><text class="ylab" x="${L - 12}" y="${Y(0) + 4}" text-anchor="end">0</text>`;
   const n = cur.length - 1, idxs = [0, Math.round(n / 3), Math.round(n * 2 / 3), n];
-  const xl = idxs.map((i, k) => `<text class="xlab" x="${X(i).toFixed(1)}" y="${H - 8}" text-anchor="${k === 0 ? 'start' : k === 3 ? 'end' : 'middle'}">${rDate(series[i].date)}</text>`).join('');
+  const xl = idxs.map((i, k) => `<text class="xlab" x="${X(i).toFixed(1)}" y="${H - 8}" text-anchor="${k === 0 ? 'start' : k === 3 ? 'end' : 'middle'}">${rDate(series[i].date)}${weekly ? '那周' : ''}</text>`).join('');
   const pp = pv.length >= 2 ? `<path class="prev" d="${monotonePath(pxs, pv.map(Y))}"/>` : '';
   return `<svg class="reflect-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${grid}${base}${xl}${pp}<path class="cur" d="${monotonePath(xs, cur.map(Y))}"/></svg>`;
 }
@@ -477,7 +496,7 @@ function renderReflect() {
       <div class="reflect-kpi"><b>${t.multi_window_days}<small>/ ${t.days} 天</small></b><span>同一天跨多个窗口</span></div>
     </div>
     <div class="reflect-sec">
-      <div class="reflect-sec-head"><span class="reflect-sec-label">每天的量</span>
+      <div class="reflect-sec-head"><span class="reflect-sec-label">${chartWeekly(d.series) ? '每周的量' : '每天的量'}</span>
         <span class="reflect-seg">${['msgs', 'chars', 'threads'].map(k => `<button type="button" data-m="${k}" class="${RMETRIC === k ? 'active' : ''}">${{ msgs: '消息', chars: '字数', threads: '窗口' }[k]}</button>`).join('')}</span></div>
       <div id="rchart">${reflectChart(d.series, d.prev_series || [], RMETRIC)}</div>
       <div class="reflect-legend"><span><i></i>这段时间</span>${(d.prev_series || []).length ? '<span><i class="prev"></i>上一段同长</span>' : ''}</div>
@@ -564,6 +583,51 @@ document.querySelectorAll('.modal-nav-item[data-pane]').forEach(b =>
   b.onclick = () => navigate('panel/' + b.dataset.pane));
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#overlay').classList.contains('hidden')) navigate(mainRoute()); });
 
+
+// ================================================================ 回忆卡：翻一张过去的某一天
+let FB = null, FB_MODE = 'random';
+const FB_ZH = n => n >= 365 ? `${Math.floor(n / 365)} 年${n % 365 >= 30 ? ` ${Math.floor(n % 365 / 30)} 个月` : ''}前` : n >= 60 ? `${Math.floor(n / 30)} 个月前` : `${n} 天前`;
+
+async function openFlashback(mode) {
+  FB_MODE = mode || FB_MODE;
+  $('#fb').classList.remove('hidden');
+  $('#fbBody').innerHTML = '<div class="fb-loading">在翻…</div>';
+  const r = await fetch('/api/flashback?mode=' + FB_MODE).then(r => r.json());
+  FB = r;
+  document.querySelectorAll('.fb-seg button').forEach(b => {
+    b.classList.toggle('on', b.dataset.m === r.mode);
+    if (b.dataset.m === 'year') { b.disabled = !r.has_year; b.title = r.has_year ? '' : '往年的今天没有记录'; }
+  });
+  $('#fbAgain').textContent = r.mode === 'year' ? '随便翻一张' : '再翻一张';
+  const c = r.card;
+  if (!c) { $('#fbBody').innerHTML = '<div class="fb-loading">还没有能翻的日子</div>'; return; }
+  const feel = c.feel ? `<span class="fb-feel"><i style="background:${feelColor(c.feel.v)}"></i>${esc(c.feel.word)}</span>` : '';
+  const quote = c.quote
+    ? `<blockquote class="fb-q">${esc(c.quote)}</blockquote>${c.headline ? `<div class="fb-sub">那天的日记：${esc(c.headline)}</div>` : ''}`
+    : c.headline ? `<blockquote class="fb-q">${esc(c.headline)}</blockquote>` : '';
+  const th = c.threads.length ? `<div class="fb-sec"><h5>那时候你在弄</h5>${c.threads.map(t =>
+      `<div class="fb-t"><b>${esc(t.name)}</b><span class="dim">第 ${t.nth} 天</span></div>`).join('')}</div>
+    <div class="fb-sec"><h5>后来</h5>${c.threads.map(t =>
+      `<div class="fb-t"><span>${esc(t.name)}：${esc(t.later)}</span></div>`).join('')}</div>` : '';
+  $('#fbBody').innerHTML = `
+    <div class="fb-head"><span class="fb-ago">${r.mode === 'year' ? '去年今天 · ' : ''}${FB_ZH(c.ago)}</span>
+      <span class="fb-date">${c.date} 周${c.weekday}</span>${feel}</div>
+    ${quote}${th}`;
+}
+function closeFlashback() { $('#fb').classList.add('hidden'); }
+$('#fbOpen').onclick = () => openFlashback('random');
+$('#fbClose').onclick = closeFlashback;
+$('#fbAgain').onclick = () => openFlashback('random');
+$('#fbGo').onclick = () => { if (FB?.card) { closeFlashback(); navigate('day/' + FB.card.date); } };
+document.querySelectorAll('.fb-seg button').forEach(b => b.onclick = () => openFlashback(b.dataset.m));
+$('#fb').addEventListener('click', e => { if (e.target.id === 'fb') closeFlashback(); });
+document.addEventListener('keydown', e => {
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.metaKey || e.ctrlKey || e.altKey) return;
+  const open = !$('#fb').classList.contains('hidden');
+  if (e.key === 'Escape' && open) { closeFlashback(); return; }
+  if (e.key === 'r' || e.key === 'R') { e.preventDefault(); openFlashback('random'); }
+  if (open && e.key === 'Enter') $('#fbGo').click();
+});
 
 // ================================================================ 打卡（单独的全屏页 /checkin）
 async function refreshCkDot() {
@@ -1079,6 +1143,7 @@ document.querySelectorAll('.ms-item').forEach(b => b.onclick = () =>
 //   #/day/2026-09-19                        某一天
 //   #/day/2026-09-19/conv/<id>[/msg/<id>]   展开某个窗口 / 滚到某条消息（搜索结果用）
 //   #/day/2026-09-19/journal                那天的手写日记，展开全文
+//   #/flashback[/year]                      回忆卡（随便一天 / 去年今天），快捷键 R
 //   #/win                                   窗口模式，还没选
 //   #/win/<conv_id>                         某个窗口的时间轴
 //   #/panel/reflect|themes|river|data|convs|notion  浮层里的面板
@@ -1105,6 +1170,11 @@ function applyRoute() {
   const parts = raw ? raw.split('/').map(decodeURIComponent) : [];
   const head = parts[0];
 
+  if (head === 'flashback') {                          // 回忆卡：#/flashback 或 #/flashback/year
+    if (!SEL && LATEST) openDay(LATEST);
+    openFlashback(parts[1] === 'year' ? 'year' : 'random');
+    return;
+  }
   if (head === 'panel' && parts[1] === 'checkin') {      // 老链接：打卡已经挪到单独的页面
     location.href = '/checkin' + (parts[2] ? '?date=' + parts[2] : '');
     return;
@@ -1183,4 +1253,28 @@ function renderCSync(s) {
 async function pollCSync() {
   const s = await fetch('/api/claude/sync').then(r => r.json()).catch(() => null);
   if (s) renderCSync(s);
+  pollBackup();
+}
+
+// 每周备份到 Google Drive：状态放在同步那行下面，坏了看得见
+let BKPOLL = null;
+async function pollBackup() {
+  const b = await fetch('/api/backup').then(r => r.json()).catch(() => null);
+  const box = $('#backupBox'); if (!b || !box) return;
+  const j = b.job || {}, ok = b.last_ok, last = b.last;
+  clearTimeout(BKPOLL);
+  if (j.running) {
+    box.innerHTML = `<div class="sync-row"><span class="pulse"></span><span>正在备份：${esc(j.stage || '')}</span></div>`;
+    BKPOLL = setTimeout(pollBackup, 2000);
+    return;
+  }
+  const bad = last && !last.ok;
+  const where = (b.dest || '').replace(/^.*\/My Drive\//, 'Google Drive / ');
+  const detail = bad ? esc(last.note || '失败')
+    : ok ? `上次 ${rel(ok.finished_at)} · 快照 ${Math.round(ok.size / 1048576)} MB · 留最近 ${b.keep} 周（现有 ${b.snapshots} 份）` : '还没备份过';
+  box.innerHTML = `<div class="sync-row">
+      <span class="sync-dot ${bad ? 'bad' : ok ? 'ok' : 'off'}"></span>
+      <span><b>数据备份</b>　每 ${b.every_days} 天一次 → ${esc(where || '（没找到 Google Drive）')} · ${detail}</span>
+      <a id="backupNow">${bad ? '重试' : '立刻备份'}</a></div>`;
+  $('#backupNow').onclick = async () => { await fetch('/api/backup', { method: 'POST' }); setTimeout(pollBackup, 300); };
 }

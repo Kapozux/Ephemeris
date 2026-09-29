@@ -130,17 +130,25 @@ def compute(conn, range_key='1m', now=None):
 
 PROMPT = """下面是 __NAME__ 在 {start} 到 {end} 之间每天的日记标题（他和 AI 聊天记录按天压成的），以及按出现次数算的话题占比。
 有的日期后面跟着一个心情词，那是他那天**自己**打卡或手写日记里的感受（不是 AI 推的），没有就是没记。
-请写一份简短的回顾。
+最后还有一批他这段时间**自己打的**短消息（原话，按时间均匀抽的），用来看他是怎么做事、怎么想问题的。
+请写一份简短的回顾，直接对他说，用「你」。
 
-风格：直接、具体、说人话。像朋友看完你这段时间的日记后直接告诉你"你这段时间主要在干什么"。
-不要比喻，不要抒情，不要"仿佛""沉潜""画卷"这类修辞，不要评价好坏，不要给建议，不要罗列数字。
-可以直接点名科目、项目、具体的事。
+风格：像一个看完你这段时间全部记录的朋友，直接告诉你这段时间的主线是什么、你是怎么做事的。
+具体、说人话。不要抒情，不要"仿佛""沉潜""画卷"这类修辞，不要评价好坏，不要给建议，不要罗列数字。
+可以直接点名科目、项目、具体的事、具体的日期。
 
 输出三部分：
-1. headline：一句话概括这段时间在干什么，直接陈述，不要冒号、感叹号、书名号，不超过 20 个字。
-2. narrative：一段话，80-150 字。做了什么，也说感觉怎样：第一句说最主要在弄什么；然后第二、第三大块；
-   有心情词的话，用一句话说这段时间整体过得怎样、哪几天明显好或糟、跟在做的事有没有对得上（只按心情词说，不要猜）；
-   有明显变化（比如后半段转向了别的）说一句。
+1. headline：**一句有判断的话**，不是清单。找出把这段时间串起来的那一个具体东西——一个截止日、一个转折的日子、
+   一件压着一切的事——拿它当支点说一句判断（说出它和这段时间其他事的关系：之前/之后怎样、谁压着谁）。
+   日期和事必须来自材料。不要用「所有的路都指向」这个说法，也不要套固定句式，每次按这段时间自己的样子写。
+   只能用材料里真有的日期和事。不要写成「A、B 以及 C」，不要冒号、感叹号、书名号，不超过 20 个字。
+2. narrative：一段话，120-200 字，用「你」：
+   - 先说主线：这段时间几乎都围绕什么，展开成两三件具体的事；
+   - **再说一句你是怎么做事的**：从下面的原话里看出的、反复出现的做法或习惯。要引用就用「」括住，
+     **引号里必须一字不差地抄自下面「他自己打的原话」**，不能改写、不能拼接、更不能用这份说明里的字；
+     看不出来就不写这句；
+   - 有心情词的话，一句话说这段时间整体过得怎样、哪几天明显好或糟、跟在做的事对不对得上（只按心情词说，不要猜）；
+   - 有明显转向（比如后半段换了重心）说一句。
 3. groups：把下面的话题标签归成 5-8 组。每组给：
    name（不超过 10 个字，比标签更具体，例如「各科复习和作业」）、desc（不超过 30 字，说这组实际在干什么）、
    keywords（2-5 个短词，凡是标签里含这个词就算这组，例如 ["复习","作业","考试","论文"]）、
@@ -152,6 +160,9 @@ PROMPT = """下面是 __NAME__ 在 {start} 到 {end} 之间每天的日记标题
 
 日记标题（共 {n} 天）：
 {items}
+
+他自己打的原话（抽样）：
+{voice}
 
 严格按以下 JSON 输出，不要输出其他任何内容：
 {{"headline": "...", "narrative": "...", "groups": [{{"name": "...", "desc": "...", "keywords": ["..."], "tags": ["原标签", "..."]}}]}}"""
@@ -166,11 +177,35 @@ def _feel_words(d):
         hand = {r[0]: r[1] for r in db.execute(
             "SELECT date, label FROM mood_scores WHERE src='hand' AND date BETWEEN ? AND ?", (s, e))}
         try:
-            ck = {r[0]: r[1] for r in db.execute(
-                "SELECT date, word FROM checkins WHERE date BETWEEN ? AND ? ORDER BY created_at", (s, e))}
+            ck = {}
+            for d, w in db.execute(
+                    "SELECT date, word FROM checkins WHERE date BETWEEN ? AND ? ORDER BY created_at", (s, e)):
+                seq = ck.setdefault(d, [])
+                if not seq or seq[-1] != w:          # 同一个词连着记了几次只算一次
+                    seq.append(w)
         except Exception:                                    # noqa: BLE001  还没建表
             ck = {}
-    return {**{k: v for k, v in hand.items() if v}, **ck}
+    # 一天记了好几次：按时间写成「崩溃→满足」，一天里的起伏也看得见（以前只取最后一个词，会漏掉）
+    return {**{k: v for k, v in hand.items() if v}, **{d: '→'.join(ws) for d, ws in ck.items()}}
+
+
+def _voice(d, n=80, cut=120):
+    """这段时间他自己打的短消息，按时间均匀抽 n 条。贴进来的材料不算（slice.looks_pasted），
+    太短的（「好」「继续」）也不算 —— 要的是能看出他怎么做事、怎么想问题的原话。"""
+    from slice import looks_pasted
+    s, e = d['period']['start'], d['period']['end']
+    with _index.LOCK:
+        rows = [r[0] for r in _index.connect().execute(
+            "SELECT text FROM messages WHERE role='human' AND date BETWEEN ? AND ? AND chars BETWEEN 15 AND 400 ORDER BY ts",
+            (s, e))]
+    rows = [r for r in rows if not looks_pasted(r)]
+    if not rows:
+        return ''
+    step = max(1, len(rows) // n)
+    return '\n'.join('- ' + ' '.join(r.split())[:cut] for r in rows[::step][:n])
+
+
+PROMPT_VERSION = 'v5-no-template'     # 改了写法就换一下，所有时间范围自动重写
 
 
 def _fingerprint(d):
@@ -184,7 +219,7 @@ def _fingerprint(d):
     h = hashlib.sha1(stamps.encode()).hexdigest()[:10] if stamps else '0'
     # 心情词也算进去：新打了卡，回顾要跟着变
     f = hashlib.sha1(json.dumps(sorted(_feel_words(d).items()), ensure_ascii=False).encode()).hexdigest()[:8]
-    return f"{d['period']['start']}|{d['period']['end']}|{t['days']}|{t['msgs']}|{t['diaries']}|{h}|{f}"
+    return f"{PROMPT_VERSION}|{d['period']['start']}|{d['period']['end']}|{t['days']}|{t['msgs']}|{t['diaries']}|{h}|{f}"
 
 
 def _generate(d):
@@ -195,12 +230,38 @@ def _generate(d):
                       for x in sorted(d['_diaries'], key=lambda x: x['date']))
     topics = '\n'.join(f"{k} {v}" for k, v in d['raw_tags'][:200])   # 按次数降序，长尾靠 keywords
     prompt = PROMPT.format(start=d['period']['start'], end=d['period']['end'],
-                           topics=topics or '（还没有日记）', items=items or '（无）', n=len(d['_diaries']))
-    for _ in range(2):                       # 长区间输出长，偶尔 JSON 断掉，重试一次
+                           topics=topics or '（还没有日记）', items=items or '（无）', n=len(d['_diaries']),
+                           voice=_voice(d) or '（无）')
+    voice = _voice(d)
+    best = None
+    for _ in range(3):                       # 长区间输出长，偶尔 JSON 断掉；引用对不上原话也重来
         out = _extract_json(_call_model(prompt))
-        if out and out.get('headline'):
+        if not (out and out.get('headline')):
+            continue
+        bad = _bad_quotes(out.get('narrative', ''), voice)
+        if not bad:
             return out
-    return None
+        best = out
+        prompt += f"\n\n（上一次你在「」里引用了原话里没有的句子：{'、'.join(bad[:3])}。只能引用原话列表里一字不差的句子。）"
+    if best:                                 # 还是对不上：把引了假原话的那几句删掉，其余保留
+        best['narrative'] = _drop_sentences(best.get('narrative', ''), _bad_quotes(best.get('narrative', ''), voice))
+    return best
+
+
+def _bad_quotes(text, voice):
+    """「」里的话，原话抽样里找不到的那些（去掉空白再比，容忍标点前后的空格差异）。"""
+    import re
+    norm = lambda x: re.sub(r'\s+', '', x)
+    v = norm(voice)
+    return [q for q in re.findall(r'「([^」]{2,})」', text) if norm(q) not in v]
+
+
+def _drop_sentences(text, bad):
+    import re
+    if not bad:
+        return text
+    parts = re.split(r'(?<=[。！？])', text)
+    return ''.join(p for p in parts if not any(f'「{b}」' in p for b in bad)).strip()
 
 
 def _bg(conn, range_key, d):

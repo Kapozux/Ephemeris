@@ -4,7 +4,6 @@
    布局规则同 Verbatim：一套 gutter、一个宽度上限、比例栏、列表按视窗定高、1080/700 两个断点。
    ============================================================ */
 :root {
-  --st-sky:#1C1B19; --st-warm:#F4B08A; --st-cool:#8EB3DB; --st-mid:#E9E3D6;
   /* 过得怎么样：冷 = 糟，暖 = 好；卡得多狠：越深越卡 */
   --f-2:#6F8AA6; --f-1:#B9C8D6; --f0:#E6E1D6; --f1:#F2C3A6; --f2:#DE8A5E;
   --s0:#EFECE4; --s1:#D8D2C4; --s2:#B4AC9B; --s3:#857D6D; --s4:#4E483F;
@@ -65,7 +64,8 @@ button { font-family:inherit; }
 .sb-brand .logo { width:19px; height:19px; flex:none; color:var(--muted); }
 
 .searchbox { position:relative; padding:0 2px; }
-.searchbox input { width:100%; min-height:36px; padding:7px 11px; border:1px solid var(--line-2); border-radius:var(--r-sm);
+.searchbox { display:flex; gap:6px; }
+.searchbox input { flex:1; min-width:0; width:100%; min-height:36px; padding:7px 11px; border:1px solid var(--line-2); border-radius:var(--r-sm);
   background:var(--card); color:var(--ink); font:inherit; font-size:13px; outline:none; transition:border-color .15s; }
 .searchbox input:focus { border-color:var(--coral); box-shadow:0 0 0 3px var(--coral-soft); }
 .results { position:absolute; left:2px; right:2px; top:42px; z-index:200; max-height:62vh; overflow-y:auto;
@@ -486,59 +486,39 @@ button { font-family:inherit; }
 #rvTableBox { overflow-x:auto; }
 .rv-gap { fill:var(--paper); stroke:var(--line); stroke-dasharray:3 3; }
 
-/* 打卡 */
 .ck-dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--coral); margin-left:6px; vertical-align:2px; }
-.ck-date { display:flex; align-items:center; gap:10px; margin:6px 0 14px; }
-.ck-date b { font-size:15px; font-weight:600; min-width:170px; text-align:center; font-variant-numeric:tabular-nums; }
-.ck-date a { font-size:12.5px; color:var(--muted); cursor:pointer; }
-.ck-date a:hover { color:var(--coral-deep); }
-.ck-words { display:flex; flex-wrap:wrap; gap:8px; }
-.ck-w { display:inline-flex; align-items:center; gap:7px; padding:8px 14px; border:1px solid var(--line-2); border-radius:999px;
-  background:var(--card); font:inherit; font-size:14px; color:var(--ink); cursor:pointer; }
-.ck-w i { width:10px; height:10px; border-radius:50%; }
-.ck-w:hover { border-color:var(--ink); }
-.ck-w.on { border-color:var(--ink); box-shadow:0 0 0 1px var(--ink); font-weight:600; }
-.ck-w.small { padding:2px 9px; font-size:12.5px; box-shadow:none; cursor:default; }
-.ck-form { display:flex; gap:10px; align-items:center; margin-top:14px; }
-.ck-form input { flex:1; min-width:0; padding:9px 12px; border:1px solid var(--line-2); border-radius:var(--r-sm); font:inherit; font-size:14px; background:var(--card); color:var(--ink); }
-.ck-form input:focus { outline:none; border-color:var(--ink); }
-.ck-form a { font-size:12.5px; color:var(--muted); cursor:pointer; white-space:nowrap; }
-.ck-list { margin-top:14px; }
-.ck-item { display:grid; grid-template-columns:44px auto minmax(0,1fr) auto auto; gap:10px; align-items:center;
-  padding:8px 0; border-top:1px solid var(--line); font-size:13.5px; }
-.ck-item.editing { background:var(--coral-soft); }
-.ck-t { color:var(--muted); font-variant-numeric:tabular-nums; font-size:12px; }
-.ck-n { color:var(--ink-soft); word-break:break-word; }
-.ck-item a { font-size:12px; color:var(--muted); cursor:pointer; }
-.ck-item a:hover { color:var(--coral-deep); }
 .sig-add { color:var(--muted); text-decoration:none; border-style:dashed; cursor:pointer; }
 .sig-add:hover { color:var(--coral-deep); border-color:var(--coral-line); }
-/* 心情星座 */
-.pane[data-pane="checkin"] { position:relative; }
-.ck-stars-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:30px 0 10px; flex-wrap:wrap; }
-.ck-month { display:flex; align-items:center; gap:10px; }
-.ck-month b { font-size:13.5px; font-weight:600; min-width:92px; text-align:center; font-variant-numeric:tabular-nums; }
-.stars { background:var(--st-sky); border-radius:var(--r-lg); overflow:hidden; }
-.stars svg { display:block; }
-.st-dust { fill:#fff; opacity:.28; }
-.st-zero { stroke:#fff; stroke-opacity:.12; stroke-dasharray:2 4; }
-.st-line { stroke:#fff; stroke-opacity:.35; stroke-width:1; }
-.st-ax { fill:#fff; fill-opacity:.45; font-size:10.5px; font-variant-numeric:tabular-nums; }
-.st-star { cursor:pointer; }
-.st-tip { position:absolute; width:250px; background:var(--card); border:1px solid var(--line-2); border-radius:var(--r-md);
-  box-shadow:var(--e2); padding:9px 11px; font-size:12.5px; pointer-events:none; z-index:5; }
-.st-tip b { display:block; margin-bottom:4px; }
-.st-tip div { color:var(--ink-soft); line-height:1.6; }
-.st-tip em { display:block; font-style:normal; color:var(--faint); font-size:11px; margin-top:5px; }
-.st-legend { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:11.5px; color:var(--muted); margin-top:8px; }
-.st-legend span { display:inline-flex; align-items:center; gap:6px; }
-.st-k { width:9px; height:9px; border-radius:50%; display:inline-block; }
-.st-k.solid { background:var(--ink-soft); }
-.st-k.ring { border:1.4px solid var(--ink-soft); }
-.st-note { margin-top:12px; font-size:15px; line-height:1.7; color:var(--ink); min-height:1.7em; }
-@media (max-width:700px) {
-  .ck-item { grid-template-columns:40px auto minmax(0,1fr); }
-  .ck-item a { grid-row:2; }
-  .ck-date b { min-width:0; }
-}
 .tl-stale { display:inline-block; margin-left:8px; font-size:11px; color:var(--coral-deep); border:1px solid var(--coral-line); border-radius:4px; padding:0 5px; }
+
+/* 回忆卡 */
+.fb-dice { flex:none; width:36px; height:36px; display:grid; place-items:center; border:1px solid var(--line-2); border-radius:var(--r-sm);
+  background:var(--card); color:var(--muted); cursor:pointer; }
+.fb-dice:hover { color:var(--coral-deep); border-color:var(--coral-line); }
+/* 遮罩不能叫 .fb：窗口列表里自动标题的 class 是 "tt fb"，撞名会让每一行都变成全屏灰罩（2026-09-30 踩过） */
+.flashback { position:fixed; inset:0; z-index:300; background:rgba(20,20,19,.38); display:grid; place-items:center; padding:16px; }
+.fb-card { width:min(560px,100%); max-height:calc(100vh - 32px); overflow-y:auto; background:var(--card); border-radius:18px;
+  box-shadow:0 24px 60px rgba(40,30,20,.22); padding:18px 26px 22px; animation:fbIn .22s ease-out; }
+@keyframes fbIn { from { opacity:0; transform:translateY(10px) scale(.98); } to { opacity:1; transform:none; } }
+.fb-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+.fb-seg { display:inline-flex; border:1px solid var(--line-2); border-radius:999px; padding:2px; }
+.fb-seg button { border:0; background:none; padding:4px 12px; border-radius:999px; font:inherit; font-size:12.5px; color:var(--muted); cursor:pointer; }
+.fb-seg button.on { background:var(--ink); color:var(--paper); }
+.fb-seg button:disabled { opacity:.35; cursor:default; }
+.fb-x { border:0; background:none; font-size:22px; line-height:1; color:var(--faint); cursor:pointer; padding:2px 6px; }
+.fb-x:hover { color:var(--ink); }
+.fb-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+.fb-ago { font-size:22px; font-weight:700; letter-spacing:-.01em; }
+.fb-date { color:var(--muted); font-size:13px; font-variant-numeric:tabular-nums; }
+.fb-feel { margin-left:auto; display:inline-flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink-soft);
+  border:1px solid var(--line-2); border-radius:999px; padding:2px 10px; }
+.fb-feel i { width:9px; height:9px; border-radius:50%; }
+.fb-q { margin:16px 0 6px; padding:2px 0 2px 16px; border-left:3px solid var(--coral); font-size:17px; line-height:1.8; color:var(--ink); }
+.fb-sub { font-size:12.5px; color:var(--muted); margin-left:19px; }
+.fb-sec { margin-top:18px; }
+.fb-sec h5 { font-size:11px; letter-spacing:.12em; color:var(--muted); font-weight:600; margin-bottom:6px; }
+.fb-t { display:flex; gap:10px; align-items:baseline; font-size:14px; line-height:1.7; color:var(--ink-soft); }
+.fb-t b { font-weight:600; color:var(--ink); }
+.fb-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:22px; }
+.fb-loading { padding:40px 0; text-align:center; color:var(--muted); }
+.fb-actions .btn-secondary, .fb-actions .btn-primary { min-height:38px; padding:8px 18px; }

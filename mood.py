@@ -143,20 +143,6 @@ def run(call_model, say=print):
     return fails
 
 
-def pick_for_rating(n=16, seed=7):
-    """挑给我评的天：两者都有的天里，一半挑 AI 和手写分歧最大的（最能分出高下），一半随机。"""
-    rows = _q("""SELECT a.date, a.valence ai, h.valence hand FROM mood_scores a
-                   JOIN mood_scores h ON h.date=a.date AND h.src='hand'
-                   JOIN mood_scores b ON b.date=a.date AND b.src='both'
-                  WHERE a.src='ai'""")
-    rows.sort(key=lambda r: -abs(r['ai'] - r['hand']))
-    top = rows[:n // 2]
-    rest = [r for r in rows[n // 2:]]
-    random.Random(seed).shuffle(rest)
-    picked = sorted(r['date'] for r in top + rest[:n - len(top)])
-    return picked
-
-
 # ------------------------------------------------------------------ 两个指标：过得怎么样 / 卡得多狠
 # 实验结论（2026-09-27，40 天）：聊天里记下的是「跟问题较劲」的那部分 —— 骂 AI、做题卡住；
 # 做出来之后的开心、跟家人出去，发生在聊天之外，只在手写里。所以不合成一个分，分开记：
@@ -234,7 +220,7 @@ def day_signals(date):
     ck = checkin.for_date(date)
     if ck:
         v = round(sum(x['valence'] for x in ck) / len(ck), 2)
-        feel = {'src': 'checkin', 'valence': v, 'label': ck[-1]['word'],
+        feel = {'src': 'checkin', 'valence': round(v, 1), 'label': ck[0]['word'] if len(ck) == 1 else f'{len(ck)} 条的平均',
                 'evidence': '；'.join(x['note'] for x in ck if x['note'])}
     else:
         feel = rows.get('hand')
@@ -254,42 +240,6 @@ def all_signals():
 
 # ------------------------------------------------------------------ 实验：哪种合法最接近我自己的判断
 
-WEIGHTS = [0, 0.25, 0.5, 0.75, 1]          # 手写占的比重；0 = 只看 AI 日记，1 = 只看手写
-
-
-def lab_days(n=16):
-    """要我评的那几天。第一次要的时候挑好存下来，之后不变 —— 评到一半列表不能换。"""
-    ensure_table()
-    with idx.LOCK:
-        db = idx.connect()
-        db.execute('CREATE TABLE IF NOT EXISTS mood_lab_pick (date TEXT PRIMARY KEY)')
-        db.commit()
-    have = [r['date'] for r in _q('SELECT date FROM mood_lab_pick ORDER BY date')]
-    if have:
-        return have
-    # 两份都有的天必须三种分都打完才挑 —— 否则只会从先打完的那部分里挑
-    jobs, both = plan()
-    # 允许零星几个打不出分的（模型对个别内容直接不回，重试也没用），多了说明还在跑
-    if sum(1 for d, _ in jobs if d in both) > 3:
-        return []
-    picked = pick_for_rating(n)
-    if len(picked) < n:
-        return []
-    with idx.LOCK:
-        db = idx.connect()
-        db.executemany('INSERT INTO mood_lab_pick VALUES (?)', [(d,) for d in picked])
-        db.commit()
-    return picked
-
-
-def rate(date, valence, note=''):
-    with idx.LOCK:
-        db = idx.connect()
-        db.execute('INSERT OR REPLACE INTO mood_ratings VALUES (?,?,?,?)',
-                   (date, float(valence), note, datetime.now().isoformat(timespec='seconds')))
-        db.commit()
-
-
 def _corr(xs, ys):
     n = len(xs)
     if n < 3:
@@ -300,45 +250,6 @@ def _corr(xs, ys):
     if not sx or not sy:
         return None
     return round(sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / (sx * sy), 2)
-
-
-def lab_result():
-    """每种方法的分跟我评的分差多少（平均绝对误差，越小越好）和相关系数（越接近 1 越好）。"""
-    ensure_table()
-    sc = {}
-    for r in _q('SELECT date, src, valence FROM mood_scores'):
-        sc.setdefault(r['date'], {})[r['src']] = r['valence']
-    rated = {r['date']: r['valence'] for r in _q('SELECT date, valence FROM mood_ratings')}
-    days = [d for d in rated if {'ai', 'hand', 'both'} <= set(sc.get(d, {}))]
-    methods = [('只看 AI 日记', lambda s: s['ai']), ('只看手写', lambda s: s['hand']),
-               ('两份一起给模型', lambda s: s['both'])]
-    methods += [(f'加权：手写 {int(w * 100)}%', (lambda w: lambda s: w * s['hand'] + (1 - w) * s['ai'])(w))
-                for w in WEIGHTS[1:-1]]
-    out = []
-    truth = [rated[d] for d in days]
-    for name, f in methods:
-        pred = [f(sc[d]) for d in days]
-        mae = round(sum(abs(p - t) for p, t in zip(pred, truth)) / len(days), 2) if days else None
-        out.append({'method': name, 'mae': mae, 'corr': _corr(pred, truth)})
-    per_day = [{'date': d, 'me': rated[d], **{k: sc[d][k] for k in ('ai', 'hand', 'both')}} for d in sorted(days)]
-    return {'n': len(days), 'methods': out, 'days': per_day}
-
-
-def overview():
-    """不需要我评就能看的：两条线整体差多少。"""
-    ensure_table()
-    by = {}
-    for r in _q('SELECT src, valence, label FROM mood_scores'):
-        by.setdefault(r['src'], []).append(r)
-    dist = {src: {'n': len(v), 'mean': round(sum(x['valence'] for x in v) / len(v), 2),
-                  'pos': round(sum(x['valence'] > 0 for x in v) / len(v), 2),
-                  'neg': round(sum(x['valence'] < 0 for x in v) / len(v), 2)}
-            for src, v in by.items()}
-    pairs = _q("""SELECT a.valence ai, h.valence hand FROM mood_scores a
-                    JOIN mood_scores h ON h.date=a.date AND h.src='hand' WHERE a.src='ai'""")
-    return {'dist': dist, 'pairs': len(pairs),
-            'corr_ai_hand': _corr([p['ai'] for p in pairs], [p['hand'] for p in pairs]),
-            'hand_higher': round(sum(p['hand'] > p['ai'] for p in pairs) / len(pairs), 2) if pairs else None}
 
 
 if __name__ == '__main__':

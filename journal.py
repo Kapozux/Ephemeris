@@ -162,12 +162,15 @@ def list_pages():
 
 
 def sync(full=False, say=print):
-    """拉新的和改过的，删掉 Notion 里已经没了的。返回 {'pages', 'fetched', 'removed', 'failed'}。"""
+    """拉新的和改过的，删掉 Notion 里已经没了的。
+    返回 {'pages', 'fetched', 'removed', 'failed', 'dates'}；dates = 这次内容变了的日期（账本要跟着补）。"""
     ensure_tables()
     pages = list_pages()
     have = {r['page_id']: r['last_edited'] for r in _q('SELECT page_id, last_edited FROM journal')}
     todo = [p for p in pages if full or have.get(p['page_id']) != p['last_edited']]
     gone = set(have) - {p['page_id'] for p in pages}
+    gone_dates = {r['date'] for r in _q('SELECT page_id, date FROM journal') if r['page_id'] in gone}
+    changed = set()
     say(f'手写日记：Notion 里 {len(pages)} 页，要拉 {len(todo)} 页，要删 {len(gone)} 页')
 
     failed = []
@@ -188,6 +191,7 @@ def sync(full=False, say=print):
                 db.execute('INSERT INTO journal_fts(text, date, page_id) VALUES (?,?,?)',
                            (text, p['date'], p['page_id']))
             db.commit()
+        changed.add(p['date'])
         if i % 20 == 0 or i == len(todo):
             say(f'  {i}/{len(todo)}')
         time.sleep(0.2)                                      # Notion 限流约 3 次/秒
@@ -200,7 +204,7 @@ def sync(full=False, say=print):
                 db.execute('DELETE FROM journal_fts WHERE page_id=?', (pid,))
             db.commit()
     return {'pages': len(pages), 'fetched': len(todo) - len(failed),
-            'removed': len(gone), 'failed': failed}
+            'removed': len(gone), 'failed': failed, 'dates': sorted(changed | gone_dates)}
 
 
 # ------------------------------------------------------------------ 读

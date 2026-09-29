@@ -55,7 +55,10 @@ DIARY2_PROMPT = (diary.PROMPT
     .replace('  "mood": "一个词：平稳/焦虑/兴奋/疲惫/烦躁/低落。只根据他自己说的话判断，看不出就写 平稳",',
              '  "feelings": "这天他自己表达出来的情绪和感受，1-3 句，带原话；完全没流露就写空字符串",\n'
              '  "mood": "一个词：开心/满足/兴奋/平稳/疲惫/焦虑/烦躁/低落/崩溃。看整天占主导的那一面，看得出倾向就别写平稳",'))
-assert DIARY2_PROMPT != diary.PROMPT and 'feelings' in DIARY2_PROMPT
+# 2026-09-27 之后线上的 diary.PROMPT 已经采用了这套写法（「做了啥感觉啥」），上面的替换找不到原句；
+# 那就直接用线上的 —— 实验要比的「新 prompt」就是它。
+if DIARY2_PROMPT == diary.PROMPT:
+    DIARY2_PROMPT = diary.PROMPT
 
 
 def _q(sql, *a):

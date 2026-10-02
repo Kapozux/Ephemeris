@@ -15,6 +15,7 @@
   3. 两个指标    新聊天天打「卡得多狠」，新手写天打「过得怎么样」
   4. 主题归类    新冒出来的主题归到河流图的大类里
   5. 窗口回顾    做过回顾的窗口，只补新聊的天
+  6. 回顾面板    那段话每周一写一次（这周还没写的范围才写，见 reflect_chat.weekly）
 """
 import json
 import time
@@ -128,6 +129,7 @@ def tidy(call_model):
     import journal
     import ledger
     import mood
+    import reflect_chat
     import river
     started = datetime.now().isoformat(timespec='seconds')
     out, ctx = [], {}
@@ -160,8 +162,11 @@ def tidy(call_model):
                 done.append({'conv': cid[:10], 'days': len(todo)})
         return {'windows': done}
 
+    def s_reflect():
+        return {'rewrote': reflect_chat.weekly()}
+
     for name, fn in (('手写日记', s_journal), ('手写进账本', s_hand), ('两个指标', s_mood),
-                     ('主题归类', s_cats), ('窗口回顾', s_windows)):
+                     ('主题归类', s_cats), ('窗口回顾', s_windows), ('回顾面板', s_reflect)):
         _step(name, fn, out)
 
     with store.LOCK:

@@ -1,15 +1,23 @@
 """「回顾」：一段时间里我在跟 AI 聊什么。
 
 和 getAudio/reflect.py 一个路子：
-  compute()   纯数据，确定性，从 chats.db + diaries 表算，模型一步不掺和
-  narrative   只让模型写一小段直白叙事（flash-lite），结果落 SQLite，指纹没变就不重算
-  build()     先把旧的给出去，指纹变了在后台重算，前端轮询
+  compute()   纯数据，确定性，从 chats.db + diaries 表算，模型一步不掺和 —— 每次打开都是实时的，不花钱
+  narrative   只让模型写一小段直白叙事（flash-lite），结果落 SQLite
+  build()     给面板用：数字现算，那段话用存着的
+  weekly()    早上那一串里调：这周还没写的范围，现在写
+
+那段话**每周一写一次**（2026-10-02 起）。以前跟着数据指纹走，新打一条卡、多聊几句，
+四个时间范围就全部重写一遍 —— 一天能重写好几轮，浪费钱。现在：
+  - 周一早上 08:30 那一串里写（daily.tidy）；那天电脑没开，就在这周第一次用到时补
+  - 每个范围每周最多自动试一次，失败了也不再试，等下周或手动 ↻
+  - 改了 PROMPT_VERSION（写法变了）照样全部重写；↻ 随时可以手动重写
 """
 import hashlib
 import json
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
+import days
 import diary
 import index as _index
 import jobs
@@ -174,10 +182,10 @@ PROMPT_VERSION = 'v5-no-template'     # 改了写法就换一下，所有时间�
 
 
 def _fingerprint(d):
-    """回顾是基于日记写的，所以指纹必须跟着日记**内容**变。
+    """写这段话时依据的是什么（区间、篇数、各篇日记的生成时间、心情词）。存下来备查。
 
-    只看篇数不行：改了 prompt 把 291 篇全重写一遍，篇数没变，回顾还停在旧版上。
-    这里把当期日记的 generated_at 也算进去。
+    以前拿它判断要不要重写（一变就重写，太费钱）；现在只看开头的 PROMPT_VERSION，
+    什么时候重写由 _due 决定：每周一次。
     """
     t = d['totals']
     stamps = ''.join(sorted((x.get('generated_at') or '') for x in d.get('_diaries', [])))
@@ -243,12 +251,53 @@ def _regenerate(job, range_key, d):
               datetime.now().isoformat(timespec='seconds'))
 
 
+# ------------------------------------------------------------- 什么时候重写
+
+_auto_tried = {}            # range_key -> 哪一周自动试过（只记在内存里：重启后这周还能再试一次）
+
+
+def _week_start(today=None):
+    """这周一的日期（按 Ephemeris 的一天：凌晨 4 点前还算前一天）。"""
+    d = date.fromisoformat(today or days.today())
+    return (d - timedelta(days=d.weekday())).isoformat()
+
+
+def _due(row, week):
+    """这个范围的那段话，这周该不该自动重写。"""
+    if not row or not row['headline']:
+        return True
+    if (row['fingerprint'] or '').split('|')[0] != PROMPT_VERSION:
+        return True                                   # 写法改了：所有范围都重写
+    return (row['generated_at'] or '')[:10] < week     # 上周（或更早）写的
+
+
+def _claim_auto(range_key, row):
+    """该自动重写、而且这周还没自动试过：记下「这周试过了」，返回 True。"""
+    week = _week_start()
+    if not _due(row, week) or _auto_tried.get(range_key) == week:
+        return False
+    _auto_tried[range_key] = week
+    return True
+
+
+def weekly():
+    """早上那一串里调：这周还没写的范围，现在写（当前线程，一个接一个）。返回写了哪些。"""
+    done = []
+    for k in RANGES:
+        row = store.one('SELECT * FROM reflect WHERE range_key=?', k)
+        d = compute(k)
+        if not d['totals']['diaries'] or not _claim_auto(k, row):
+            continue
+        jobs.run(_job(k), _regenerate, k, d)
+        done.append(k)
+    return done
+
+
 def build(range_key='1m', refresh=False):
-    """旧的先给；指纹变了或强制刷新就后台重算（jobs：reflect:区间，同一个区间不会同时算两遍）。"""
+    """面板要的：数字现算；那段话用存着的。这周还没写过（周一早上那次错过了）才在后台补写；refresh=True 是手动 ↻。"""
     d = compute(range_key)
     row = store.one('SELECT * FROM reflect WHERE range_key=?', range_key)
-    stale = refresh or not row or row['fingerprint'] != _fingerprint(d)
-    if stale and d['totals']['diaries']:
+    if d['totals']['diaries'] and (refresh or _claim_auto(range_key, row)):
         # 传浅拷贝：下面马上会 d.pop('_diaries') 给接口瘦身，线程慢一步就拿不到日记了（踩过）
         jobs.start(_job(range_key), _regenerate, range_key, dict(d))
 

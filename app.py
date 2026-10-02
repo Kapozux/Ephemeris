@@ -108,7 +108,10 @@ def api_days():
     return jsonify({'days': rows, 'total_days': len(rows),
                     'missing': len(missing),
                     'cost_estimate': round(len(missing) * COST_PER_DAY, 2),
-                    'latest': rows[-1]['date'] if rows else None})
+                    # 打开应用落在哪一天：最近一篇写好的日记（早上 08:30 刚写出来的昨天那篇）。
+                    # 不用「最近有数据的一天」—— 那常常是今天，只有一两条打卡，页面是空的。
+                    'latest': next((r['date'] for r in reversed(rows) if r['has_diary']),
+                                   rows[-1]['date'] if rows else None)})
 
 
 # ---------------------------------------------------------------- 一天
@@ -144,10 +147,12 @@ def api_day(date):
     d = q('SELECT * FROM diaries WHERE date = ?', date)
     nav = q("""SELECT
                  (SELECT MAX(d) FROM (SELECT date d FROM messages WHERE role='human' AND date < ?
-                                      UNION SELECT date FROM journal WHERE chars > 0 AND date < ?)) prev,
+                                      UNION SELECT date FROM journal WHERE chars > 0 AND date < ?
+                                      UNION SELECT date FROM checkins WHERE date < ?)) prev,
                  (SELECT MIN(d) FROM (SELECT date d FROM messages WHERE role='human' AND date > ?
-                                      UNION SELECT date FROM journal WHERE chars > 0 AND date > ?)) next""",
-            date, date, date, date)[0]
+                                      UNION SELECT date FROM journal WHERE chars > 0 AND date > ?
+                                      UNION SELECT date FROM checkins WHERE date > ?)) next""",
+            date, date, date, date, date, date)[0]
     return jsonify({'date': date, 'threads': out,
                     'diary': _parse_diary(d[0]) if d else None,
                     'themes': ledger.chips(date),

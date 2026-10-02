@@ -10,7 +10,7 @@
   --paper:#FAF9F5; --card:#FFFFFF;
   --ink:#141413; --ink-soft:#3D3A34; --muted:#79756C; --faint:#A8A398;
   --line:#ECEAE1; --line-2:#E1DED2;
-  --coral:#D97757; --coral-deep:#BE5D3E; --coral-soft:#FBEEE7; --coral-line:#F0D8CC;
+  --coral:#D97757; --coral-deep:#B05230; --coral-press:#933F22; --coral-soft:#FBEEE7; --coral-line:#F0D8CC;
   --code-bg:#F1EFE8; --mark:#FFF1B8;
   --claude:#D97757; --gemini:#4A7DB5;
   /* 日历热度：珊瑚 ramp，编码「窗口数」 */
@@ -41,10 +41,10 @@ a { color:var(--coral-deep); text-decoration:none; }
 mark { background:var(--mark); color:inherit; padding:0 2px; border-radius:2px; }
 button { font-family:inherit; }
 
-.btn-primary { display:inline-block; min-height:40px; padding:10px 22px; background:var(--coral); color:#fff;
-  border:1px solid var(--coral); border-radius:var(--r-md); font-size:14px; font-weight:500; cursor:pointer;
+.btn-primary { display:inline-block; min-height:40px; padding:10px 22px; background:var(--coral-deep); color:#fff;
+  border:1px solid var(--coral-deep); border-radius:var(--r-md); font-size:14px; font-weight:500; cursor:pointer;
   transition:background .15s ease; }
-.btn-primary:hover { background:var(--coral-deep); border-color:var(--coral-deep); }
+.btn-primary:hover { background:var(--coral-press); border-color:var(--coral-press); }
 .btn-secondary { padding:8px 15px; min-height:36px; background:var(--card); color:var(--ink-soft);
   border:1px solid var(--line-2); border-radius:var(--r-sm); font-size:13px; cursor:pointer; white-space:nowrap;
   transition:border-color .15s ease, background .15s ease; }
@@ -81,7 +81,7 @@ button { font-family:inherit; }
 .batch { padding:0 2px; }
 .batch button { width:100%; }
 .bar { margin-top:8px; height:4px; background:var(--line); border-radius:2px; position:relative; }
-.bar i { display:block; height:100%; width:0; background:var(--coral); border-radius:2px; transition:width .4s; }
+.bar i { display:block; height:100%; width:100%; background:var(--coral); border-radius:2px; transform:scaleX(0); transform-origin:left; transition:transform .4s; }
 .bar span { position:absolute; right:0; top:7px; font-size:11px; color:var(--muted); }
 
 /* 日历：两个月并排的紧凑月历。
@@ -90,7 +90,7 @@ button { font-family:inherit; }
 .cal { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; padding:8px 4px 6px; scrollbar-width:thin;
   display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px 10px; align-content:start; }
 .mon { min-width:0; }
-.mon h4 { font-size:10px; font-weight:600; color:var(--faint); letter-spacing:.04em; margin-bottom:4px;
+.mon h4 { font-size:11px; font-weight:600; color:var(--faint); letter-spacing:.04em; margin-bottom:4px;
   font-variant-numeric:tabular-nums; }
 .grid { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:1.5px; }
 .grid > * { min-width:0; }
@@ -101,7 +101,7 @@ button { font-family:inherit; }
 .day.sel { box-shadow:0 0 0 1.5px var(--ink); z-index:3; }
 
 .sb-bottom { margin-top:auto; padding-top:6px; border-top:1px solid var(--line); }
-.legend { display:flex; align-items:center; gap:3px; font-size:10px; color:var(--faint); padding:8px 6px 4px; }
+.legend { display:flex; align-items:center; gap:3px; font-size:11px; color:var(--faint); padding:8px 6px 4px; }
 .legend span { white-space:nowrap; }
 .legend .sp { flex:1; }
 .sw { display:inline-block; width:8px; height:8px; border-radius:2px; flex:none; }
@@ -159,7 +159,7 @@ button { font-family:inherit; }
 .thead .ts { font-size:11.5px; color:var(--muted); }
 .thead .tt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .thead .right { display:flex; align-items:center; gap:8px; }
-.thead .span { font-size:10.5px; color:var(--coral-deep); background:var(--coral-soft); border:1px solid var(--coral-line);
+.thead .span { font-size:11px; color:var(--coral-deep); background:var(--coral-soft); border:1px solid var(--coral-line);
   border-radius:999px; padding:1px 8px; cursor:pointer; white-space:nowrap; font-weight:600; }
 .thead .cnt { font-size:11.5px; color:var(--muted); white-space:nowrap; }
 .tbody { margin:0 10px 12px 50px; padding-left:12px; border-left:2px solid var(--line-2); }
@@ -270,7 +270,7 @@ button { font-family:inherit; }
 .bars.wd { grid-template-columns:repeat(7,1fr); gap:8px; }
 .bars i { display:block; background:var(--coral); opacity:.85; border-radius:3px 3px 0 0; min-height:2px; }
 .bars i.lo { opacity:.35; }
-.bars-x { display:grid; grid-template-columns:repeat(24,1fr); font-size:10.5px; color:var(--faint); margin-top:4px; text-align:center; }
+.bars-x { display:grid; grid-template-columns:repeat(24,1fr); font-size:11px; color:var(--faint); margin-top:4px; text-align:center; }
 .bars-x.wd { grid-template-columns:repeat(7,1fr); font-size:12px; color:var(--muted); }
 .two { display:grid; grid-template-columns:1fr 1fr; gap:34px; }
 .pills { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
@@ -311,7 +311,7 @@ button { font-family:inherit; }
 .crow .tt.fb { color:var(--ink-soft); }
 .crow .tt small { color:var(--faint); margin-left:6px; font-size:11px; }
 .crow .m { color:var(--muted); font-size:12px; white-space:nowrap; text-align:right; }
-.crow .span { font-size:10.5px; color:var(--coral-deep); background:var(--coral-soft); border:1px solid var(--coral-line); border-radius:999px; padding:0 7px; margin-left:6px; }
+.crow .span { font-size:11px; color:var(--coral-deep); background:var(--coral-soft); border:1px solid var(--coral-line); border-radius:999px; padding:0 7px; margin-left:6px; }
 .convlist .more { display:block; text-align:center; padding:12px; color:var(--muted); cursor:pointer; }
 
 /* Notion 同步面板：沿用 dlist / pulse，补几条自己的 */
@@ -346,7 +346,7 @@ button { font-family:inherit; }
 .winrow.sel .wt { color:var(--coral-deep); font-weight:600; }
 .winrow .wm { display:flex; align-items:center; margin-top:3px; font-size:11px; color:var(--muted); }
 .winrow .wm .dot { width:5px; height:5px; border-radius:50%; background:var(--coral); margin-left:6px; }
-.winrow .wd2 { display:block; margin-top:1px; font-size:10.5px; color:var(--faint); font-variant-numeric:tabular-nums; }
+.winrow .wd2 { display:block; margin-top:1px; font-size:11px; color:var(--faint); font-variant-numeric:tabular-nums; }
 .winmore, .winempty { display:block; padding:10px 8px; font-size:12px; color:var(--muted); cursor:pointer; text-align:center; }
 .winmore:hover { color:var(--coral-deep); }
 
@@ -356,7 +356,7 @@ button { font-family:inherit; }
 .tlrow:first-child { border-top:0; }
 .tldate { text-align:right; padding-top:1px; }
 .tldate .n { display:block; font-family:var(--serif); font-size:19px; color:var(--ink); font-variant-numeric:tabular-nums; }
-.tldate .y { display:block; font-size:10.5px; color:var(--faint); margin-top:1px; }
+.tldate .y { display:block; font-size:11px; color:var(--faint); margin-top:1px; }
 .tlnote { font-size:14.5px; line-height:1.75; color:var(--ink-soft); }
 .tlrow.nonote .tlnote { color:var(--faint); }
 .tlmeta { margin-top:6px; font-size:12px; color:var(--muted); display:flex; flex-wrap:wrap; gap:12px; align-items:baseline; }
@@ -420,7 +420,7 @@ button { font-family:inherit; }
 }
 
 /* 手写日记：我自己在 Notion 里写的，放在 AI 日记上面 */
-.journal { padding:20px 30px 18px; margin-bottom:16px; border-left:3px solid var(--ink-soft); }
+.journal { padding:20px 30px 18px; margin-bottom:16px; background:#FFFDF9; }
 .j-head { display:flex; align-items:baseline; gap:10px; font-size:12px; margin-bottom:10px; }
 .j-head .sp { flex:1; }
 .j-head a { color:var(--muted); cursor:pointer; }
@@ -437,7 +437,7 @@ button { font-family:inherit; }
 .legend .sw.jr { background:var(--h0); position:relative; }
 .legend .sw.jr::after { content:''; position:absolute; right:1px; bottom:1px; width:3px; height:3px; border-radius:50%; background:var(--ink-soft); }
 .hit.jhit b { color:var(--ink-soft); }
-.src-hand { font-style:normal; font-size:10.5px; color:var(--ink-soft); border:1px solid var(--line-2); border-radius:4px; padding:0 4px; margin-right:6px; }
+.src-hand { font-style:normal; font-size:11px; color:var(--ink-soft); border:1px solid var(--line-2); border-radius:4px; padding:0 4px; margin-right:6px; }
 
 /* 日历颜色开关 */
 .colorswitch { display:flex; gap:2px; padding:2px; margin-top:8px; background:var(--paper); border:1px solid var(--line); border-radius:var(--r-sm); }
@@ -454,7 +454,7 @@ button { font-family:inherit; }
   border:1px solid var(--line-2); border-radius:999px; cursor:default; }
 .sig i { width:9px; height:9px; border-radius:2px; }
 .sig b { font-variant-numeric:tabular-nums; }
-.sig em { font-style:normal; font-size:10.5px; color:var(--faint); }
+.sig em { font-style:normal; font-size:11px; color:var(--faint); }
 
 /* 话题河流 */
 .pane[data-pane="river"] { position:relative; }
@@ -469,7 +469,7 @@ button { font-family:inherit; }
 .rv-chart svg { display:block; }
 .rv-band { stroke:var(--card); stroke-width:.5; stroke-linejoin:round; transition:opacity .15s; }
 .rv-grid { stroke:var(--line); stroke-width:1; }
-.rv-ax { font-size:10.5px; fill:var(--muted); font-variant-numeric:tabular-nums; }
+.rv-ax { font-size:11px; fill:var(--muted); font-variant-numeric:tabular-nums; }
 .rv-cross { stroke:var(--ink); stroke-width:1; stroke-dasharray:2 3; }
 .rv-cross.hidden { display:none; }
 .rv-tip { position:absolute; width:260px; background:var(--card); border:1px solid var(--line-2); border-radius:var(--r-md);

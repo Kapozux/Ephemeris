@@ -54,6 +54,23 @@ def _transient(e):
     return 'Failed to fetch' in str(e) or 'NetworkError' in str(e)
 
 
+def _explain(res):
+    """把 claude.ai 的失败翻译成「该怎么办」。光说「HTTP 403」分不清是登录失效还是被 Cloudflare 拦了，
+    两种修法完全不同（2026-10-02 踩过：其实是 account_session_invalid）。"""
+    res = res or {}
+    body, st = res.get('body') or '', res.get('status')
+    if 'account_session_invalid' in body or 'Invalid authorization' in body:
+        return ('claude.ai 的登录已失效（account_session_invalid）。浏览器里登录 claude.ai，'
+                '把新的 sessionKey 填进 ephemeris/.env 的 CLAUDE_SESSION_KEY，再点「立刻同步」')
+    if 'Just a moment' in body or '<html' in body.lower():
+        return f'被 Cloudflare 拦下了（HTTP {st}，返回的是验证页不是数据）。隔一会儿再同步试试'
+    if st == 404:
+        return 'claude.ai 找不到这个组织（HTTP 404）：.env 里的 CLAUDE_ORG_ID 可能不对，删掉那行让它自己去取'
+    if st == 429:
+        return '请求太频繁被限流了（HTTP 429），过一阵再同步'
+    return f"列对话失败：{res.get('error')} {body[:120]}".strip()
+
+
 class SyncError(RuntimeError):
     pass
 
@@ -127,7 +144,7 @@ _LIST_JS = """(async () => {
   while (true) {
     const r = await fetch(`/api/organizations/${org}/chat_conversations?limit=50&offset=${offset}`,
                           {credentials:'include'});
-    if (!r.ok) return {error: 'list HTTP ' + r.status};
+    if (!r.ok) return {error: 'list HTTP ' + r.status, status: r.status, body: (await r.text()).slice(0, 300)};
     const j = await r.json();
     const items = Array.isArray(j) ? j : (j.data || j.results || j.chat_conversations || []);
     if (!items.length) break;
@@ -235,7 +252,7 @@ def sync(since=None, force=False, progress=None, headless=True):
                     time.sleep(20)
                     c.goto('https://claude.ai/', wait=8)
             if not res or res.get('error'):
-                raise SyncError(f"列对话失败：{(res or {}).get('error')} —— sessionKey 可能过期了")
+                raise SyncError(_explain(res))
             listed = [x for x in res['conversations'] if (x.get('updated_at') or '') >= since]
 
             seen = {} if force else known()

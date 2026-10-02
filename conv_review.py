@@ -12,10 +12,10 @@
 
 都是**按需生成**，点开哪个窗口才算哪个，不做全量批处理。
 """
-import threading
 from datetime import datetime
 
 
+import jobs
 import store
 import index as idx  # noqa: E402
 import llm  # noqa: E402
@@ -179,11 +179,12 @@ def _prior(notes, days, i):
 
 # ------------------------------------------------------------------- 生成
 
-_jobs = {}        # conv_id -> {'running','total','done','current'}
+def _name(conv_id):
+    return f'window:{conv_id}'
 
 
 def job(conv_id):
-    return _jobs.get(conv_id) or {'running': False, 'total': 0, 'done': 0, 'current': None}
+    return jobs.get(_name(conv_id), total=0, done=0, current=None)
 
 
 def pending(conv_id, w=None):
@@ -204,6 +205,15 @@ def _pick(days):
 
 
 def generate(conv_id, refresh=False, progress=None):
+    """当前线程跑。这个窗口正在写就返回 None。"""
+    return jobs.run(_name(conv_id), _generate, conv_id, refresh, progress, total=0, done=0)
+
+
+def generate_bg(conv_id, refresh=False):
+    jobs.start(_name(conv_id), _generate, conv_id, refresh, None, total=0, done=0)
+
+
+def _generate(st, conv_id, refresh, progress):
     """把一个窗口的逐日小结 + 整体 arc 生成出来。
 
     **只写新的天和内容变了的天**，其余小结原样留着；有任何一天变了，arc 才重新汇总（一次调用）。
@@ -220,48 +230,38 @@ def generate(conv_id, refresh=False, progress=None):
     if not todo_dates and have['arc']:
         return have                                # 什么都没变，一次都不调
     todo = [d for d in days if d['date'] in todo_dates]
-    st = _jobs.setdefault(conv_id, {})
-    st.update(running=True, total=len(todo) + 1, done=0, current=None)
-    try:
-        for i, d in enumerate(days):
-            if d['date'] not in todo_dates:
-                continue
-            st['current'] = d['date']
-            body = day_text(conv_id, d['date'])
-            if not body:
-                continue
-            p = NOTE_PROMPT.format(date=d['date'], since=days[0]['date'], n_days=len(days),
-                                   prior=_prior(notes, days, i), body=body)
-            try:
-                txt = (_call_model(p) or '').strip().strip('"').strip('「」')
-            except Exception as e:                          # noqa: BLE001
-                txt = f'（生成失败：{e}）'
-            notes[d['date']] = txt.split('\n')[0][:200]
-            _save(conv_id, d['date'], notes[d['date']], _fp(d))
-            st['done'] += 1
-            if progress:
-                progress(st['done'], st['total'], d['date'])
-
-        st['current'] = 'arc'
-        joined = '\n'.join(f"{d['date']}：{notes.get(d['date'], '')}" for d in days
-                           if notes.get(d['date']))
-        title = w['conv'].get('title') or w['conv'].get('title_fallback') or ''
+    st['total'] = len(todo) + 1
+    for i, d in enumerate(days):
+        if d['date'] not in todo_dates:
+            continue
+        st['current'] = d['date']
+        body = day_text(conv_id, d['date'])
+        if not body:
+            continue
+        p = NOTE_PROMPT.format(date=d['date'], since=days[0]['date'], n_days=len(days),
+                               prior=_prior(notes, days, i), body=body)
         try:
-            arc = (_call_model(ARC_PROMPT.format(
-                n_days=len(days), title=title, notes=joined)) or '').strip()
-        except Exception as e:                              # noqa: BLE001
-            arc = f'（生成失败：{e}）'
-        _save(conv_id, '', arc.strip('"').strip('「」')[:800])
+            txt = (_call_model(p) or '').strip().strip('"').strip('「」')
+        except Exception as e:                          # noqa: BLE001
+            txt = f'（生成失败：{e}）'
+        notes[d['date']] = txt.split('\n')[0][:200]
+        _save(conv_id, d['date'], notes[d['date']], _fp(d))
         st['done'] += 1
-    finally:
-        st.update(running=False, current=None)
+        if progress:
+            progress(st['done'], st['total'], d['date'])
+
+    st['current'] = 'arc'
+    joined = '\n'.join(f"{d['date']}：{notes.get(d['date'], '')}" for d in days
+                       if notes.get(d['date']))
+    title = w['conv'].get('title') or w['conv'].get('title_fallback') or ''
+    try:
+        arc = (_call_model(ARC_PROMPT.format(
+            n_days=len(days), title=title, notes=joined)) or '').strip()
+    except Exception as e:                              # noqa: BLE001
+        arc = f'（生成失败：{e}）'
+    _save(conv_id, '', arc.strip('"').strip('「」')[:800])
+    st['done'] += 1
     return notes_for(conv_id)
-
-
-def generate_bg(conv_id, refresh=False):
-    if job(conv_id)['running']:
-        return
-    threading.Thread(target=generate, args=(conv_id, refresh), daemon=True).start()
 
 
 # -------------------------------------------------------------------- CLI

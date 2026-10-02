@@ -19,11 +19,11 @@ import json
 import os
 import shutil
 import sqlite3
-import threading
 from collections import defaultdict
 from datetime import date as _date, datetime, timedelta
 
 import days
+import jobs
 import store
 import index as idx
 
@@ -31,8 +31,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 EVERY_DAYS = 1
 SKIP_TABLES = ('sqlite_sequence', 'backups', 'backup_files')   # 再加上名字里带 _fts 的（全文索引，能重建）；备份自己的记账不备
 
-_job = {'running': False, 'stage': None, 'error': None}
-_lock = threading.Lock()
 
 
 def dest():
@@ -219,22 +217,29 @@ def _imports(root):
 # ------------------------------------------------------------------ 跑
 
 def run():
-    if not _lock.acquire(blocking=False):
-        return None
+    """备份一次（当前线程）。已经在跑就返回 None。"""
+    return jobs.run('backup', _run)
+
+
+def run_bg():
+    jobs.start('backup', _run)
+
+
+def _run(job):
     started = datetime.now().isoformat(timespec='seconds')
     root = dest()
     week = _week(_date.fromisoformat(days.today()))
-    _job.update(running=True, stage='准备', error=None)
+    job['stage'] = '准备'
     try:
         if not root or not os.path.isdir(os.path.dirname(root)):
             raise RuntimeError('找不到 Google Drive 的同步目录 —— Drive 客户端没开？（也可以在 .env 设 EPHEMERIS_BACKUP_DIR）')
         w = _Writer(root)
-        _job['stage'] = '导出聊天记录和各张表'
+        job['stage'] = '导出聊天记录和各张表'
         ndays = _export(w)
-        _job['stage'] = '写每周的 Markdown'
+        job['stage'] = '写每周的 Markdown'
         nmd = _weeks_md(w)
         w.commit()
-        _job['stage'] = '同步导入原件'
+        job['stage'] = '同步导入原件'
         nimp = _imports(root)
         with store.LOCK:
             db = store.connect()
@@ -247,29 +252,20 @@ def run():
         print(f'[backup] 共 {w.total} 个文件，这次写了 {w.written} 个（{w.bytes // 1024} KB），新导入原件 {nimp}', flush=True)
         return last_ok()
     except Exception as e:                                   # noqa: BLE001
-        _job['error'] = f'{type(e).__name__}: {e}'[:300]
+        job['error'] = f'{type(e).__name__}: {e}'[:300]
         with store.LOCK:
             db = store.connect()
             db.execute('INSERT INTO backups(started_at, finished_at, ok, week, dest, note) VALUES (?,?,?,?,?,?)',
-                       (started, datetime.now().isoformat(timespec='seconds'), 0, week, root, _job['error']))
+                       (started, datetime.now().isoformat(timespec='seconds'), 0, week, root, job['error']))
             db.commit()
-        print(f'[backup] 失败：{_job["error"]}', flush=True)
+        print(f'[backup] 失败：{job["error"]}', flush=True)
         return None
-    finally:
-        _job.update(running=False, stage=None)
-        _lock.release()
-
-
-def run_bg():
-    if _job['running']:
-        return
-    threading.Thread(target=run, daemon=True).start()
 
 
 def status():
     ok = last_ok()
     nxt = (datetime.fromisoformat(ok['finished_at']) + timedelta(days=EVERY_DAYS)).isoformat(timespec='minutes') if ok else None
-    return {'job': dict(_job), 'last': last(), 'last_ok': ok, 'dest': dest(),
+    return {'job': jobs.get('backup', stage=None, error=None), 'last': last(), 'last_ok': ok, 'dest': dest(),
             'every_days': EVERY_DAYS, 'next': nxt}
 
 

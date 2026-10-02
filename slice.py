@@ -18,20 +18,7 @@ MONTHS = {m: i for i, m in enumerate(
     ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], 1)}
 
-# 本地时区：Claude API 给的是 UTC，按天分桶必须先落到你所在时区，
-# 否则晚上 8 点以后的消息会被算进第二天。
-LOCAL_TZ = timezone(timedelta(hours=8))          # Asia/Shanghai
-
-# 一天的分界。设成 4 表示凌晨 4 点前算前一天——熬夜聊的东西归到前一天的日记里。
-DAY_CUTOFF_HOUR = int(os.environ.get('DIARY_DAY_CUTOFF', '4'))
-
-
-def _bucket_date(dt):
-    """带 cutoff 的日期归属。"""
-    local = dt.astimezone(LOCAL_TZ)
-    if local.hour < DAY_CUTOFF_HOUR:
-        local -= timedelta(days=1)
-    return local.date().isoformat()
+from days import LOCAL_TZ, bucket    # 一天怎么算：days.py
 
 
 # ---------------------------------------------------------------- 读 JSON
@@ -146,7 +133,7 @@ def slice_by_day(conversations, include_assistant=False):
         for m in c['messages']:
             if m['role'] != 'human' and not include_assistant:
                 continue
-            days[_bucket_date(m['dt'])][key].append(m)
+            days[bucket(m['dt'])[0]][key].append(m)
 
     out = {}
     for date, threads in sorted(days.items()):

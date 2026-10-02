@@ -212,28 +212,23 @@ def fill(call_model, say=print):
 
 
 def day_signals(date):
-    """过得怎么样：有打卡用打卡（自己说的），没有用手写日记的分（模型读的）。卡得多狠：聊天。"""
+    """过得怎么样（days.feel：打卡优先，其次手写）+ 卡得多狠（聊天）。"""
     import checkin
-    rows = {r['src']: r for r in _q("SELECT src, valence, label, evidence FROM mood_scores "
-                                     "WHERE date=? AND src IN ('hand','friction')", date)}
-    ck = checkin.for_date(date)
-    if ck:
-        v = round(sum(x['valence'] for x in ck) / len(ck), 2)
-        feel = {'src': 'checkin', 'valence': round(v, 1), 'label': ck[0]['word'] if len(ck) == 1 else f'{len(ck)} 条的平均',
-                'evidence': '；'.join(x['note'] for x in ck if x['note'])}
-    else:
-        feel = rows.get('hand')
-    return {'mood': feel, 'friction': rows.get('friction'), 'checkins': ck}
+    import days
+    fr = _q("SELECT src, valence, label, evidence FROM mood_scores WHERE date=? AND src='friction'", date)
+    return {'mood': days.feel(date), 'friction': fr[0] if fr else None, 'checkins': checkin.for_date(date)}
 
 
 def all_signals():
-    import checkin
+    """{date: {mood, friction, checkin}}，给日历用。"""
+    import days
     out = {}
-    for r in _q("SELECT date, src, valence FROM mood_scores WHERE src IN ('hand','friction')"):
-        out.setdefault(r['date'], {})['mood' if r['src'] == 'hand' else 'friction'] = r['valence']
-    for d, v in checkin.day_values().items():            # 打卡覆盖手写的分
-        out.setdefault(d, {})['mood'] = v
-        out[d]['checkin'] = True
+    for r in _q("SELECT date, valence FROM mood_scores WHERE src='friction'"):
+        out.setdefault(r['date'], {})['friction'] = r['valence']
+    for d, f in days.feel_range().items():
+        out.setdefault(d, {})['mood'] = f['v']
+        if f['src'] == 'checkin':
+            out[d]['checkin'] = True
     return out
 
 

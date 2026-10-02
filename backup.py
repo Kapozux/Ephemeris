@@ -23,6 +23,7 @@ import threading
 from collections import defaultdict
 from datetime import date as _date, datetime, timedelta
 
+import days
 import index as idx
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -212,7 +213,7 @@ def _weeks_md(w):
     if not first:
         return 0
     start = _date.fromisoformat(first)
-    monday, today, n = start - timedelta(days=start.weekday()), _date.today(), 0
+    monday, today, n = start - timedelta(days=start.weekday()), _date.fromisoformat(days.today()), 0
     while monday <= today:
         md = _week_md(monday)
         if md:
@@ -245,7 +246,7 @@ def run():
     ensure_table()
     started = datetime.now().isoformat(timespec='seconds')
     root = dest()
-    week = _week(_date.today())
+    week = _week(_date.fromisoformat(days.today()))
     _job.update(running=True, stage='准备', error=None)
     try:
         if not root or not os.path.isdir(os.path.dirname(root)):

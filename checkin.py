@@ -14,7 +14,7 @@ import json
 from datetime import datetime, timedelta
 
 import index as idx
-from slice import DAY_CUTOFF_HOUR, LOCAL_TZ
+import days
 
 # 词 → 分数（-2..+2）。顺序就是界面上的顺序：从好到糟
 WORDS = [('兴奋', 2), ('开心', 1.5), ('满足', 1), ('平稳', 0), ('说不上来', 0), ('疲惫', -0.5),
@@ -49,14 +49,6 @@ def _q(sql, *a):
 
 def _now():
     return datetime.now().isoformat(timespec='seconds')
-
-
-def today():
-    """按 Ephemeris 的一天：凌晨 4 点前还算前一天。"""
-    local = datetime.now(LOCAL_TZ)
-    if local.hour < DAY_CUTOFF_HOUR:
-        local -= timedelta(days=1)
-    return local.date().isoformat()
 
 
 # ------------------------------------------------------------------ 增删改查
@@ -102,12 +94,6 @@ def for_date(date):
     return _q('SELECT id, date, word, valence, note, reply, created_at FROM checkins WHERE date=? ORDER BY created_at', date)
 
 
-def day_values():
-    """{date: 当天各条打卡的平均分}"""
-    ensure_table()
-    return {r['date']: round(r['v'], 2) for r in _q('SELECT date, AVG(valence) v FROM checkins GROUP BY date')}
-
-
 def dates():
     ensure_table()
     return [r['date'] for r in _q('SELECT DISTINCT date FROM checkins ORDER BY date')]
@@ -116,25 +102,8 @@ def dates():
 # ------------------------------------------------------------------ 星座图
 
 def month_stars(month):
-    """一个月里每天的「过得怎么样」：有打卡用打卡（实心星），没有就用手写日记的分（空心星）。"""
-    ensure_table()
-    ck = {}
-    for r in _q("SELECT date, word, valence, note FROM checkins WHERE date LIKE ? ORDER BY created_at", month + '%'):
-        ck.setdefault(r['date'], []).append(r)
-    hand = {r['date']: r for r in _q("""SELECT date, valence, label, evidence FROM mood_scores
-                                          WHERE src='hand' AND date LIKE ?""", month + '%')}
-    stars = []
-    for d in sorted(set(ck) | set(hand)):
-        if d in ck:
-            rows = ck[d]
-            stars.append({'date': d, 'v': round(sum(x['valence'] for x in rows) / len(rows), 2), 'src': 'checkin',
-                          'word': rows[-1]['word'], 'n': len(rows),
-                          'note': '；'.join(x['note'] for x in rows if x['note'])})
-        else:
-            h = hand[d]
-            stars.append({'date': d, 'v': h['valence'], 'src': 'hand', 'word': h['label'] or '',
-                          'n': 1, 'note': h['evidence'] or ''})
-    return stars
+    """一个月里每天的「过得怎么样」（规则在 days.py）：有打卡是实心星，只有手写日记是空心星。"""
+    return list(days.feel_range(month + '-01', month + '-31').values())
 
 
 def _stats(stars):
@@ -279,14 +248,8 @@ ORACLE_PROMPT = """你是他的陪伴者。他刚刚记下了此刻的心情，�
 def _oracle_context(date):
     import ledger
     d0 = datetime.strptime(date, '%Y-%m-%d').date()
-    recent = []
-    for i in range(7, 0, -1):
-        d = (d0 - timedelta(days=i)).isoformat()
-        ck = _q('SELECT word FROM checkins WHERE date=?', d)
-        hd = _q("SELECT label FROM mood_scores WHERE date=? AND src='hand'", d)
-        w = ck[-1]['word'] if ck else (hd[0]['label'] if hd else None)
-        if w:
-            recent.append(f'{d[5:]} {w}')
+    week = days.feel_range((d0 - timedelta(days=7)).isoformat(), (d0 - timedelta(days=1)).isoformat())
+    recent = [f"{d[5:]} {f['word']}" for d, f in week.items() if f['word']]
     themes = [f"{r['name']}（上次到：{r['state'][:30]}）" for r in ledger.as_of(date)[:5] if r['ago'] <= 10]
     y = _q('SELECT headline, narrative FROM diaries WHERE date=?', (d0 - timedelta(days=1)).isoformat())
     yesterday = f"{y[0]['headline']}。{(y[0]['narrative'] or '')[:300]}" if y else '（没有）'

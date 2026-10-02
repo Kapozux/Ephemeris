@@ -12,7 +12,7 @@ import random
 import re
 from datetime import date as _date, datetime, timedelta
 
-import checkin
+import days
 import index as idx
 import ledger
 import mood
@@ -34,7 +34,7 @@ def _q(sql, *a):
 
 
 def _today():
-    return _date.fromisoformat(checkin.today())
+    return _date.fromisoformat(days.today())
 
 
 # ------------------------------------------------------------------ 抽哪天
@@ -137,8 +137,7 @@ def card(date):
     dy = _q('SELECT headline FROM diaries WHERE date=?', date)
     hand = ''.join(r['text'] or '' for r in _q('SELECT text FROM journal WHERE date=? ORDER BY title', date))
     q = _quote(hand)
-    sig = mood.day_signals(date)
-    feel = sig.get('mood')
+    feel = days.feel(date)
 
     # 那天在弄的事，以及后来
     threads = []
@@ -164,7 +163,7 @@ def card(date):
         'date': date, 'ago': ago, 'weekday': '一二三四五六日'[d0.weekday()],
         'quote': q, 'quote_src': 'hand' if q else ('diary' if dy else None),
         'headline': dy[0]['headline'] if dy else '',
-        'feel': {'word': feel['label'], 'v': feel['valence'], 'src': feel.get('src')} if feel else None,
+        'feel': {'word': feel['words'], 'v': feel['v'], 'src': feel['src']} if feel else None,
         'threads': threads,
         'hand_chars': len(hand),
     }

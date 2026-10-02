@@ -20,6 +20,7 @@ import daily
 import flashback
 import bundle
 import checkin
+import days
 import claude_sync
 import journal
 import mood
@@ -311,8 +312,8 @@ def api_batch_status():
 
 @app.route('/api/checkin')
 def api_checkin_get():
-    date = request.args.get('date') or checkin.today()
-    return jsonify({'date': date, 'today': checkin.today(), 'items': checkin.for_date(date),
+    date = request.args.get('date') or days.today()
+    return jsonify({'date': date, 'today': days.today(), 'items': checkin.for_date(date),
                     'words': [{'word': w, 'v': v} for w, v in checkin.WORDS]})
 
 
@@ -320,7 +321,7 @@ def api_checkin_get():
 def api_checkin_add():
     j = request.get_json(force=True)
     try:
-        cid = checkin.add(j.get('date') or checkin.today(), j['word'], j.get('note', ''))
+        cid = checkin.add(j.get('date') or days.today(), j['word'], j.get('note', ''))
     except (ValueError, KeyError) as e:
         return jsonify({'error': str(e)}), 400
     return jsonify({'id': cid})
@@ -352,8 +353,8 @@ def checkin_page():
 
 @app.route('/api/checkin/home')
 def api_checkin_home():
-    date = request.args.get('date') or checkin.today()
-    return jsonify({'date': date, 'today': checkin.today(), 'items': checkin.for_date(date),
+    date = request.args.get('date') or days.today()
+    return jsonify({'date': date, 'today': days.today(), 'items': checkin.for_date(date),
                     'words': [{'word': w, 'v': v} for w, v in checkin.WORDS],
                     'progress': checkin.progress(), 'orbs': checkin.orbs()})
 
@@ -366,12 +367,12 @@ def api_checkin_reply(cid):
 
 @app.route('/api/checkin/month')
 def api_checkin_month():
-    return jsonify(checkin.month_view(request.args.get('month') or checkin.today()[:7]))
+    return jsonify(checkin.month_view(request.args.get('month') or days.today()[:7]))
 
 
 @app.route('/api/stars')
 def api_stars():
-    month = request.args.get('month') or checkin.today()[:7]
+    month = request.args.get('month') or days.today()[:7]
     return jsonify({'month': month, 'stars': checkin.month_stars(month),
                     'stats': checkin.month_stats(month), 'note': checkin.month_note(month)})
 
@@ -379,7 +380,7 @@ def api_stars():
 @app.route('/api/stars/note', methods=['POST'])
 def api_stars_note():
     import diary
-    month = request.args.get('month') or checkin.today()[:7]
+    month = request.args.get('month') or days.today()[:7]
     return jsonify({'note': checkin.month_note(month, llm.ask, refresh=request.args.get('refresh') == '1')})
 
 

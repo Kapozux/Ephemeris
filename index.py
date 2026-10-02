@@ -24,8 +24,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from html import unescape
 
-LOCAL_TZ = timezone(timedelta(hours=8))
-DAY_CUTOFF_HOUR = int(os.environ.get('DIARY_DAY_CUTOFF', '4'))
+from days import LOCAL_TZ, bucket    # 一天怎么算：days.py
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -96,14 +95,6 @@ def connect(path=DB_PATH):
             conn.execute(f'ALTER TABLE conversations ADD COLUMN {col} {typ}')
     conn.commit()
     return conn
-
-
-def bucket(dt):
-    """带凌晨 cutoff 的日期归属：4 点前算前一天。"""
-    local = dt.astimezone(LOCAL_TZ)
-    if local.hour < DAY_CUTOFF_HOUR:
-        local -= timedelta(days=1)
-    return local.date().isoformat(), local.strftime('%H:%M')
 
 
 def _h(s, n=20):

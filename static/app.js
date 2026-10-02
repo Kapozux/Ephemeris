@@ -1220,6 +1220,8 @@ function applyRoute() {
 // 状态条放在「窗口与导入」面板顶上——那一栏本来就是讲「数据从哪来」的。
 
 let CSPOLL = null;
+// 早上那一串（daily.py）：同步的几个阶段之后还有「写日记」「整理」两段，分开说清楚在干嘛
+const CS_STAGE = { '写日记': '拉完了，在写缺的日记', '整理': '在整理：手写日记、两个指标、主题、窗口回顾' };
 
 function renderCSync(s) {
   const box = $('#syncBox'); if (!box) return;
@@ -1232,7 +1234,7 @@ function renderCSync(s) {
   }
   if (j.running) {
     box.innerHTML = `<div class="sync-row"><span class="pulse"></span>
-      <span>正在从 claude.ai 同步：${esc(j.stage || '')} ${j.total ? `${j.done}/${j.total}` : ''}</span></div>`;
+      <span>${CS_STAGE[j.stage] || `正在从 claude.ai 同步：${esc(j.stage || '')}`} ${j.total ? `${j.done}/${j.total}` : ''}</span></div>`;
     clearTimeout(CSPOLL); CSPOLL = setTimeout(pollCSync, 2000);
     return;
   }
@@ -1252,7 +1254,7 @@ function renderCSync(s) {
       <a id="csyncNow">${bad ? '重试' : '立刻同步'}</a>
     </div>`;
   $('#csyncNow').onclick = async () => {
-    box.querySelector('.sync-row').innerHTML = '<span class="pulse"></span><span>起来了…</span>';
+    $('#csyncNow').closest('.sync-row').innerHTML = '<span class="pulse"></span><span>起来了…</span>';   // 上面可能还有一行模型警告
     await fetch('/api/claude/sync', { method: 'POST' });
     pollCSync();
   };

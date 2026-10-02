@@ -1,6 +1,8 @@
 """「一天」的规则只在这里。
 
     today()                → 现在算哪天（凌晨 4 点前还算前一天）
+    week_start()           → 这周一是哪天
+    written_this_week(at)  → 某样东西（ISO 时间）是不是这周写的
     bucket(dt)             → (日期, 'HH:MM')：一条消息归到哪天
     feel(date)             → 那天过得怎么样，没有记录返回 None
     feel_range(start, end) → {日期: 同上}，两头都含
@@ -16,7 +18,7 @@
 按顺序串，各不相同 —— 日历、星座图、回顾面板、闪回卡、打卡回话看到的「那天」不一样。
 """
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import store
 
 # Claude API 给的是 UTC，按天分桶必须先落到你所在的时区，否则晚上 8 点以后的消息会算进第二天。
@@ -37,6 +39,18 @@ def bucket(dt):
 
 def today(now=None):
     return bucket(now or datetime.now(LOCAL_TZ))[0]
+
+
+def week_start(day=None):
+    """day（默认今天）所在那周的周一。"""
+    d = date.fromisoformat(day or today())
+    return (d - timedelta(days=d.weekday())).isoformat()
+
+
+def written_this_week(at):
+    """模型写的汇总（回顾、月度一句话、窗口回顾）用：数据变了也每周最多重写一次，这周写过就先不动。
+    （2026-10-02）"""
+    return bool(at) and at[:10] >= week_start()
 
 
 # ------------------------------------------------------------------ 过得怎么样

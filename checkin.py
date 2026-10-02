@@ -125,18 +125,25 @@ NOTE_PROMPT = """下面是一个人某个月每天「过得怎么样」的统计
 """
 
 
+_note_tried = {}            # month -> 哪一周自动试过（只记在内存里）
+
+
 def month_note(month, call_model=None, refresh=False):
-    """星座图下面那一句话。数据没变就用缓存；变了（新打卡、改了）才重写。"""
+    """星座图下面那一句话。数据没变就用存着的；变了（新打卡、改了）也**每周最多重写一次** ——
+    以前每打一次卡，下次打开月视图就重写一遍（2026-10-02：别每次改都重写，浪费钱）。
+    自动重写每个月份每周最多试一次，失败了也等下周；refresh=True 才是手动强制。"""
     cur = _stats(month_stars(month))
     if not cur:
         return ''
     prv = _stats(month_stars(_prev_month(month)))
     fp = hashlib.sha1(json.dumps([cur, prv], ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:16]
-    have = store.q('SELECT fingerprint, text FROM star_notes WHERE month=?', month)
-    if have and have[0]['fingerprint'] == fp and not refresh:
+    have = store.q('SELECT fingerprint, text, made_at FROM star_notes WHERE month=?', month)
+    if have and not refresh and (have[0]['fingerprint'] == fp or days.written_this_week(have[0]['made_at'])):
         return have[0]['text']
-    if call_model is None:
+    week = days.week_start()
+    if call_model is None or (not refresh and _note_tried.get(month) == week):
         return have[0]['text'] if have else ''
+    _note_tried[month] = week
     prompt = NOTE_PROMPT.format(month=month, prev=_prev_month(month), cur=json.dumps(cur, ensure_ascii=False),
                                 prv=json.dumps(prv, ensure_ascii=False) if prv else '没有数据')
     text = (call_model(prompt) or call_model(prompt) or '').strip()      # 模型偶尔回空，再试一次

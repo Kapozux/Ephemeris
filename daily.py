@@ -14,8 +14,8 @@
   2. 手写进账本  那几天的手写记进主题账本（src='hand'）
   3. 两个指标    新聊天天打「卡得多狠」，新手写天打「过得怎么样」
   4. 主题归类    新冒出来的主题归到河流图的大类里
-  5. 窗口回顾    做过回顾的窗口，只补新聊的天
-  6. 回顾面板    那段话每周一写一次（这周还没写的范围才写，见 reflect_chat.weekly）
+  5. 窗口回顾    做过回顾的窗口，每周补一次新聊的天（见 conv_review.update_weekly）
+  6. 回顾面板    那段话有新东西才重写，每周最多一次（见 reflect_chat.weekly）
 """
 import json
 import time
@@ -152,15 +152,7 @@ def tidy(call_model):
         return {'new': store.one('SELECT COUNT(*) n FROM theme_cats')['n'] - before}
 
     def s_windows():
-        with store.LOCK:
-            cids = [r[0] for r in store.connect().execute("SELECT conv_id FROM conv_notes WHERE date=''")]
-        done = []
-        for cid in cids:
-            todo = conv_review.pending(cid)
-            if todo:
-                conv_review.generate(cid)
-                done.append({'conv': cid[:10], 'days': len(todo)})
-        return {'windows': done}
+        return {'windows': conv_review.update_weekly()}
 
     def s_reflect():
         return {'rewrote': reflect_chat.weekly()}

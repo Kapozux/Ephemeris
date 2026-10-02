@@ -28,6 +28,7 @@ import ledger
 import conv_review
 import store
 import index as idx
+import jobs
 import reflect_chat
 
 app = Flask(__name__)
@@ -35,15 +36,17 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0   # 本地工具，改完就要看�
 app.config['TEMPLATES_AUTO_RELOAD'] = True   # 上面那条只管 static；模板不加这条要重启才生效
 DB = store.connect()
 _lock = store.LOCK          # 和 index / reflect_chat 共用
-_generating = set()
-_batch = {'running': False, 'total': 0, 'done': 0, 'failed': 0, 'current': None,
-          'started': None, 'stop': False, 'errors': []}
+# 后台任务的名字（状态见 jobs.py）。单篇日记是 'diary:日期'，窗口回顾是 'window:窗口id'
+BATCH, CSYNC, NSYNC = 'diary-batch', 'claude-sync', 'notion-sync'
+BATCH_IDLE = {'total': 0, 'done': 0, 'failed': 0, 'current': None, 'stop': False, 'errors': []}
+CSYNC_IDLE = {'stage': None, 'done': 0, 'total': 0, 'last': None}
+NSYNC_IDLE = {'total': 0, 'done': 0, 'failed': 0, 'current': None, 'action': None, 'errors': []}
 
 
 def _fail(date, why):
     """批量补全里某天失败的原因。以前是 except: pass，跑完只剩个计数，没法查。"""
     print(f'[diary] {date} 失败：{why}', flush=True)
-    errs = _batch.setdefault('errors', [])
+    errs = jobs.state(BATCH).setdefault('errors', [])
     errs.append({'date': date, 'error': why[:300]})
     del errs[:-30]
 
@@ -156,7 +159,7 @@ def api_day(date):
                     'themes': ledger.chips(date),
                     'journal': journal.for_date(date),
                     'signals': mood.day_signals(date),
-                    'generating': date in _generating,
+                    'generating': jobs.running(f'diary:{date}'),
                     'prev': nav['prev'], 'next': nav['next']})
 
 
@@ -219,21 +222,9 @@ def _generate_one(date):
     return True
 
 
-def _generate_bg(date):
-    try:
-        _generate_one(date)
-    except Exception as e:  # noqa: BLE001
-        app.logger.warning('diary %s failed: %s', date, e)
-    finally:
-        _generating.discard(date)
-
-
 @app.route('/api/diary/<date>', methods=['POST'])
 def api_diary_make(date):
-    if date in _generating:
-        return jsonify({'generating': True})
-    _generating.add(date)
-    threading.Thread(target=_generate_bg, args=(date,), daemon=True).start()
+    jobs.start(f'diary:{date}', lambda job: _generate_one(date))
     return jsonify({'generating': True})
 
 
@@ -245,29 +236,23 @@ def _try_one(date):
         return False
 
 
-def _batch_worker(dates):
+def _batch_work(job, dates):
     # 日记是一天接一天的（上一篇 + 账本），必须从早往晚写
-    dates = sorted(dates)
-    _batch.update(running=True, total=len(dates), done=0, failed=0, errors=[],
-                  started=datetime.now().isoformat(timespec='seconds'), stop=False)
-    try:
-        for d in dates:
-            if _batch['stop']:
-                break
-            _batch['current'] = d
-            _generating.add(d)
-            try:
-                # 模型偶尔抽风（返回的东西解析不成 JSON、或者超时），重试一次就好。
-                # 2026-09-20 实测：73 天里 1 天这样，隔一会儿原样再跑就过了。
-                ok = _try_one(d)
-                if not ok:
-                    time.sleep(3)
-                    ok = _try_one(d)
-            finally:
-                _generating.discard(d)
-            _batch['done' if ok else 'failed'] += 1
-    finally:
-        _batch.update(running=False, current=None)
+    for d in sorted(dates):
+        if job['stop']:
+            break
+        job['current'] = d
+
+        def one(_job):
+            # 模型偶尔抽风（返回的东西解析不成 JSON、或者超时），重试一次就好。
+            # 2026-09-20 实测：73 天里 1 天这样，隔一会儿原样再跑就过了。
+            return _try_one(d) or (time.sleep(3) or _try_one(d))
+        ok = jobs.run(f'diary:{d}', one)             # 这天要是正被单独写着，跳过（记失败）
+        job['done' if ok else 'failed'] += 1
+
+
+def _batch_fresh(dates):
+    return {**BATCH_IDLE, 'total': len(dates), 'errors': []}
 
 
 def _missing_dates(force=False):
@@ -284,24 +269,25 @@ def api_batch_start():
 
     默认只做还没有日记的天；?force=1 连已有的也重写（改了 prompt 或前情逻辑之后用）。
     """
-    if _batch['running']:
-        return jsonify(_batch)
+    if jobs.running(BATCH):
+        return jsonify(jobs.get(BATCH, **BATCH_IDLE))
     dates = _missing_dates(force=request.args.get('force') == '1')
     if not dates:
-        return jsonify({**_batch, 'total': 0})
-    threading.Thread(target=_batch_worker, args=(dates,), daemon=True).start()
-    return jsonify({**_batch, 'running': True, 'total': len(dates)})
+        return jsonify({**jobs.get(BATCH, **BATCH_IDLE), 'total': 0})
+    jobs.start(BATCH, _batch_work, dates, **_batch_fresh(dates))
+    return jsonify(jobs.get(BATCH, **BATCH_IDLE))
 
 
 @app.route('/api/diary/batch', methods=['DELETE'])
 def api_batch_stop():
-    _batch['stop'] = True
-    return jsonify(_batch)
+    if jobs.running(BATCH):
+        jobs.state(BATCH)['stop'] = True
+    return jsonify(jobs.get(BATCH, **BATCH_IDLE))
 
 
 @app.route('/api/diary/batch')
 def api_batch_status():
-    return jsonify(_batch)
+    return jsonify(jobs.get(BATCH, **BATCH_IDLE))
 
 
 # ---------------------------------------------------------------- 打卡 + 星座图
@@ -526,28 +512,17 @@ def api_window_day(conv_id, date):
 SYNC_AT = (8, 30)
 RETRY_MIN = 30           # 失败了隔多久再试
 
-_csync = {'running': False, 'stage': None, 'done': 0, 'total': 0,
-          'last': None, 'error': None}
-
-
-def _csync_worker(force=False):
-    if _csync['running']:
-        return
-    _csync.update(running=True, stage='起浏览器', done=0, total=0, error=None)
-
+def _csync_work(job, force=False):
     def prog(stage, a, b):
-        _csync.update(stage=stage, done=a, total=b)
+        job.update(stage=stage, done=a, total=b)
 
-    try:
-        r = claude_sync.sync(force=force, progress=prog)
-        _csync['last'] = {**r, 'at': datetime.now().isoformat(timespec='seconds')}
-        if r.get('days'):
-            print(f"[claude-sync] 新消息 {r.get('new_msgs', 0)}，涉及 {len(r['days'])} 天", flush=True)
-    except Exception as e:                                   # noqa: BLE001
-        _csync['error'] = f'{type(e).__name__}: {e}'[:300]
-        print(f'[claude-sync] 失败：{_csync["error"]}', flush=True)
-    finally:
-        _csync.update(running=False, stage=None)
+    r = claude_sync.sync(force=force, progress=prog)
+    job['last'] = {**r, 'at': datetime.now().isoformat(timespec='seconds')}
+    if r.get('days'):
+        print(f"[claude-sync] 新消息 {r.get('new_msgs', 0)}，涉及 {len(r['days'])} 天", flush=True)
+
+
+CSYNC_FRESH = {'stage': '起浏览器', 'done': 0, 'total': 0}
 
 
 def _last_slot(now):
@@ -579,14 +554,17 @@ def _csync_scheduler():
         except Exception as e:                               # noqa: BLE001
             print(f'[backup] 调度出错：{e}', flush=True)
         try:
-            if not _csync['running'] and _csync_due(datetime.now()):
-                _csync_worker()
+            if not jobs.running(CSYNC) and _csync_due(datetime.now()):
+                try:
+                    jobs.run(CSYNC, _csync_work, False, **CSYNC_FRESH)
+                except Exception:                            # noqa: BLE001  已经记在状态里、打印过了
+                    pass
                 # 同步完就写日记。缺的都补，不只是今天碰过的 —— 顺手把漏网的也收了
-                if claude_sync.last_run().get('ok') and not _batch['running']:
+                if claude_sync.last_run().get('ok') and not jobs.running(BATCH):
                     dates = _missing_dates()
                     if dates:
                         print(f'[claude-sync] 接着写日记：{len(dates)} 天', flush=True)
-                        _batch_worker(dates)
+                        jobs.run(BATCH, _batch_work, dates, **_batch_fresh(dates))
                 # 之后的整理：手写日记 → 手写进账本 → 两个指标 → 主题归类 → 窗口回顾（见 daily.py）
                 daily.run(llm.ask)
         except Exception as e:                               # noqa: BLE001
@@ -597,7 +575,7 @@ def _csync_scheduler():
 @app.route('/api/claude/sync')
 def api_csync_status():
     last = claude_sync.last_run()
-    return jsonify({'job': _csync, 'last_run': last, 'daily': daily.last(),
+    return jsonify({'job': jobs.get(CSYNC, **CSYNC_IDLE), 'last_run': last, 'daily': daily.last(),
                     'llm': {**llm.status(), 'check': llm.check()},
                     'configured': bool(claude_sync.env('CLAUDE_SESSION_KEY')),
                     'at': '%02d:%02d' % SYNC_AT})
@@ -605,39 +583,28 @@ def api_csync_status():
 
 @app.route('/api/claude/sync', methods=['POST'])
 def api_csync_start():
-    if _csync['running']:
-        return jsonify(_csync)
-    threading.Thread(target=_csync_worker,
-                     args=(request.args.get('force') == '1',), daemon=True).start()
-    return jsonify({**_csync, 'running': True})
+    jobs.start(CSYNC, _csync_work, request.args.get('force') == '1', **CSYNC_FRESH)
+    return jsonify(jobs.get(CSYNC, **CSYNC_IDLE))
 
 
 # ------------------------------------------------------------------ Notion 同步
 
-_nsync = {'running': False, 'total': 0, 'done': 0, 'failed': 0,
-          'current': None, 'action': None, 'errors': [], 'finished': None}
-
-
-def _nsync_worker(only, fix):
+def _nsync_work(job, only, fix):
     import to_notion as tn
-    _nsync.update(running=True, total=0, done=0, failed=0,
-                  current=None, action=None, errors=[], finished=None)
 
     def prog(i, total, date, action):
-        _nsync.update(total=total, done=i, current=date, action=action)
+        job.update(total=total, done=i, current=date, action=action)
 
     try:
         r = tn.fix_duplicates(progress=prog) if fix else tn.sync(only=only, progress=prog)
-        _nsync['failed'] = len(r['failed'])
-        _nsync['errors'] = r['failed'][:20]
+        job['failed'] = len(r['failed'])
+        job['errors'] = r['failed'][:20]
     except Exception as e:                                    # noqa: BLE001
-        _nsync['errors'] = [{'date': '-', 'error': str(e)}]
-        _nsync['failed'] = 1
+        job['errors'] = [{'date': '-', 'error': str(e)}]
+        job['failed'] = 1
     finally:
         tn.invalidate_scan()          # 远端变了，下次 status 重新扫
         _nstat['data'] = None
-        _nsync.update(running=False, current=None,
-                      finished=datetime.now().isoformat(timespec='seconds'))
 
 
 _nstat = {'data': None, 'computing': False}
@@ -665,23 +632,20 @@ def api_notion_status():
         _nstat['computing'] = True
         threading.Thread(target=_nstat_worker, daemon=True).start()
     if _nstat['data'] is None:
-        return jsonify({'computing': True, 'job': _nsync})
-    return jsonify({**_nstat['data'], 'computing': _nstat['computing'], 'job': _nsync})
+        return jsonify({'computing': True, 'job': jobs.get(NSYNC, **NSYNC_IDLE)})
+    return jsonify({**_nstat['data'], 'computing': _nstat['computing'], 'job': jobs.get(NSYNC, **NSYNC_IDLE)})
 
 
 @app.route('/api/notion/sync', methods=['POST'])
 def api_notion_sync():
-    if _nsync['running']:
-        return jsonify(_nsync)
     only = (request.args.get('only') or '').split(',') if request.args.get('only') else None
-    fix = request.args.get('fix') == '1'
-    threading.Thread(target=_nsync_worker, args=(only, fix), daemon=True).start()
-    return jsonify({**_nsync, 'running': True})
+    jobs.start(NSYNC, _nsync_work, only, request.args.get('fix') == '1', **NSYNC_IDLE)
+    return jsonify(jobs.get(NSYNC, **NSYNC_IDLE))
 
 
 @app.route('/api/notion/sync')
 def api_notion_job():
-    return jsonify(_nsync)
+    return jsonify(jobs.get(NSYNC, **NSYNC_IDLE))
 
 
 if __name__ == '__main__':

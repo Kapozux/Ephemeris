@@ -14,6 +14,7 @@ import store
 
 DAY = '2026-03-03'
 CONV = 'conv-1'
+NO_DIARY = '2026-03-04'      # 聊够了字数、还没有日记：批量补全会挑它
 
 
 def seed():
@@ -24,7 +25,8 @@ def seed():
         db.execute("INSERT INTO conversations(id, source, title, first_ts, last_ts, n_msgs, chars, n_days) "
                    "VALUES (?, 'claude', '经济论文', '2026-03-02T10:00', '2026-03-03T11:00', 2, 900, 2)", (CONV,))
         for i, (d, role, text) in enumerate([('2026-03-02', 'human', '开题怎么写' * 100),
-                                              (DAY, 'human', '改稿' * 400), (DAY, 'assistant', '好的')]):
+                                              (DAY, 'human', '改稿' * 400), (DAY, 'assistant', '好的'),
+                                              (NO_DIARY, 'human', '定稿' * 450)]):
             db.execute('INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?)',
                        (f'm{i}', CONV, 'claude', f'{d}T10:0{i}', d, f'10:0{i}', role, text, len(text)))
         db.execute("INSERT INTO msg_fts VALUES ('改稿改稿', '经济论文', ?, 'm1')", (DAY,))
@@ -64,6 +66,25 @@ class Routes(unittest.TestCase):
                 r = self.c.get(url)
                 self.assertEqual(r.status_code, 200, r.get_data(as_text=True)[-300:])
                 self.assertIsNotNone(r.get_json())
+
+    def test_batch_records_failures(self):
+        # 模型被换成返回空 → 那天写不出来：批量跑完应该是 failed=1，并且记下原因
+        import threading
+        tick = threading.Event()
+        sleep, ephemeris.time.sleep = ephemeris.time.sleep, lambda s: None   # 跳过重试前的 3 秒
+        try:
+            r = self.c.post('/api/diary/batch').get_json()
+            self.assertEqual(r['total'], 1)
+            for _ in range(100):
+                st = self.c.get('/api/diary/batch').get_json()
+                if not st['running']:
+                    break
+                tick.wait(0.02)                 # time.sleep 被换掉了，用这个等
+        finally:
+            ephemeris.time.sleep = sleep
+        self.assertEqual((st['running'], st['done'], st['failed']), (False, 0, 1))
+        self.assertEqual(st['errors'][0]['date'], NO_DIARY)
+        self.assertFalse(self.c.get(f'/api/day/{NO_DIARY}').get_json()['generating'])
 
     def test_day_shows_checkin_feel(self):
         sig = self.c.get(f'/api/day/{DAY}').get_json()['signals']

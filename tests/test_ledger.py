@@ -2,12 +2,12 @@
 import _env  # noqa: F401
 import unittest
 
-import index as idx
+import store
 import ledger
 
 
 def rows(sql, *a):
-    return [tuple(r) for r in idx.connect().execute(sql, a).fetchall()]
+    return [tuple(r) for r in store.connect().execute(sql, a).fetchall()]
 
 
 class Record(unittest.TestCase):

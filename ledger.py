@@ -15,52 +15,11 @@ import json
 import re
 from datetime import date as _date
 
-import index as idx
+import store
 
 ACTIVE_DAYS = 45        # 这么多天内出现过的主题，把现状也给模型看；更早的只给名字
 MAX_ACTIVE = 60
 MAX_DORMANT = 200
-
-
-def ensure_tables():
-    with idx.LOCK:
-        db = idx.connect()
-        db.executescript("""
-        CREATE TABLE IF NOT EXISTS themes (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL UNIQUE,
-          created_on TEXT
-        );
-        CREATE TABLE IF NOT EXISTS theme_days (
-          theme_id INTEGER NOT NULL,
-          date TEXT NOT NULL,
-          note TEXT,
-          PRIMARY KEY (theme_id, date)
-        );
-        CREATE INDEX IF NOT EXISTS theme_days_date ON theme_days(date);
-        """)
-        # desc：手动合并过的主题，起头那天的 note 不一定代表整条（起头可能只是一条顺带的消息），
-        # 这时用人写的一句话当身份锚
-        if 'desc' not in [r[1] for r in db.execute('PRAGMA table_info(themes)')]:
-            db.execute('ALTER TABLE themes ADD COLUMN desc TEXT')
-        # src：这条记录从哪来 —— ai（从聊天推出的日记）| hand（我在 Notion 手写的）。
-        # 同一主题同一天两边都写到，就是两行；「第几天」按不同日期数，不按行数。
-        if 'src' not in [r[1] for r in db.execute('PRAGMA table_info(theme_days)')]:
-            db.executescript("""
-            CREATE TABLE theme_days_new (
-              theme_id INTEGER NOT NULL, date TEXT NOT NULL, note TEXT, src TEXT NOT NULL DEFAULT 'ai',
-              PRIMARY KEY (theme_id, date, src));
-            INSERT INTO theme_days_new SELECT theme_id, date, note, 'ai' FROM theme_days;
-            DROP TABLE theme_days;
-            ALTER TABLE theme_days_new RENAME TO theme_days;
-            CREATE INDEX IF NOT EXISTS theme_days_date ON theme_days(date);
-            """)
-        db.commit()
-
-
-def _q(sql, *args):
-    with idx.LOCK:
-        return [dict(r) for r in idx.connect().execute(sql, args).fetchall()]
 
 
 def _gap(a, b):
@@ -69,19 +28,18 @@ def _gap(a, b):
 
 def as_of(date):
     """截至 date 之前（不含当天）的账本，最近出现的在前。"""
-    ensure_tables()
-    rows = _q("""SELECT t.id, t.name, t.desc, COUNT(DISTINCT d.date) n_days, MIN(d.date) first, MAX(d.date) last
+    rows = store.q("""SELECT t.id, t.name, t.desc, COUNT(DISTINCT d.date) n_days, MIN(d.date) first, MAX(d.date) last
                    FROM themes t JOIN theme_days d ON d.theme_id = t.id
                   WHERE d.date < ?
                   GROUP BY t.id ORDER BY last DESC, n_days DESC""", date)
     for r in rows:
         r['ago'] = _gap(r['last'], date)
-        note = _q("SELECT group_concat(note, '；') note FROM theme_days WHERE theme_id=? AND date=?",
+        note = store.q("SELECT group_concat(note, '；') note FROM theme_days WHERE theme_id=? AND date=?",
                   r['id'], r['last'])
         r['state'] = (note[0]['note'] or '') if note else ''
         # 起头那天在干什么 —— 身份的锚。只给「当时到哪」的话，主题会一天漂一点：
         # 实测「CS IA」两周后装进了全部 CS 复习，最后连 Math 都算进去了
-        first = _q("SELECT note FROM theme_days WHERE theme_id=? AND date=? LIMIT 1", r['id'], r['first'])
+        first = store.q("SELECT note FROM theme_days WHERE theme_id=? AND date=? LIMIT 1", r['id'], r['first'])
         r['origin'] = r.get('desc') or (first[0]['note'] if first else '')
     return rows
 
@@ -89,7 +47,7 @@ def as_of(date):
 def later_themes(date):
     """date 当天及以后才第一次出现的主题。补手写日记时用：
     手写比聊天记录早好几年，一件事可能手写里先开了头，账本里却是后来才从聊天建的。"""
-    return _q("""SELECT t.id, t.name, t.desc, MIN(d.date) first FROM themes t
+    return store.q("""SELECT t.id, t.name, t.desc, MIN(d.date) first FROM themes t
                    JOIN theme_days d ON d.theme_id = t.id GROUP BY t.id
                  HAVING MIN(d.date) >= ? AND (COUNT(DISTINCT d.date) >= 2 OR t.desc IS NOT NULL)
                   ORDER BY COUNT(DISTINCT d.date) DESC""", date)
@@ -130,7 +88,7 @@ def render_for_prompt(date, future=False):
 
 def previous_diary(date):
     """date 之前最近的一篇日记。"""
-    r = _q("""SELECT date, headline, narrative, open_loops FROM diaries
+    r = store.q("""SELECT date, headline, narrative, open_loops FROM diaries
                WHERE date < ? ORDER BY date DESC LIMIT 1""", date)
     return r[0] if r else None
 
@@ -189,12 +147,11 @@ def record(date, threads, src='ai'):
     threads: [{"id": 12, "note": "..."} 或 {"id": null, "name": "新主题", "note": "..."}]
     编号不在账本里、或新主题跟已有的重名，都按名字对回已有主题 —— 模型偶尔会这么干。
     """
-    ensure_tables()
-    known = {r['id']: r['name'] for r in _q('SELECT id, name FROM themes')}
+    known = {r['id']: r['name'] for r in store.q('SELECT id, name FROM themes')}
     by_name = {n: i for i, n in known.items()}
     done = {}
-    with idx.LOCK:
-        db = idx.connect()
+    with store.LOCK:
+        db = store.connect()
         db.execute('DELETE FROM theme_days WHERE date=? AND src=?', (date, src))
         for t in threads or []:
             if not isinstance(t, dict):
@@ -230,12 +187,11 @@ def record(date, threads, src='ai'):
 
 def chips(date):
     """这一天碰了哪些主题，第几天、距上次隔多久 —— 日记页底下那一行。"""
-    ensure_tables()
-    rows = _q("""SELECT t.id, t.name, group_concat(d.note, '；') note, group_concat(d.src) srcs
+    rows = store.q("""SELECT t.id, t.name, group_concat(d.note, '；') note, group_concat(d.src) srcs
                    FROM theme_days d JOIN themes t ON t.id = d.theme_id
                   WHERE d.date = ? GROUP BY t.id""", date)
     for r in rows:
-        prev = _q("""SELECT COUNT(DISTINCT date) n, MAX(date) last FROM theme_days
+        prev = store.q("""SELECT COUNT(DISTINCT date) n, MAX(date) last FROM theme_days
                       WHERE theme_id=? AND date < ?""", r['id'], date)[0]
         r['nth'] = prev['n'] + 1
         r['gap'] = _gap(prev['last'], date) if prev['last'] else None
@@ -245,11 +201,10 @@ def chips(date):
 
 def all_themes():
     """主题页：每个主题一条时间线。"""
-    ensure_tables()
-    rows = _q("""SELECT t.id, t.name, COUNT(DISTINCT d.date) n_days, MIN(d.date) first, MAX(d.date) last
+    rows = store.q("""SELECT t.id, t.name, COUNT(DISTINCT d.date) n_days, MIN(d.date) first, MAX(d.date) last
                    FROM themes t JOIN theme_days d ON d.theme_id = t.id
                   GROUP BY t.id ORDER BY last DESC, n_days DESC""")
-    days = _q("""SELECT theme_id, date, group_concat(note, '；') note, group_concat(src) srcs
+    days = store.q("""SELECT theme_id, date, group_concat(note, '；') note, group_concat(src) srcs
                    FROM theme_days GROUP BY theme_id, date ORDER BY date""")
     by = {}
     for d in days:
@@ -263,9 +218,8 @@ def all_themes():
 def merge(into_name, theme_ids=(), days=()):
     """把几个主题（整条）和若干 (theme_id, date) 单天并成一条，叫 into_name。
     只改账本，不碰日记。同一天在几条里都有的，note 拼起来。返回新主题 id。"""
-    ensure_tables()
-    with idx.LOCK:
-        db = idx.connect()
+    with store.LOCK:
+        db = store.connect()
         row = db.execute('SELECT id FROM themes WHERE name=?', (into_name,)).fetchone()
         if row:
             tid = row[0]
@@ -297,9 +251,8 @@ def merge(into_name, theme_ids=(), days=()):
 
 def reset():
     """全量重跑前清空。主题编号从 1 重来。"""
-    ensure_tables()
-    with idx.LOCK:
-        db = idx.connect()
+    with store.LOCK:
+        db = store.connect()
         db.execute('DELETE FROM theme_days')
         db.execute('DELETE FROM themes')
         db.execute("DELETE FROM sqlite_sequence WHERE name='themes'")
@@ -361,13 +314,12 @@ def extract(d, call_model, prompt=None):
 
 def backfill(call_model, start=None, say=print):
     """从 start（默认最早）起，按日记逐天补账本。只写 theme_days/themes，不碰 diaries。"""
-    ensure_tables()
-    days = _q("SELECT * FROM diaries WHERE date >= ? ORDER BY date", start or '0000')
+    days = store.q("SELECT * FROM diaries WHERE date >= ? ORDER BY date", start or '0000')
     if not start:
         reset()
     else:
-        with idx.LOCK:
-            db = idx.connect()
+        with store.LOCK:
+            db = store.connect()
             db.execute('DELETE FROM theme_days WHERE date >= ?', (start,))
             db.execute('DELETE FROM themes WHERE id NOT IN (SELECT theme_id FROM theme_days)')
             db.commit()
@@ -387,7 +339,6 @@ def backfill_hand(call_model, say=print, max_chars=4000):
     """把手写日记也记进账本（src='hand'）。按日期从早到晚；只动 hand 的行，AI 那边一行不碰。
     手写比聊天早好几年，所以匹配时也给模型看「之后才开始的」主题，免得同一件事建两条。"""
     import journal
-    ensure_tables()
     dates = sorted(d for d, c in journal.dates().items() if c >= 30)
     fails = []
     for i, date in enumerate(dates, 1):

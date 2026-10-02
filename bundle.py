@@ -1,14 +1,8 @@
 """把某一天拼成喂给模型的材料：当天我发的消息按窗口分组，每个窗口补一段「前情」。
 
-从 app.py 挪出来的：mood / mood_lab 也要用，而 `import app` 会撞上 getAudio 里同名的 app.py
-（diary 把 getAudio 插到了 sys.path 最前面）。这里只依赖 index，谁都能放心导。
+从 app.py 挪出来的：mood / mood_lab 也要用。只依赖 store，谁都能放心导。
 """
-import index as idx
-
-
-def q(sql, *args):
-    with idx.LOCK:
-        return [dict(r) for r in idx.connect().execute(sql, args).fetchall()]
+import store
 
 
 def day_bundle(date):
@@ -19,7 +13,7 @@ def day_bundle(date):
     带上：这条线什么时候开的、之前多少天多少条、开头问的是什么、昨天之前最后聊到哪儿。
     全是确定性查询，不额外调模型。
     """
-    rows = q("""SELECT m.*, c.title conv_title FROM messages m
+    rows = store.q("""SELECT m.*, c.title conv_title FROM messages m
                   JOIN conversations c ON c.id = m.conv_id
                  WHERE m.date = ? AND m.role='human' ORDER BY m.ts""", date)
     threads = {}
@@ -43,13 +37,13 @@ def day_bundle(date):
 
 def prior_context(conv_id, date, opening=320, recent=3, recent_chars=260):
     """这个窗口在 date 之前聊过什么。没聊过就返回 None。"""
-    agg = q("""SELECT COUNT(*) n, COUNT(DISTINCT date) days, MIN(date) since
+    agg = store.q("""SELECT COUNT(*) n, COUNT(DISTINCT date) days, MIN(date) since
                  FROM messages WHERE conv_id=? AND role='human' AND date < ?""", conv_id, date)[0]
     if not agg['n']:
         return None
-    first = q("""SELECT date, text FROM messages WHERE conv_id=? AND role='human' AND date < ?
+    first = store.q("""SELECT date, text FROM messages WHERE conv_id=? AND role='human' AND date < ?
                   ORDER BY ts LIMIT 1""", conv_id, date)[0]
-    last = q("""SELECT date, hhmm, text FROM messages WHERE conv_id=? AND role='human' AND date < ?
+    last = store.q("""SELECT date, hhmm, text FROM messages WHERE conv_id=? AND role='human' AND date < ?
                  ORDER BY ts DESC LIMIT ?""", conv_id, date, recent)
     return {'n': agg['n'], 'days': agg['days'], 'since': agg['since'],
             'opening': first['text'][:opening],

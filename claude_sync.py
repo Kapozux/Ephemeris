@@ -17,12 +17,12 @@
 """
 import json
 import os
-import pathlib
 import socket
 import tempfile
 import time
 from datetime import datetime
 
+import store
 import index as idx
 from chrome import Chrome
 
@@ -77,56 +77,39 @@ class SyncError(RuntimeError):
 
 # ------------------------------------------------------------------ 记账
 
-def ensure_table():
-    with idx.LOCK:
-        c = idx.connect()
-        c.execute("""CREATE TABLE IF NOT EXISTS claude_sync (
-                        uuid       TEXT PRIMARY KEY,
-                        updated_at TEXT NOT NULL,
-                        synced_at  TEXT NOT NULL)""")
-        c.execute("""CREATE TABLE IF NOT EXISTS sync_runs (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        started_at TEXT, finished_at TEXT, ok INTEGER,
-                        n_listed INTEGER, n_fetched INTEGER,
-                        n_msgs_new INTEGER, days_touched INTEGER, note TEXT)""")
-        c.commit()
-
 
 def known():
-    ensure_table()
-    with idx.LOCK:
+    with store.LOCK:
         return {r['uuid']: r['updated_at']
-                for r in idx.connect().execute('SELECT uuid, updated_at FROM claude_sync')}
+                for r in store.connect().execute('SELECT uuid, updated_at FROM claude_sync')}
 
 
 def _remember(rows):
     now = datetime.now().isoformat(timespec='seconds')
-    with idx.LOCK:
-        c = idx.connect()
+    with store.LOCK:
+        c = store.connect()
         c.executemany('INSERT OR REPLACE INTO claude_sync VALUES (?,?,?)',
                       [(u, up, now) for u, up in rows])
         c.commit()
 
 
 def last_run():
-    ensure_table()
-    with idx.LOCK:
-        r = idx.connect().execute(
+    with store.LOCK:
+        r = store.connect().execute(
             'SELECT * FROM sync_runs ORDER BY id DESC LIMIT 1').fetchone()
     return dict(r) if r else None
 
 
 def last_ok_run():
-    ensure_table()
-    with idx.LOCK:
-        r = idx.connect().execute(
+    with store.LOCK:
+        r = store.connect().execute(
             'SELECT * FROM sync_runs WHERE ok=1 ORDER BY id DESC LIMIT 1').fetchone()
     return dict(r) if r else None
 
 
 def _log_run(**kw):
-    with idx.LOCK:
-        c = idx.connect()
+    with store.LOCK:
+        c = store.connect()
         c.execute("""INSERT INTO sync_runs
                      (started_at, finished_at, ok, n_listed, n_fetched, n_msgs_new,
                       days_touched, note) VALUES (?,?,?,?,?,?,?,?)""",
@@ -194,8 +177,9 @@ def _flush(convs, since, totals, say):
     with os.fdopen(fd, 'w', encoding='utf-8') as f:
         json.dump(payload, f, ensure_ascii=False)
     try:
-        r = idx.ingest(idx.connect(), tmp, kind='claude_json', source='claude',
-                       label=f'claude-sync {datetime.now():%Y-%m-%d}')
+        with store.LOCK:                  # 共享连接：整个导入期间别人别插进来写
+            r = idx.ingest(store.connect(), tmp, kind='claude_json', source='claude',
+                           label=f'claude-sync {datetime.now():%Y-%m-%d}')
     finally:
         os.unlink(tmp)
     _remember([(x['uuid'], x['updated_at']) for x in convs])
@@ -209,7 +193,6 @@ def _flush(convs, since, totals, say):
 
 def sync(since=None, force=False, progress=None, headless=True):
     """拉一次。progress(阶段, 已完成, 总数) 会被逐步调用。"""
-    ensure_table()
     started = datetime.now().isoformat(timespec='seconds')
     say = progress or (lambda *a: None)
 

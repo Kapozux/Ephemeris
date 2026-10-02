@@ -26,14 +26,15 @@ import journal
 import mood
 import ledger
 import conv_review
+import store
 import index as idx
 import reflect_chat
 
 app = Flask(__name__)
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0   # 本地工具，改完就要看到
 app.config['TEMPLATES_AUTO_RELOAD'] = True   # 上面那条只管 static；模板不加这条要重启才生效
-DB = idx.connect()
-_lock = idx.LOCK          # 和 index / reflect_chat 共用
+DB = store.connect()
+_lock = store.LOCK          # 和 index / reflect_chat 共用
 _generating = set()
 _batch = {'running': False, 'total': 0, 'done': 0, 'failed': 0, 'current': None,
           'started': None, 'stop': False, 'errors': []}
@@ -49,11 +50,6 @@ def _fail(date, why):
 # flash-lite 一天约 6 万字进去，按「回顾面板约定」记的 $0.006/次 放宽一点算
 COST_PER_DAY = 0.01
 MIN_CHARS = 800          # 少于这个字数的天不值得写日记
-
-
-def q(sql, *args):
-    with _lock:
-        return [dict(r) for r in DB.execute(sql, args).fetchall()]
 
 
 def _parse_diary(d):
@@ -76,13 +72,13 @@ def home():
 
 @app.route('/api/days')
 def api_days():
-    rows = q("""SELECT m.date,
+    rows = store.q("""SELECT m.date,
                        COUNT(DISTINCT m.conv_id) threads,
                        COUNT(*) msgs, SUM(m.chars) chars,
                        MIN(m.hhmm) first_at, MAX(m.hhmm) last_at
                   FROM messages m WHERE m.role = 'human'
                  GROUP BY m.date ORDER BY m.date""")
-    diaries = {r['date']: r for r in q('SELECT date, headline, mood FROM diaries')}
+    diaries = {r['date']: r for r in store.q('SELECT date, headline, mood FROM diaries')}
     for r in rows:
         d = diaries.get(r['date'])
         r['has_diary'] = bool(d)
@@ -121,7 +117,7 @@ def api_days():
 @app.route('/api/day/<date>')
 def api_day(date):
     """某一天：日记 + 按窗口分组的全部消息（含 AI 回复，前端决定显不显示）。"""
-    msgs = q("""SELECT m.id, m.conv_id, m.source, m.hhmm, m.role, m.text, m.chars,
+    msgs = store.q("""SELECT m.id, m.conv_id, m.source, m.hhmm, m.role, m.text, m.chars,
                        c.title conv_title, c.first_ts, c.last_ts
                   FROM messages m JOIN conversations c ON c.id = m.conv_id
                  WHERE m.date = ? ORDER BY m.ts""", date)
@@ -146,8 +142,8 @@ def api_day(date):
         out.append(t)
     out.sort(key=lambda x: x['first'])
 
-    d = q('SELECT * FROM diaries WHERE date = ?', date)
-    nav = q("""SELECT
+    d = store.q('SELECT * FROM diaries WHERE date = ?', date)
+    nav = store.q("""SELECT
                  (SELECT MAX(d) FROM (SELECT date d FROM messages WHERE role='human' AND date < ?
                                       UNION SELECT date FROM journal WHERE chars > 0 AND date < ?
                                       UNION SELECT date FROM checkins WHERE date < ?)) prev,
@@ -167,10 +163,10 @@ def api_day(date):
 @app.route('/api/conversation/<conv_id>')
 def api_conv(conv_id):
     """一个窗口横跨了哪些天 —— 这是整个产品和「回 Claude 翻记录」的区别。"""
-    c = q('SELECT * FROM conversations WHERE id = ?', conv_id)
+    c = store.q('SELECT * FROM conversations WHERE id = ?', conv_id)
     if not c:
         return jsonify({'error': 'not found'}), 404
-    days = q("""SELECT date, COUNT(*) msgs, SUM(chars) chars
+    days = store.q("""SELECT date, COUNT(*) msgs, SUM(chars) chars
                   FROM messages WHERE conv_id = ? AND role='human'
                  GROUP BY date ORDER BY date""", conv_id)
     return jsonify({'conversation': c[0], 'days': days})
@@ -184,7 +180,7 @@ def api_search():
     if len(kw) < 2:
         return jsonify({'hits': []})
     safe = '"' + kw.replace('"', '""') + '"'
-    hits = q("""SELECT f.date, f.conv_title, f.msg_id, m.conv_id, m.hhmm,
+    hits = store.q("""SELECT f.date, f.conv_title, f.msg_id, m.conv_id, m.hhmm,
                        snippet(msg_fts, 0, '<mark>', '</mark>', '…', 20) snip
                   FROM msg_fts f JOIN messages m ON m.id = f.msg_id
                  WHERE msg_fts MATCH ?
@@ -275,9 +271,9 @@ def _batch_worker(dates):
 
 
 def _missing_dates(force=False):
-    have = set() if force else {r['date'] for r in q('SELECT date FROM diaries')}
+    have = set() if force else {r['date'] for r in store.q('SELECT date FROM diaries')}
     # 别名不能叫 chars：SQLite 在 HAVING 里会把它解析成原始列，不是聚合值（实测 35 vs 271 天）
-    rows = q("""SELECT date, SUM(chars) total FROM messages WHERE role='human'
+    rows = store.q("""SELECT date, SUM(chars) total FROM messages WHERE role='human'
                  GROUP BY date HAVING total >= ? ORDER BY date DESC""", MIN_CHARS)
     return [r['date'] for r in rows if r['date'] not in have]
 
@@ -361,7 +357,6 @@ def api_checkin_home():
 
 @app.route('/api/checkin/<int:cid>/reply', methods=['POST'])
 def api_checkin_reply(cid):
-    import diary
     return jsonify({'reply': checkin.oracle(cid, llm.ask)})
 
 
@@ -379,7 +374,6 @@ def api_stars():
 
 @app.route('/api/stars/note', methods=['POST'])
 def api_stars_note():
-    import diary
     month = request.args.get('month') or days.today()[:7]
     return jsonify({'note': checkin.month_note(month, llm.ask, refresh=request.args.get('refresh') == '1')})
 
@@ -416,7 +410,7 @@ def api_themes():
 @app.route('/api/conversations')
 def api_conversations():
     """全部窗口：标题、来源、首末日期、活跃天数、条数、字数、来自哪次导入。"""
-    rows = q("""SELECT c.id, c.source, c.title, c.title_fallback, c.n_msgs, c.chars, c.n_days,
+    rows = store.q("""SELECT c.id, c.source, c.title, c.title_fallback, c.n_msgs, c.chars, c.n_days,
                        c.first_import, c.last_import,
                        substr(c.first_ts,1,10) first_day, substr(c.last_ts,1,10) last_day,
                        (SELECT MAX(date) FROM messages m WHERE m.conv_id=c.id AND m.role='human') last_date,
@@ -433,7 +427,7 @@ def api_conversations():
 
 @app.route('/api/imports')
 def api_imports():
-    return jsonify({'imports': q('SELECT * FROM imports ORDER BY id DESC LIMIT 100')})
+    return jsonify({'imports': store.q('SELECT * FROM imports ORDER BY id DESC LIMIT 100')})
 
 
 @app.route('/api/import', methods=['POST'])
@@ -475,9 +469,8 @@ def api_reflect():
 @app.route('/api/windows')
 def api_windows():
     """侧栏的窗口列表。默认只给跨天的，?all=1 给全部。"""
-    conv_review.ensure_table()
     only_multi = request.args.get('all') != '1'
-    rows = q("""SELECT c.id, c.source, c.title, c.title_fallback, c.n_msgs,
+    rows = store.q("""SELECT c.id, c.source, c.title, c.title_fallback, c.n_msgs,
                        COUNT(DISTINCT m.date) days, SUM(m.chars) chars,
                        MIN(m.date) first_date, MAX(m.date) last_date,
                        (SELECT COUNT(*) FROM conv_notes n
@@ -502,7 +495,7 @@ def api_window(conv_id):
     for d in w['days']:
         d['note'] = n['days'].get(d['date'])
         d['stale'] = d['date'] in todo and d['note'] is not None     # 有小结，但这天后来又聊了
-        d['has_diary'] = bool(q('SELECT 1 FROM diaries WHERE date=?', d['date']))
+        d['has_diary'] = bool(store.q('SELECT 1 FROM diaries WHERE date=?', d['date']))
     return jsonify({**w, 'arc': n['arc'], 'generated_at': n['at'], 'pending': len(todo),
                     'job': conv_review.job(conv_id)})
 
@@ -518,7 +511,7 @@ def api_window_gen(conv_id):
 @app.route('/api/window/<conv_id>/day/<date>')
 def api_window_day(conv_id, date):
     """这个窗口在这一天说了什么（展开时间轴上某一条时拉）。"""
-    rows = q("""SELECT id, hhmm, role, text FROM messages
+    rows = store.q("""SELECT id, hhmm, role, text FROM messages
                  WHERE conv_id=? AND date=? ORDER BY ts""", conv_id, date)
     return jsonify({'date': date, 'messages': rows,
                     'human': sum(1 for r in rows if r['role'] == 'human')})

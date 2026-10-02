@@ -13,24 +13,12 @@ import re
 from datetime import date as _date, datetime, timedelta
 
 import days
-import index as idx
+import store
 import ledger
 import mood
 
 RECENT_DAYS = 30          # 这么近的不抽
 SEEN_BLOCK = 25           # 最近翻过的这么多张不再抽
-
-
-def ensure_table():
-    with idx.LOCK:
-        db = idx.connect()
-        db.execute('CREATE TABLE IF NOT EXISTS flashback_seen (date TEXT, shown_at TEXT)')
-        db.commit()
-
-
-def _q(sql, *a):
-    with idx.LOCK:
-        return [dict(r) for r in idx.connect().execute(sql, a).fetchall()]
 
 
 def _today():
@@ -42,15 +30,15 @@ def _today():
 def candidates():
     """{date: 权重}"""
     cutoff = (_today() - timedelta(days=RECENT_DAYS)).isoformat()
-    days = {r['date'] for r in _q('SELECT date FROM diaries WHERE date < ?', cutoff)}
-    hand = {r['date'] for r in _q('SELECT date, SUM(chars) c FROM journal WHERE date < ? GROUP BY date HAVING c >= 100', cutoff)}
+    days = {r['date'] for r in store.q('SELECT date FROM diaries WHERE date < ?', cutoff)}
+    hand = {r['date'] for r in store.q('SELECT date, SUM(chars) c FROM journal WHERE date < ? GROUP BY date HAVING c >= 100', cutoff)}
     days |= hand
     sig = mood.all_signals()
     # 当天碰过的主题里，有没有「之后还出现过」的
-    later = {r['date'] for r in _q("""SELECT DISTINCT a.date FROM theme_days a
+    later = {r['date'] for r in store.q("""SELECT DISTINCT a.date FROM theme_days a
                                       WHERE EXISTS (SELECT 1 FROM theme_days b
                                                      WHERE b.theme_id = a.theme_id AND b.date > a.date)""")}
-    seen = {r['date'] for r in _q('SELECT date FROM flashback_seen ORDER BY shown_at DESC LIMIT ?', SEEN_BLOCK)}
+    seen = {r['date'] for r in store.q('SELECT date FROM flashback_seen ORDER BY shown_at DESC LIMIT ?', SEEN_BLOCK)}
     w = {}
     for d in days:
         if d in seen:
@@ -68,14 +56,13 @@ def candidates():
 
 
 def pick_random():
-    ensure_table()
     w = candidates()
     if not w:
         return None
     ds = list(w)
     d = random.choices(ds, weights=[w[x] for x in ds], k=1)[0]
-    with idx.LOCK:
-        db = idx.connect()
+    with store.LOCK:
+        db = store.connect()
         db.execute('INSERT INTO flashback_seen VALUES (?,?)', (d, datetime.now().isoformat(timespec='seconds')))
         db.commit()
     return d
@@ -89,7 +76,7 @@ def year_ago():
             d = t.replace(year=t.year - back).isoformat()
         except ValueError:                       # 2 月 29 日
             continue
-        if _q('SELECT 1 FROM diaries WHERE date=? UNION SELECT 1 FROM journal WHERE date=? AND chars >= 30', d, d):
+        if store.q('SELECT 1 FROM diaries WHERE date=? UNION SELECT 1 FROM journal WHERE date=? AND chars >= 30', d, d):
             return d
     return None
 
@@ -108,7 +95,7 @@ def _template_lines():
     if _TEMPLATE is None:
         from collections import Counter
         cnt = Counter()
-        for r in _q('SELECT text FROM journal'):
+        for r in store.q('SELECT text FROM journal'):
             cnt.update({ln.strip() for ln in (r['text'] or '').split('\n') if ln.strip()})
         _TEMPLATE = {ln for ln, n in cnt.items() if n >= 4}
     return _TEMPLATE
@@ -134,8 +121,8 @@ def _quote(text, limit=90):
 def card(date):
     d0 = _date.fromisoformat(date)
     ago = (_today() - d0).days
-    dy = _q('SELECT headline FROM diaries WHERE date=?', date)
-    hand = ''.join(r['text'] or '' for r in _q('SELECT text FROM journal WHERE date=? ORDER BY title', date))
+    dy = store.q('SELECT headline FROM diaries WHERE date=?', date)
+    hand = ''.join(r['text'] or '' for r in store.q('SELECT text FROM journal WHERE date=? ORDER BY title', date))
     q = _quote(hand)
     feel = days.feel(date)
 
@@ -143,7 +130,7 @@ def card(date):
     threads = []
     chips = ledger.chips(date)
     for c in chips:
-        c['after'] = _q("""SELECT COUNT(DISTINCT date) n, MAX(date) last FROM theme_days
+        c['after'] = store.q("""SELECT COUNT(DISTINCT date) n, MAX(date) last FROM theme_days
                             WHERE theme_id=? AND date > ?""", c['id'], date)[0]
     # 有下文的排前面（「后来」才是这张卡的看点），再按当时已经做了几天
     for c in sorted(chips, key=lambda c: (-(c['after']['n'] > 0), -c['after']['n'], -c['nth']))[:3]:

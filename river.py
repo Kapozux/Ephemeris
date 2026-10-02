@@ -6,12 +6,11 @@
 
 颜色 = 类别的身份，固定顺序；类别顺序也是河流从下往上的叠放顺序。
 """
-import json
-import re
 from collections import defaultdict
 from datetime import date as _date, timedelta
 
-import index as idx
+import llm
+import store
 
 CATS = ['IB 课业', '标化与竞赛', '升学申请', '编程与项目', '感情', '游戏娱乐', '家庭与人际', '身心健康', '其他']
 
@@ -35,22 +34,9 @@ CLASSIFY_PROMPT = """把下面每个主题归到一个大类。主题来自一�
 """
 
 
-def ensure_table():
-    with idx.LOCK:
-        db = idx.connect()
-        db.execute('CREATE TABLE IF NOT EXISTS theme_cats (theme_id INTEGER PRIMARY KEY, cat TEXT NOT NULL)')
-        db.commit()
-
-
-def _q(sql, *a):
-    with idx.LOCK:
-        return [dict(r) for r in idx.connect().execute(sql, a).fetchall()]
-
-
 def classify(call_model, batch=80, say=print):
     """给还没归类的主题归类。名字不够判断时带上它第一次出现那天的 note。"""
-    ensure_table()
-    todo = _q("""SELECT t.id, t.name, t.desc,
+    todo = store.q("""SELECT t.id, t.name, t.desc,
                         (SELECT note FROM theme_days d WHERE d.theme_id=t.id ORDER BY date LIMIT 1) note
                    FROM themes t
                   WHERE t.id IN (SELECT theme_id FROM theme_days)
@@ -61,7 +47,6 @@ def classify(call_model, batch=80, say=print):
         lines = '\n'.join(f"{t['id']}. {t['name']}：{(t['desc'] or t['note'] or '')[:50]}" for t in chunk)
         got = {}
         for _ in range(2):
-            import llm
             d = llm.parse_json(call_model(CLASSIFY_PROMPT.format(items=lines)), dict)
             try:
                 got = {int(k): v for k, v in (d or {}).items()}
@@ -69,8 +54,8 @@ def classify(call_model, batch=80, say=print):
                 got = {}
             if got:
                 break
-        with idx.LOCK:
-            db = idx.connect()
+        with store.LOCK:
+            db = store.connect()
             for t in chunk:
                 c = got.get(t['id'])
                 if c in CATS:
@@ -89,10 +74,9 @@ def series(start='2025-08-18', smooth=3):
 
     smooth = 滑动平均的周数，一周一周抖得太厉害，看不出流向。
     """
-    ensure_table()
-    cat = {r['theme_id']: r['cat'] for r in _q('SELECT theme_id, cat FROM theme_cats')}
-    name = {r['id']: r['name'] for r in _q('SELECT id, name FROM themes')}
-    rows = _q('SELECT DISTINCT theme_id, date FROM theme_days WHERE date >= ?', start)
+    cat = {r['theme_id']: r['cat'] for r in store.q('SELECT theme_id, cat FROM theme_cats')}
+    name = {r['id']: r['name'] for r in store.q('SELECT id, name FROM themes')}
+    rows = store.q('SELECT DISTINCT theme_id, date FROM theme_days WHERE date >= ?', start)
     if not rows:
         return {'cats': CATS, 'weeks': [], 'raw': [], 'smooth': [], 'top': []}
     counts = defaultdict(lambda: defaultdict(int))
@@ -116,8 +100,6 @@ def series(start='2025-08-18', smooth=3):
 
 
 if __name__ == '__main__':
-    import sys
-    import llm
     classify(llm.ask, say=lambda m: print(m, flush=True))
     from collections import Counter
-    print(Counter(r['cat'] for r in _q('SELECT cat FROM theme_cats')).most_common())
+    print(Counter(r['cat'] for r in store.q('SELECT cat FROM theme_cats')).most_common())

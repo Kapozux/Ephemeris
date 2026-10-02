@@ -17,6 +17,7 @@
 """
 import os
 from datetime import datetime, timedelta, timezone
+import store
 
 # Claude API 给的是 UTC，按天分桶必须先落到你所在的时区，否则晚上 8 点以后的消息会算进第二天。
 LOCAL_TZ = timezone(timedelta(hours=8))          # Asia/Shanghai
@@ -56,13 +57,8 @@ def _from_hand(r):
 
 
 def feel_range(start='0000-00-00', end='9999-99-99'):
-    import checkin
-    import index as idx
-    import mood
-    checkin.ensure_table()
-    mood.ensure_table()
-    with idx.LOCK:
-        db = idx.connect()
+    with store.LOCK:
+        db = store.connect()
         ck = {}
         for r in db.execute('SELECT date, word, valence, note FROM checkins WHERE date BETWEEN ? AND ? '
                             'ORDER BY created_at', (start, end)):

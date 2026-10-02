@@ -11,12 +11,10 @@
 分数是 -2..+2 的效价，外加一个词（含正向的词）。怎么合成最终那一个数，由实验定（见 lab_*）。
 """
 import json
-import random
-import re
 import sys
 from datetime import datetime
 
-import index as idx
+import store
 import journal
 
 LABELS = ['开心', '满足', '兴奋', '平稳', '疲惫', '焦虑', '烦躁', '低落', '崩溃']
@@ -43,25 +41,8 @@ AI_NOTE = ('【AI 日记】这是从他当天和 AI 的聊天记录里整理出�
 HAND_NOTE = '【手写日记】这是他当天自己在笔记里写的日记。'
 
 
-def ensure_table():
-    with idx.LOCK:
-        db = idx.connect()
-        db.execute("""CREATE TABLE IF NOT EXISTS mood_scores (
-            date TEXT NOT NULL, src TEXT NOT NULL,          -- ai | hand | both
-            valence REAL, label TEXT, evidence TEXT, scored_at TEXT,
-            PRIMARY KEY (date, src))""")
-        db.execute("""CREATE TABLE IF NOT EXISTS mood_ratings (
-            date TEXT PRIMARY KEY, valence REAL, note TEXT, rated_at TEXT)""")
-        db.commit()
-
-
-def _q(sql, *args):
-    with idx.LOCK:
-        return [dict(r) for r in idx.connect().execute(sql, args).fetchall()]
-
-
 def ai_text(date):
-    r = _q('SELECT headline, narrative, open_loops, artifacts FROM diaries WHERE date=?', date)
+    r = store.q('SELECT headline, narrative, open_loops, artifacts FROM diaries WHERE date=?', date)
     if not r:
         return ''
     r = r[0]
@@ -110,8 +91,8 @@ def score(date, src, call_model):
         return None
     r = _parse(call_model(PROMPT.format(material=mat, labels='/'.join(LABELS))))
     if r:
-        with idx.LOCK:
-            db = idx.connect()
+        with store.LOCK:
+            db = store.connect()
             db.execute('INSERT OR REPLACE INTO mood_scores VALUES (?,?,?,?,?,?)',
                        (date, src, r['valence'], r['label'], r['evidence'],
                         datetime.now().isoformat(timespec='seconds')))
@@ -121,10 +102,9 @@ def score(date, src, call_model):
 
 def plan():
     """要打哪些分：有 AI 日记的天打 ai，有手写的天打 hand，两者都有的再打 both。"""
-    ensure_table()
-    ai_days = {r['date'] for r in _q('SELECT date FROM diaries')}
+    ai_days = {r['date'] for r in store.q('SELECT date FROM diaries')}
     hand_days = {d for d, c in journal.dates().items() if c >= 30}
-    done = {(r['date'], r['src']) for r in _q('SELECT date, src FROM mood_scores')}
+    done = {(r['date'], r['src']) for r in store.q('SELECT date, src FROM mood_scores')}
     jobs = [(d, 'ai') for d in ai_days] + [(d, 'hand') for d in hand_days] + \
            [(d, 'both') for d in ai_days & hand_days]
     return sorted(j for j in jobs if j not in done), ai_days & hand_days
@@ -179,8 +159,8 @@ def score_friction(date, call_model):
     except (AttributeError, ValueError, TypeError):
         return None
     ev = (d.get('evidence') or '')[:80]
-    with idx.LOCK:
-        db = idx.connect()
+    with store.LOCK:
+        db = store.connect()
         db.execute('INSERT OR REPLACE INTO mood_scores VALUES (?,?,?,?,?,?)',
                    (date, 'friction', f, FRICTION_LABELS[f], ev, datetime.now().isoformat(timespec='seconds')))
         db.commit()
@@ -189,10 +169,9 @@ def score_friction(date, call_model):
 
 def pending(dates_chat=None, dates_hand=None):
     """还没打的：有聊天没 friction 的天、有手写没 hand 的天。"""
-    ensure_table()
-    have = {(r['date'], r['src']) for r in _q("SELECT date, src FROM mood_scores WHERE src IN ('friction','hand')")}
+    have = {(r['date'], r['src']) for r in store.q("SELECT date, src FROM mood_scores WHERE src IN ('friction','hand')")}
     chat = dates_chat if dates_chat is not None else \
-        [r['date'] for r in _q("SELECT DISTINCT date FROM messages WHERE role='human'")]
+        [r['date'] for r in store.q("SELECT DISTINCT date FROM messages WHERE role='human'")]
     hand = dates_hand if dates_hand is not None else [d for d, c in journal.dates().items() if c >= 30]
     return ([d for d in chat if (d, 'friction') not in have],
             [d for d in hand if (d, 'hand') not in have])
@@ -215,7 +194,7 @@ def day_signals(date):
     """过得怎么样（days.feel：打卡优先，其次手写）+ 卡得多狠（聊天）。"""
     import checkin
     import days
-    fr = _q("SELECT src, valence, label, evidence FROM mood_scores WHERE date=? AND src='friction'", date)
+    fr = store.q("SELECT src, valence, label, evidence FROM mood_scores WHERE date=? AND src='friction'", date)
     return {'mood': days.feel(date), 'friction': fr[0] if fr else None, 'checkins': checkin.for_date(date)}
 
 
@@ -223,7 +202,7 @@ def all_signals():
     """{date: {mood, friction, checkin}}，给日历用。"""
     import days
     out = {}
-    for r in _q("SELECT date, valence FROM mood_scores WHERE src='friction'"):
+    for r in store.q("SELECT date, valence FROM mood_scores WHERE src='friction'"):
         out.setdefault(r['date'], {})['friction'] = r['valence']
     for d, f in days.feel_range().items():
         out.setdefault(d, {})['mood'] = f['v']

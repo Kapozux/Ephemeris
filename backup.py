@@ -24,6 +24,7 @@ from collections import defaultdict
 from datetime import date as _date, datetime, timedelta
 
 import days
+import store
 import index as idx
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -44,36 +45,13 @@ def dest():
     return ''
 
 
-def ensure_table():
-    with idx.LOCK:
-        db = idx.connect()
-        db.execute("""CREATE TABLE IF NOT EXISTS backups (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, started_at TEXT, finished_at TEXT, ok INTEGER,
-            week TEXT, dest TEXT, snapshot TEXT, size INTEGER, weeks_md INTEGER, imports_new INTEGER, note TEXT)""")
-        cols = {r[1] for r in db.execute('PRAGMA table_info(backups)')}
-        for col in ('files_written', 'files_total', 'bytes_written'):
-            if col not in cols:
-                db.execute(f'ALTER TABLE backups ADD COLUMN {col} INTEGER')
-        # 每个备份文件上次写进去的内容指纹：没变就不写（也就不重传）。
-        # 记在本地而不是去读 Drive 里的文件 —— Drive 的「仅在线」文件一读就会触发下载。
-        db.execute('CREATE TABLE IF NOT EXISTS backup_files (path TEXT PRIMARY KEY, sha1 TEXT, size INTEGER, written_at TEXT)')
-        db.commit()
-
-
-def _q(sql, *a):
-    with idx.LOCK:
-        return [dict(r) for r in idx.connect().execute(sql, a).fetchall()]
-
-
 def last():
-    ensure_table()
-    r = _q('SELECT * FROM backups ORDER BY id DESC LIMIT 1')
+    r = store.q('SELECT * FROM backups ORDER BY id DESC LIMIT 1')
     return r[0] if r else None
 
 
 def last_ok():
-    ensure_table()
-    r = _q('SELECT * FROM backups WHERE ok=1 ORDER BY id DESC LIMIT 1')
+    r = store.q('SELECT * FROM backups WHERE ok=1 ORDER BY id DESC LIMIT 1')
     return r[0] if r else None
 
 
@@ -98,7 +76,7 @@ def _week(d):
 class _Writer:
     def __init__(self, root):
         self.root = root
-        self.known = {r['path']: r['sha1'] for r in _q('SELECT path, sha1 FROM backup_files')}
+        self.known = {r['path']: r['sha1'] for r in store.q('SELECT path, sha1 FROM backup_files')}
         self.written, self.total, self.bytes = 0, 0, 0
         self._rows = []
 
@@ -120,8 +98,8 @@ class _Writer:
         return True
 
     def commit(self):
-        with idx.LOCK:
-            db = idx.connect()
+        with store.LOCK:
+            db = store.connect()
             db.executemany('INSERT OR REPLACE INTO backup_files VALUES (?,?,?,?)', self._rows)
             db.commit()
         self._rows = []
@@ -133,14 +111,14 @@ def _jsonl(rows):
 
 def _tables():
     """要备份的表：全部普通表，除了全文索引和 sqlite 自己的。"""
-    rows = _q("SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name")
+    rows = store.q("SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name")
     return [r for r in rows if r['name'] not in SKIP_TABLES and '_fts' not in r['name']]
 
 
 def _schema():
     """建表语句：普通表 + 索引 + 两张全文索引的虚表定义（还原时建好再重建内容）。"""
     out = []
-    for r in _q("SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type DESC, name"):
+    for r in store.q("SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type DESC, name"):
         n = r['name']
         if n in SKIP_TABLES:
             continue
@@ -157,9 +135,9 @@ def _export(w):
         name = t['name']
         if name == 'messages':
             continue
-        w.put(f'数据/{name}.jsonl', _jsonl(_q(f'SELECT * FROM "{name}" ORDER BY rowid')))
+        w.put(f'数据/{name}.jsonl', _jsonl(store.q(f'SELECT * FROM "{name}" ORDER BY rowid')))
     by_day = defaultdict(list)
-    for r in _q('SELECT * FROM messages ORDER BY date, ts, id'):
+    for r in store.q('SELECT * FROM messages ORDER BY date, ts, id'):
         by_day[r['date']].append(r)
     for d, rows in by_day.items():
         w.put(f'聊天记录/{d[:7]}/{d}.jsonl', _jsonl(rows))
@@ -170,12 +148,12 @@ def _week_md(monday):
     """一周能直接读的版本：每天的日记、手写、打卡。"""
     days = [(monday + timedelta(days=i)).isoformat() for i in range(7)]
     lo, hi = days[0], days[-1]
-    diaries = {r['date']: r for r in _q('SELECT * FROM diaries WHERE date BETWEEN ? AND ?', lo, hi)}
+    diaries = {r['date']: r for r in store.q('SELECT * FROM diaries WHERE date BETWEEN ? AND ?', lo, hi)}
     hand = {}
-    for r in _q('SELECT date, title, text FROM journal WHERE date BETWEEN ? AND ? ORDER BY title', lo, hi):
+    for r in store.q('SELECT date, title, text FROM journal WHERE date BETWEEN ? AND ? ORDER BY title', lo, hi):
         hand.setdefault(r['date'], []).append(r)
     cks = {}
-    for r in _q('SELECT * FROM checkins WHERE date BETWEEN ? AND ? ORDER BY created_at', lo, hi):
+    for r in store.q('SELECT * FROM checkins WHERE date BETWEEN ? AND ? ORDER BY created_at', lo, hi):
         cks.setdefault(r['date'], []).append(r)
     if not (diaries or hand or cks):
         return None
@@ -208,7 +186,7 @@ def _week_md(monday):
 
 
 def _weeks_md(w):
-    first = _q("""SELECT MIN(d) d FROM (SELECT MIN(date) d FROM diaries
+    first = store.q("""SELECT MIN(d) d FROM (SELECT MIN(date) d FROM diaries
                   UNION ALL SELECT MIN(date) FROM journal UNION ALL SELECT MIN(date) FROM checkins)""")[0]['d']
     if not first:
         return 0
@@ -243,7 +221,6 @@ def _imports(root):
 def run():
     if not _lock.acquire(blocking=False):
         return None
-    ensure_table()
     started = datetime.now().isoformat(timespec='seconds')
     root = dest()
     week = _week(_date.fromisoformat(days.today()))
@@ -259,8 +236,8 @@ def run():
         w.commit()
         _job['stage'] = '同步导入原件'
         nimp = _imports(root)
-        with idx.LOCK:
-            db = idx.connect()
+        with store.LOCK:
+            db = store.connect()
             db.execute("""INSERT INTO backups(started_at, finished_at, ok, week, dest, weeks_md, imports_new,
                                               files_written, files_total, bytes_written, note)
                           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
@@ -271,8 +248,8 @@ def run():
         return last_ok()
     except Exception as e:                                   # noqa: BLE001
         _job['error'] = f'{type(e).__name__}: {e}'[:300]
-        with idx.LOCK:
-            db = idx.connect()
+        with store.LOCK:
+            db = store.connect()
             db.execute('INSERT INTO backups(started_at, finished_at, ok, week, dest, note) VALUES (?,?,?,?,?,?)',
                        (started, datetime.now().isoformat(timespec='seconds'), 0, week, root, _job['error']))
             db.commit()

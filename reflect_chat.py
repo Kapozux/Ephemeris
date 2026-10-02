@@ -7,28 +7,16 @@
 """
 import hashlib
 import json
-import os
-import sys
 import threading
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 
 
+import store
 import index as _index
 RANGES = {'1w': 7, '1m': 30, '3m': 90, 'all': None}
-_lock = _index.LOCK       # 全库一把锁
+_lock = store.LOCK       # 全库一把锁
 _regen = set()
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS reflect (
-  range_key TEXT PRIMARY KEY, fingerprint TEXT, headline TEXT, narrative TEXT,
-  topics_json TEXT, generated_at TEXT
-);"""
-
-
-def _ensure(conn):
-    with _lock:
-        conn.executescript(SCHEMA)
 
 
 # ------------------------------------------------------------- 纯数据
@@ -39,7 +27,6 @@ def _rows(conn, sql, *a):
 
 
 def compute(conn, range_key='1m', now=None):
-    _ensure(conn)
     now = now or datetime.now()
     days_n = RANGES.get(range_key, 30)
     last = _rows(conn, "SELECT MAX(date) d FROM messages WHERE role='human'")[0]['d']
@@ -180,8 +167,8 @@ def _voice(d, n=80, cut=120):
     太短的（「好」「继续」）也不算 —— 要的是能看出他怎么做事、怎么想问题的原话。"""
     from slice import looks_pasted
     s, e = d['period']['start'], d['period']['end']
-    with _index.LOCK:
-        rows = [r[0] for r in _index.connect().execute(
+    with store.LOCK:
+        rows = [r[0] for r in store.connect().execute(
             "SELECT text FROM messages WHERE role='human' AND date BETWEEN ? AND ? AND chars BETWEEN 15 AND 400 ORDER BY ts",
             (s, e))]
     rows = [r for r in rows if not looks_pasted(r)]

@@ -181,6 +181,11 @@ def sync(full=False, say=print):
 
 # ------------------------------------------------------------------ 读
 
+def text_for(date, limit=None):
+    """那天手写的全文（几页按标题排，空行隔开）。"""
+    return '\n\n'.join(j['text'] for j in for_date(date) if j['text'])[:limit]
+
+
 def for_date(date):
     rows = store.q('SELECT page_id, title, text, chars, stripped FROM journal WHERE date=? ORDER BY title', date)
     for r in rows:

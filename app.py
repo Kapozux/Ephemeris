@@ -21,6 +21,7 @@ import flashback
 import bundle
 import checkin
 import days
+import diary
 import claude_sync
 import journal
 import mood
@@ -53,15 +54,6 @@ def _fail(date, why):
 # flash-lite 一天约 6 万字进去，按「回顾面板约定」记的 $0.006/次 放宽一点算
 COST_PER_DAY = 0.01
 MIN_CHARS = 800          # 少于这个字数的天不值得写日记
-
-
-def _parse_diary(d):
-    for k in ('topics', 'artifacts', 'open_loops'):
-        try:
-            d[k] = json.loads(d.get(k) or '[]')
-        except (TypeError, ValueError):
-            d[k] = []
-    return d
 
 
 @app.route('/')
@@ -155,7 +147,7 @@ def api_day(date):
                                       UNION SELECT date FROM checkins WHERE date > ?)) next""",
             date, date, date, date, date, date)[0]
     return jsonify({'date': date, 'threads': out,
-                    'diary': _parse_diary(d[0]) if d else None,
+                    'diary': diary.parse(d[0]) if d else None,
                     'themes': ledger.chips(date),
                     'journal': journal.for_date(date),
                     'signals': mood.day_signals(date),
@@ -200,8 +192,7 @@ _day_bundle = bundle.day_bundle
 
 
 def _generate_one(date):
-    import diary as diary_mod
-    entry = diary_mod.generate(_day_bundle(date), refresh=True,
+    entry = diary.generate(_day_bundle(date), refresh=True,
                                prev=ledger.previous_diary(date),
                                ledger=ledger.render_for_prompt(date))
     if not entry:

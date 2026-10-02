@@ -23,6 +23,7 @@ from collections import defaultdict
 from datetime import date as _date, datetime, timedelta
 
 import days
+import diary
 import jobs
 import store
 import index as idx
@@ -171,15 +172,7 @@ def _week_md(monday):
             out += ['**我手写的**', '', h['text'] or '', '']
         dy = diaries.get(d)
         if dy:
-            out += [f"**{dy['headline']}**", '', dy['narrative'] or '', '']
-            for k, lab in (('artifacts', '做出来的'), ('open_loops', '没做完的')):
-                try:
-                    arr = json.loads(dy[k] or '[]')
-                except ValueError:
-                    arr = []
-                if arr:
-                    out.append(f'{lab}：' + '；'.join(arr))
-            out.append('')
+            out += [f"**{dy['headline']}**", '', dy['narrative'] or '', '', *diary.loose_ends(dy), '']
     return '\n'.join(out)
 
 

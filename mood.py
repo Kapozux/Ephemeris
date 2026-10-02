@@ -10,11 +10,11 @@
   both  两份都给，告诉模型哪份是哪份
 分数是 -2..+2 的效价，外加一个词（含正向的词）。怎么合成最终那一个数，由实验定（见 lab_*）。
 """
-import json
 import sys
 from datetime import datetime
 
 import store
+import diary
 import journal
 
 LABELS = ['开心', '满足', '兴奋', '平稳', '疲惫', '焦虑', '烦躁', '低落', '崩溃']
@@ -42,23 +42,11 @@ HAND_NOTE = '【手写日记】这是他当天自己在笔记里写的日记。'
 
 
 def ai_text(date):
-    r = store.q('SELECT headline, narrative, open_loops, artifacts FROM diaries WHERE date=?', date)
-    if not r:
-        return ''
-    r = r[0]
-    out = [r['headline'] or '', r['narrative'] or '']
-    for k, lab in (('artifacts', '做出来的'), ('open_loops', '没做完的')):
-        try:
-            arr = json.loads(r[k] or '[]')
-        except ValueError:
-            arr = []
-        if arr:
-            out.append(lab + '：' + '；'.join(arr))
-    return '\n'.join(x for x in out if x)
+    return diary.as_text(diary.get(date))
 
 
 def hand_text(date):
-    return '\n\n'.join(j['text'] for j in journal.for_date(date) if j['text'])[:MAX_HAND]
+    return journal.text_for(date, MAX_HAND)
 
 
 def material(date, src):

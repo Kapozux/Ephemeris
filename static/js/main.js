@@ -35,12 +35,15 @@ document.querySelectorAll('.ms-item').forEach(b => b.onclick = () =>
   navigate(b.dataset.mode === 'win' ? (S.wsel ? 'win/' + S.wsel : 'win') : (S.sel ? 'day/' + S.sel : 'day')));
 
 // ---------------------------------------------------------------- 打卡入口（单独的全屏页 /checkin）
+// 今天还没打卡，侧栏「打卡」上亮个小点。打开页面时看一次，切回这个标签页时再看一次。
+// （以前只在补全日记的进度轮询里顺手刷新，平时根本不亮。）
 
 async function refreshCkDot() {
   const r = await fetch('/api/checkin').then(r => r.json());
   $('#ckDot').classList.toggle('hidden', r.items.length > 0);
 }
 $('#ckOpen').onclick = () => { location.href = '/checkin'; };
+window.addEventListener('focus', refreshCkDot);
 
 // ---------------------------------------------------------------- 数据变了（补全跑完、导入了新文件）
 
@@ -109,6 +112,7 @@ function applyRoute() {
   setDays(d.days);
   buildCalendar();
   refreshBatchButton();
+  refreshCkDot();
   await watchBatch();
   // 冷启动交给路由：hash 里有什么就恢复什么，没有就落到最近一天
   LATEST = d.latest;

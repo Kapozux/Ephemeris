@@ -11,9 +11,9 @@ let NAV = { prev: null, next: null }, POLL = null;
 // 两个指标：过得怎么样（手写）、卡得多狠（聊天）。分开放，不合成一个数 —— 它们量的是一天里不同的部分
 function renderSignals(sg) {
   const f = sg.mood, k = sg.friction, out = [];
-  if (f) out.push(`<span class="sig" title="${esc(f.note || '')}"><i style="background:${feelColor(f.v)}"></i>过得 <b>${f.v > 0 ? '+' : ''}${+f.v.toFixed(1)}</b> ${esc(f.words || '')}<em>${f.src === 'checkin' ? '打卡' : '手写'}</em></span>`);
-  if (k) out.push(`<span class="sig" title="${esc(k.evidence || '')}"><i style="background:var(--s${k.valence})"></i>卡得 <b>${k.valence}/4</b> ${esc(k.label || '')}<em>聊天</em></span>`);
-  out.push(`<a class="sig sig-add" href="/checkin?date=${S.sel}">${(sg.checkins || []).length ? '改打卡' : '补打卡'}</a>`);
+  if (f) out.push(`<span class="day-sig" title="${esc(f.note || '')}"><i style="background:${feelColor(f.v)}"></i>过得 <b>${f.v > 0 ? '+' : ''}${+f.v.toFixed(1)}</b> ${esc(f.words || '')}<em>${f.src === 'checkin' ? '打卡' : '手写'}</em></span>`);
+  if (k) out.push(`<span class="day-sig" title="${esc(k.evidence || '')}"><i style="background:var(--s${k.valence})"></i>卡得 <b>${k.valence}/4</b> ${esc(k.label || '')}<em>聊天</em></span>`);
+  out.push(`<a class="day-sig day-sig-add" href="/checkin?date=${S.sel}">${(sg.checkins || []).length ? '改打卡' : '补打卡'}</a>`);
   $('#daySig').innerHTML = out.join('');
 }
 
@@ -70,15 +70,15 @@ function renderDiary(r) {
   // 这天接着哪几条线：第几天、隔了多久。点进去看那条线的全程
   const chips = (r.themes || []).map(t => {
     const extra = t.nth === 1 ? '新' : `第 ${t.nth} 天${t.gap > 7 ? ` · 隔 ${t.gap} 天` : ''}`;
-    return `<a class="tchip${t.nth === 1 ? ' new' : ''}${t.gap > 7 ? ' back' : ''}" data-theme="${t.id}" title="${esc(t.note || '')}">${esc(t.name)}<em>${extra}</em></a>`;
+    return `<a class="diary-chip${t.nth === 1 ? ' new' : ''}${t.gap > 7 ? ' back' : ''}" data-theme="${t.id}" title="${esc(t.note || '')}">${esc(t.name)}<em>${extra}</em></a>`;
   }).join('');
   box.innerHTML = `
     <h2>${esc(d.headline || '')}</h2>
-    ${chips ? `<div class="tchips">${chips}</div>` : ''}
+    ${chips ? `<div class="diary-chips">${chips}</div>` : ''}
     ${(d.narrative || '').split('\n\n').filter(Boolean).map(p => `<p>${esc(p)}</p>`).join('')}
-    <div class="lists">${list('做出来的', d.artifacts)}${list('没做完的', d.open_loops)}</div>
-    <div class="foot">
-      <span class="topics">${(d.topics || []).map(esc).join(' · ')}</span>
+    <div class="diary-lists">${list('做出来的', d.artifacts)}${list('没做完的', d.open_loops)}</div>
+    <div class="diary-foot">
+      <span class="diary-topics">${(d.topics || []).map(esc).join(' · ')}</span>
       ${d.mood ? `<span>${esc(d.mood)}</span>` : ''}
       <span class="sp"></span>
       <span title="${esc(d.generated_at || '')}">${rel(d.generated_at)}</span>
@@ -113,42 +113,42 @@ function poll(date) {
 export function msgHtml(m, target) {
   const long = m.text.length > CLIP;
   const body = long
-    ? `${esc(m.text.slice(0, CLIP))}<span class="clip">…</span><a class="more" data-full="1">展开 ${m.text.length} 字</a><span class="full hidden">${esc(m.text.slice(CLIP))}</span>`
+    ? `${esc(m.text.slice(0, CLIP))}<span class="msg-clip">…</span><a class="msg-more" data-full="1">展开 ${m.text.length} 字</a><span class="msg-full hidden">${esc(m.text.slice(CLIP))}</span>`
     : esc(m.text);
   return `<div class="msg ${m.role === 'human' ? '' : 'ai'} ${m.id === target ? 'target' : ''}" id="msg-${m.id}">
-            <span class="t">${m.hhmm}</span><span class="x">${body}</span></div>`;
+            <span class="msg-time">${m.hhmm}</span><span class="msg-text">${body}</span></div>`;
 }
 
 function renderThreads(threads, focus) {
   $('#threadCount').textContent = `${threads.length}`;
-  if (!threads.length) { $('#threads').innerHTML = '<div class="empty-note">这天没有和 AI 聊天</div>'; return; }
+  if (!threads.length) { $('#threads').innerHTML = '<div class="threads-empty">这天没有和 AI 聊天</div>'; return; }
   $('#threads').innerHTML = threads.map((t, i) => {
     const open = focus && t.conv_id === focus.conv;
     return `<div class="thread ${open ? 'hl' : ''}" data-conv="${t.conv_id}">
-      <div class="thead" data-i="${i}">
-        <span class="ts">${t.first}</span>
+      <div class="thread-head" data-i="${i}">
+        <span class="thread-time">${t.first}</span>
         <span class="src ${t.source}"></span>
-        <span class="tt">${esc(t.title)}</span>
-        <span class="right">${t.multi_day ? `<span class="span" data-conv="${t.conv_id}" title="这个窗口横跨了 ${t.span_from} → ${t.span_to}">${t.span_from.slice(5)} → ${t.span_to.slice(5)}</span>` : ''}<span class="cnt">${t.n_msgs} 条 · ${(t.chars || 0).toLocaleString()} 字</span></span>
+        <span class="thread-title">${esc(t.title)}</span>
+        <span class="thread-right">${t.multi_day ? `<span class="thread-span" data-conv="${t.conv_id}" title="这个窗口横跨了 ${t.span_from} → ${t.span_to}">${t.span_from.slice(5)} → ${t.span_to.slice(5)}</span>` : ''}<span class="thread-count">${t.n_msgs} 条 · ${(t.chars || 0).toLocaleString()} 字</span></span>
       </div>
-      <div class="tbody ${open ? '' : 'hidden'}" id="tb${i}">
-        <div class="tbar"><label><input type="checkbox" class="aitog"> 显示 AI 回复</label></div>
+      <div class="thread-body ${open ? '' : 'hidden'}" id="tb${i}">
+        <div class="thread-bar"><label><input type="checkbox" class="thread-aitog"> 显示 AI 回复</label></div>
         ${t.messages.map(m => msgHtml(m, focus?.msg)).join('')}
       </div></div>`;
   }).join('');
 
   $('#threads').onclick = e => {
-    const sp = e.target.closest('.span');
+    const sp = e.target.closest('.thread-span');
     if (sp) { e.stopPropagation(); showSpan(sp.dataset.conv, sp); return; }
-    const more = e.target.closest('.more');
+    const more = e.target.closest('.msg-more');
     if (more) {
       const x = more.parentElement;
-      x.querySelector('.full').classList.remove('hidden');
-      x.querySelector('.clip').remove(); more.remove(); return;
+      x.querySelector('.msg-full').classList.remove('hidden');
+      x.querySelector('.msg-clip').remove(); more.remove(); return;
     }
-    const tog = e.target.closest('.aitog');
-    if (tog) { tog.closest('.tbody').classList.toggle('showai', tog.checked); return; }
-    const h = e.target.closest('.thead');
+    const tog = e.target.closest('.thread-aitog');
+    if (tog) { tog.closest('.thread-body').classList.toggle('showai', tog.checked); return; }
+    const h = e.target.closest('.thread-head');
     if (h) $('#tb' + h.dataset.i).classList.toggle('hidden');
   };
 
@@ -165,8 +165,8 @@ async function showSpan(convId, anchor) {
   const pop = $('#pop');
   pop.innerHTML = `
     <h6>${esc(c.title)}</h6>
-    <div class="sub">${c.first_ts.slice(0, 10)} → ${c.last_ts.slice(0, 10)} · 活跃 ${r.days.length} 天 · ${c.n_msgs} 条</div>
-    <div class="days">${r.days.map(d =>
+    <div class="pop-sub">${c.first_ts.slice(0, 10)} → ${c.last_ts.slice(0, 10)} · 活跃 ${r.days.length} 天 · ${c.n_msgs} 条</div>
+    <div class="pop-days">${r.days.map(d =>
       `<a data-d="${d.date}" class="${d.date === S.sel ? 'cur' : ''}" title="${d.msgs} 条 · ${d.chars.toLocaleString()} 字">${d.date.slice(5)}</a>`).join('')}</div>`;
   const b = anchor.getBoundingClientRect();
   pop.style.left = Math.min(b.left, window.innerWidth - 360) + 'px';
@@ -178,15 +178,15 @@ async function showSpan(convId, anchor) {
   };
 }
 document.addEventListener('click', e => {
-  if (!e.target.closest('#pop') && !e.target.closest('.span')) $('#pop').classList.add('hidden');
+  if (!e.target.closest('#pop') && !e.target.closest('.thread-span')) $('#pop').classList.add('hidden');
 });
 
 // ---------------------------------------------------------------- 一天
 
 export async function openDay(date, focus) {
   S.sel = date;
-  document.querySelectorAll('.day.sel').forEach(c => c.classList.remove('sel'));
-  const c = document.querySelector(`.day[data-d="${date}"]`);
+  document.querySelectorAll('.cal-day.sel').forEach(c => c.classList.remove('sel'));
+  const c = document.querySelector(`.cal-day[data-d="${date}"]`);
   if (c) { c.classList.add('sel'); c.scrollIntoView({ block: 'nearest' }); }
 
   const r = await fetch(`/api/day/${date}`).then(r => r.json());
@@ -198,7 +198,7 @@ export async function openDay(date, focus) {
 
   const info = S.byDate[date] || {};
   const wd = '日一二三四五六'[new Date(date + 'T12:00:00').getDay()];
-  $('#dayTitle').innerHTML = `<span class="num">${date}</span><span class="wd">周${wd}</span>`;
+  $('#dayTitle').innerHTML = `<span class="pagehead-date">${date}</span><span class="pagehead-weekday">周${wd}</span>`;
   const jChars = (r.journal || []).reduce((a, j) => a + (j.chars || 0), 0);
   $('#dayMeta').textContent = r.threads.length
     ? `${r.threads.length} 个对话窗口 · ${info.msgs || 0} 条 · ${(info.chars || 0).toLocaleString()} 字 · ${info.first_at || ''}–${info.last_at || ''}` +
@@ -211,7 +211,7 @@ export async function openDay(date, focus) {
   renderDiary(r);
   renderThreads(r.threads, focus);
   requestAnimationFrame(() => {
-    const card = document.querySelector('.list-card');
+    const card = document.querySelector('.threads-card');
     if (card) card.style.setProperty('--list-top', card.getBoundingClientRect().top + 'px');
   });
   if (!focus) $('#main').scrollTop = 0;

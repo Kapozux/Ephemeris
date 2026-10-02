@@ -31,13 +31,13 @@ function syncUrl() {
 
 function setView(v) {
   S.view = v;
-  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.v === v));
+  document.querySelectorAll('.ck-tab').forEach(t => t.classList.toggle('on', t.dataset.v === v));
   $('#vNow').classList.toggle('hidden', v !== 'now');
   $('#vMonth').classList.toggle('hidden', v !== 'month');
   if (v === 'month') loadMonth(S.month || (S.date || S.today).slice(0, 7));
   syncUrl();
 }
-document.querySelectorAll('.tab').forEach(t => t.onclick = () => setView(t.dataset.v));
+document.querySelectorAll('.ck-tab').forEach(t => t.onclick = () => setView(t.dataset.v));
 
 // ---------------------------------------------------------------- 此刻
 function dateLabel(d) {
@@ -59,7 +59,7 @@ async function loadNow(date) {
 
 function renderProgress(p) {
   $('#prog').innerHTML = [['光球', p.moments], ['打卡天数', p.days], ['连续', p.streak + ' 天']]
-    .map(([k, v]) => `<div class="pcard"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+    .map(([k, v]) => `<div class="ck-pcard"><div class="ck-pcard-k">${k}</div><div class="ck-pcard-v">${v}</div></div>`).join('');
 }
 
 function renderNow() {
@@ -69,20 +69,20 @@ function renderNow() {
   $('#dToday').classList.toggle('hidden', isToday);
   $('#hTitle').firstChild.textContent = isToday ? '此刻怎么样' : '那天怎么样';
   $('#tags').innerHTML = S.words.map(w =>
-    `<button class="tag${S.word === w.word ? ' on' : ''}" data-w="${w.word}" style="color:${vcol(w.v, w.word)}">${w.word}</button>`).join('');
-  $('#tags').querySelectorAll('.tag').forEach(b => b.onclick = () => { S.word = S.word === b.dataset.w ? null : b.dataset.w; renderNow(); });
+    `<button class="ck-tag${S.word === w.word ? ' on' : ''}" data-w="${w.word}" style="color:${vcol(w.v, w.word)}">${w.word}</button>`).join('');
+  $('#tags').querySelectorAll('.ck-tag').forEach(b => b.onclick = () => { S.word = S.word === b.dataset.w ? null : b.dataset.w; renderNow(); });
   $('#record').disabled = !S.word;
   $('#record').textContent = S.editing ? '改好了 →' : '记下 →';
   $('#cancelEdit').classList.toggle('hidden', !S.editing);
 
   $('#todayList').innerHTML = S.items.length
     ? `<h3>${isToday ? '今天' : '这天'}记的 · ${S.items.length} 条</h3>` + S.items.slice().reverse().map(x => `
-      <div class="item${S.editing === x.id ? ' editing' : ''}">
-        <span class="t">${(x.created_at || '').slice(11, 16)}</span>
-        <span class="w" style="color:${vcol(x.valence, x.word)}">${esc(x.word)}</span>
-        <span class="n">${esc(x.note || '')}</span>
-        <span class="ops"><a data-e="${x.id}">改</a><a data-d="${x.id}">删</a></span>
-        ${x.reply ? `<div class="r">${esc(x.reply)}</div>` : ''}
+      <div class="ck-item${S.editing === x.id ? ' editing' : ''}">
+        <span class="ck-item-t">${(x.created_at || '').slice(11, 16)}</span>
+        <span class="ck-item-w" style="color:${vcol(x.valence, x.word)}">${esc(x.word)}</span>
+        <span class="ck-item-n">${esc(x.note || '')}</span>
+        <span class="ck-item-ops"><a data-e="${x.id}">改</a><a data-d="${x.id}">删</a></span>
+        ${x.reply ? `<div class="ck-item-r">${esc(x.reply)}</div>` : ''}
       </div>`).join('')
     : '';
   $('#todayList').querySelectorAll('[data-e]').forEach(a => a.onclick = () => {
@@ -129,8 +129,8 @@ function orbStyle(v, word) {
 }
 function renderTube(orbs) {
   $('#tubeHead').textContent = orbs.length ? `你的光球 · ${orbs.length >= 60 ? '最近 60' : orbs.length} 颗` : '记下第一刻，这里就会多一颗光球';
-  $('#tube').innerHTML = orbs.map((o, i) => `<div class="orb" data-i="${i}" style="${orbStyle(WV[o.word] ?? 0, o.word)}"></div>`).join('');
-  $('#tube').querySelectorAll('.orb').forEach(el => {
+  $('#tube').innerHTML = orbs.map((o, i) => `<div class="ck-orb" data-i="${i}" style="${orbStyle(WV[o.word] ?? 0, o.word)}"></div>`).join('');
+  $('#tube').querySelectorAll('.ck-orb').forEach(el => {
     const o = orbs[+el.dataset.i];
     tipOn(el, () => `<b>${o.date.slice(5)} ${(o.created_at || '').slice(11, 16)}　${esc(o.word)}</b>${o.note ? esc(o.note.slice(0, 120)) : ''}<em>点一下去那天</em>`);
     el.onclick = () => { $('#oracle').classList.add('hidden'); loadNow(o.date); window.scrollTo({ top: 0, behavior: 'smooth' }); };
@@ -173,15 +173,15 @@ function renderMonth() {
   const by = {}; M.stars.forEach(s => by[s.date] = s);
   const first = new Date(yy, mm - 1, 1), days = new Date(yy, mm, 0).getDate();
   const pad = (first.getDay() + 6) % 7;
-  let cells = '一二三四五六日'.split('').map(w => `<div class="wd">${w}</div>`).join('') + '<div></div>'.repeat(pad);
+  let cells = '一二三四五六日'.split('').map(w => `<div class="ck-cal-wd">${w}</div>`).join('') + '<div></div>'.repeat(pad);
   for (let d = 1; d <= days; d++) {
     const date = `${S.month}-${String(d).padStart(2, '0')}`, s = by[date];
     const future = date > S.today;
-    cells += `<div class="c${date === S.today ? ' today' : ''}${date === S.selDay ? ' sel' : ''}${future ? ' future' : ''}" data-d="${date}">
-      <span class="num">${d}</span>${s ? star4(vcol(s.v, s.word), s.src !== 'checkin') : '<svg viewBox="0 0 24 24"></svg>'}</div>`;
+    cells += `<div class="ck-cell${date === S.today ? ' today' : ''}${date === S.selDay ? ' sel' : ''}${future ? ' future' : ''}" data-d="${date}">
+      <span class="ck-cell-num">${d}</span>${s ? star4(vcol(s.v, s.word), s.src !== 'checkin') : '<svg viewBox="0 0 24 24"></svg>'}</div>`;
   }
   $('#cal').innerHTML = cells;
-  $('#cal').querySelectorAll('.c[data-d]').forEach(el => {
+  $('#cal').querySelectorAll('.ck-cell[data-d]').forEach(el => {
     const s = by[el.dataset.d];
     if (s) tipOn(el, () => `<b>${s.date.slice(5)}　${esc(s.word)}</b>${s.note ? esc(s.note.slice(0, 120)) : ''}<em>${s.src === 'checkin' ? (s.n > 1 ? `打卡 ${s.n} 条` : '自己打卡') : '从手写日记读出来的'}</em>`);
     el.onclick = () => { if (el.classList.contains('future')) return; S.selDay = el.dataset.d; renderMonth(); };
@@ -195,11 +195,11 @@ function renderDayBig(s) {
   const box = $('#dayBig');
   if (!S.selDay) { box.innerHTML = ''; return; }
   const dt = new Date(S.selDay + 'T12:00:00');
-  box.innerHTML = `<div class="d">${dt.getDate()}</div>
-    <div class="meta"><div class="wk">周${WK[dt.getDay()]}</div>
-      <div class="wd2">${s ? `<span style="color:${vcol(s.v, s.word)};font-weight:600">${esc(s.word)}</span>${s.note ? ' · ' + esc(s.note.slice(0, 40)) : ''}` : '还没记'}</div></div>
-    <a class="go">${s && s.src === 'checkin' ? '看 / 改这天 →' : '给这天补一个 →'}</a>`;
-  box.querySelector('.go').onclick = () => { setView('now'); loadNow(S.selDay); };
+  box.innerHTML = `<div class="ck-big-d">${dt.getDate()}</div>
+    <div class="ck-big-meta"><div class="ck-big-wk">周${WK[dt.getDay()]}</div>
+      <div class="ck-big-wd">${s ? `<span style="color:${vcol(s.v, s.word)};font-weight:600">${esc(s.word)}</span>${s.note ? ' · ' + esc(s.note.slice(0, 40)) : ''}` : '还没记'}</div></div>
+    <a class="ck-big-go">${s && s.src === 'checkin' ? '看 / 改这天 →' : '给这天补一个 →'}</a>`;
+  box.querySelector('.ck-big-go').onclick = () => { setView('now'); loadNow(S.selDay); };
 }
 
 // 星座：一天一颗星，高度 = 过得怎么样，挨着的日子连成线
@@ -217,7 +217,7 @@ function renderStars() {
   const els = pts.map((p, i) => {
     const c = vcol(p.v, p.word), r = 3.2 + Math.abs(p.v) * 1.2 + Math.min(p.n - 1, 3) * .6;
     const sel = p.date === S.selDay ? `<circle cx="${p.cx}" cy="${p.cy}" r="${r + 5}" fill="none" stroke="${c}" stroke-opacity=".7"/>` : '';
-    return `<g class="st" data-i="${i}" style="cursor:pointer"><circle cx="${p.cx}" cy="${p.cy}" r="${r * 3.2}" fill="${c}" opacity=".16"/>${sel}` +
+    return `<g class="ck-star" data-i="${i}" style="cursor:pointer"><circle cx="${p.cx}" cy="${p.cy}" r="${r * 3.2}" fill="${c}" opacity=".16"/>${sel}` +
       (p.src === 'checkin' ? `<circle cx="${p.cx}" cy="${p.cy}" r="${r}" fill="${c}"/>` : `<circle cx="${p.cx}" cy="${p.cy}" r="${r}" fill="none" stroke="${c}" stroke-width="1.4"/>`) +
       `<circle cx="${p.cx}" cy="${p.cy}" r="12" fill="transparent"/></g>`;
   }).join('');
@@ -227,7 +227,7 @@ function renderStars() {
     <line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="#fff" stroke-opacity=".12" stroke-dasharray="2 4"/>
     ${ax('好', y(2))}${ax('平', y(0))}${ax('糟', y(-2))}${lines}${els}${ticks}
     ${stars.length ? '' : `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="#fff" fill-opacity=".45" font-size="12.5">这个月还没有星星</text>`}</svg>`;
-  box.querySelectorAll('.st').forEach(g => {
+  box.querySelectorAll('.ck-star').forEach(g => {
     const p = pts[+g.dataset.i];
     tipOn(g, () => `<b>${p.date.slice(5)}　${esc(p.word)}</b>${p.note ? esc(p.note.slice(0, 120)) : ''}<em>${p.src === 'checkin' ? '自己打卡' : '从手写日记读出来的'}</em>`);
     g.onclick = () => { S.selDay = p.date; renderMonth(); };

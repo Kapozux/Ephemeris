@@ -26,7 +26,7 @@ $('#overlay').addEventListener('click', e => { if (e.target.id === 'overlay') na
 function showPane(pane) {
   document.querySelectorAll('.modal-nav-item[data-pane]').forEach(x =>
     x.classList.toggle('active', x.dataset.pane === pane));
-  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('active', p.dataset.pane === pane));
+  document.querySelectorAll('.modal-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === pane));
 }
 document.querySelectorAll('.modal-nav-item[data-pane]').forEach(b =>
   b.onclick = () => navigate('panel/' + b.dataset.pane));

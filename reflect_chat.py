@@ -6,16 +6,17 @@
   build()     给面板用：数字现算，那段话用存着的
   weekly()    早上那一串里调：这周还没写的范围，现在写
 
-那段话**每周一写一次**（2026-10-02 起）。以前跟着数据指纹走，新打一条卡、多聊几句，
+那段话：**有新东西才重写，每周最多一次**（2026-10-02 起）。以前数据一变就重写，新打一条卡、多聊几句，
 四个时间范围就全部重写一遍 —— 一天能重写好几轮，浪费钱。现在：
   - 周一早上 08:30 那一串里写（daily.tidy）；那天电脑没开，就在这周第一次用到时补
+  - 这周已经写过的不动；上周写的、这一周什么都没变（指纹一样）的也不动
   - 每个范围每周最多自动试一次，失败了也不再试，等下周或手动 ↻
   - 改了 PROMPT_VERSION（写法变了）照样全部重写；↻ 随时可以手动重写
 """
 import hashlib
 import json
 from collections import Counter, defaultdict
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
 import days
 import diary
@@ -184,8 +185,7 @@ PROMPT_VERSION = 'v5-no-template'     # 改了写法就换一下，所有时间�
 def _fingerprint(d):
     """写这段话时依据的是什么（区间、篇数、各篇日记的生成时间、心情词）。存下来备查。
 
-    以前拿它判断要不要重写（一变就重写，太费钱）；现在只看开头的 PROMPT_VERSION，
-    什么时候重写由 _due 决定：每周一次。
+    以前它一变就重写（太费钱）；现在由 _due 决定：这周写过的不动，上周写的、指纹又变了才重写。
     """
     t = d['totals']
     stamps = ''.join(sorted((x.get('generated_at') or '') for x in d.get('_diaries', [])))
@@ -256,25 +256,21 @@ def _regenerate(job, range_key, d):
 _auto_tried = {}            # range_key -> 哪一周自动试过（只记在内存里：重启后这周还能再试一次）
 
 
-def _week_start(today=None):
-    """这周一的日期（按 Ephemeris 的一天：凌晨 4 点前还算前一天）。"""
-    d = date.fromisoformat(today or days.today())
-    return (d - timedelta(days=d.weekday())).isoformat()
-
-
-def _due(row, week):
-    """这个范围的那段话，这周该不该自动重写。"""
+def _due(row, d):
+    """这个范围的那段话该不该（自动）重写。d 是 compute() 的结果（算指纹用）。"""
     if not row or not row['headline']:
         return True
     if (row['fingerprint'] or '').split('|')[0] != PROMPT_VERSION:
         return True                                   # 写法改了：所有范围都重写
-    return (row['generated_at'] or '')[:10] < week     # 上周（或更早）写的
+    if days.written_this_week(row['generated_at']):
+        return False                                  # 这周写过了，数据再变也等下周
+    return row['fingerprint'] != _fingerprint(d)      # 上周写的：有新东西才重写
 
 
-def _claim_auto(range_key, row):
+def _claim_auto(range_key, row, d):
     """该自动重写、而且这周还没自动试过：记下「这周试过了」，返回 True。"""
-    week = _week_start()
-    if not _due(row, week) or _auto_tried.get(range_key) == week:
+    week = days.week_start()
+    if _auto_tried.get(range_key) == week or not _due(row, d):
         return False
     _auto_tried[range_key] = week
     return True
@@ -286,7 +282,7 @@ def weekly():
     for k in RANGES:
         row = store.one('SELECT * FROM reflect WHERE range_key=?', k)
         d = compute(k)
-        if not d['totals']['diaries'] or not _claim_auto(k, row):
+        if not d['totals']['diaries'] or not _claim_auto(k, row, d):
             continue
         jobs.run(_job(k), _regenerate, k, d)
         done.append(k)
@@ -297,7 +293,7 @@ def build(range_key='1m', refresh=False):
     """面板要的：数字现算；那段话用存着的。这周还没写过（周一早上那次错过了）才在后台补写；refresh=True 是手动 ↻。"""
     d = compute(range_key)
     row = store.one('SELECT * FROM reflect WHERE range_key=?', range_key)
-    if d['totals']['diaries'] and (refresh or _claim_auto(range_key, row)):
+    if d['totals']['diaries'] and (refresh or _claim_auto(range_key, row, d)):
         # 传浅拷贝：下面马上会 d.pop('_diaries') 给接口瘦身，线程慢一步就拿不到日记了（踩过）
         jobs.start(_job(range_key), _regenerate, range_key, dict(d))
 

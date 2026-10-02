@@ -27,6 +27,19 @@ class Bucket(unittest.TestCase):
         self.assertEqual(days.today(datetime(2026, 3, 2, 4, 0, tzinfo=days.LOCAL_TZ)), '2026-03-02')
 
 
+class Week(unittest.TestCase):
+    def test_week_start_is_monday(self):
+        self.assertEqual(days.week_start('2026-10-02'), '2026-09-28')     # 周五
+        self.assertEqual(days.week_start('2026-09-28'), '2026-09-28')     # 周一本身
+        self.assertEqual(days.week_start('2026-10-04'), '2026-09-28')     # 周日还算这周
+
+    def test_written_this_week(self):
+        monday = days.week_start()
+        self.assertTrue(days.written_this_week(monday + 'T08:31:00'))
+        self.assertFalse(days.written_this_week('2020-01-01T00:00:00'))
+        self.assertFalse(days.written_this_week(None))
+
+
 class Feel(unittest.TestCase):
     def setUp(self):
         db = store.connect()

@@ -87,7 +87,7 @@ function renderReflect() {
     ${d.regenerating ? '<div class="reflect-updating"><i></i>正在重写这段时间的回顾，先给你看上一版</div>' : ''}
     <div class="reflect-headline">${esc(headline)}</div>
     ${narrative ? `<p class="reflect-narrative${d.generated ? '' : ' draft'}">${esc(narrative)}</p>` : ''}
-    ${d.generated && d.generated_at ? `<div class="reflect-when">这段话写于 ${rDate(d.generated_at.slice(0, 10))}，每周一重写一次；下面的数字和图是实时的</div>` : ''}
+    ${d.generated && d.generated_at ? `<div class="reflect-when">这段话写于 ${rDate(d.generated_at.slice(0, 10))}；有新东西的话每周重写一次，下面的数字和图是实时的</div>` : ''}
     <div class="pane-kpis">
       <div class="pane-kpi"><b class="text">${d.most_active_weekday == null ? '—' : WD[d.most_active_weekday]}</b><span>最常聊的一天</span></div>
       <div class="pane-kpi"><b>${d.peak_hour == null ? '—' : d.peak_hour + ':00'}</b><span>最活跃的钟点</span></div>

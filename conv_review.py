@@ -15,6 +15,7 @@
 from datetime import datetime
 
 
+import days
 import jobs
 import store
 import index as idx  # noqa: E402
@@ -204,16 +205,44 @@ def _pick(days):
     return days
 
 
-def generate(conv_id, refresh=False, progress=None):
-    """当前线程跑。这个窗口正在写就返回 None。"""
-    return jobs.run(_name(conv_id), _generate, conv_id, refresh, progress, total=0, done=0)
+def generate(conv_id, refresh=False, progress=None, only=None):
+    """当前线程跑。这个窗口正在写就返回 None。only：只写这几天（每周那次自动补用，不写还没过完的今天）。"""
+    return jobs.run(_name(conv_id), _generate, conv_id, refresh, progress, only, total=0, done=0)
 
 
 def generate_bg(conv_id, refresh=False):
-    jobs.start(_name(conv_id), _generate, conv_id, refresh, None, total=0, done=0)
+    """面板上的按钮：「生成回顾」「现在就补」「↻ 全部重写」。"""
+    jobs.start(_name(conv_id), _generate, conv_id, refresh, None, None, total=0, done=0)
 
 
-def _generate(st, conv_id, refresh, progress):
+# 做过回顾的窗口又聊了新的天：**每周补一次**（周一早上那一串里，daily.tidy）。
+# 以前每天早上补、打开窗口时也自动补 —— 天天在同一个窗口聊，就天天重写一遍汇总（2026-10-02 用户：浪费钱）。
+_auto_tried = {}            # conv_id -> 哪一周自动补过（只记在内存里）
+
+
+def weekly_due(conv_id, w=None):
+    """这个窗口这周该自动补哪几天：做过回顾、这周还没补过；今天还没过完，不算。"""
+    have = notes_for(conv_id)
+    if not have['arc'] or days.written_this_week(have['at']) or _auto_tried.get(conv_id) == days.week_start():
+        return []
+    today = days.today()
+    return [d for d in pending(conv_id, w) if d < today]
+
+
+def update_weekly():
+    """早上那一串里调：所有做过回顾的窗口，这周该补的补上。返回补了哪些。"""
+    cids = [r['conv_id'] for r in store.q("SELECT conv_id FROM conv_notes WHERE date=''")]
+    done = []
+    for cid in cids:
+        todo = weekly_due(cid)
+        if todo:
+            _auto_tried[cid] = days.week_start()
+            generate(cid, only=todo)
+            done.append({'conv': cid[:10], 'days': len(todo)})
+    return done
+
+
+def _generate(st, conv_id, refresh, progress, only=None):
     """把一个窗口的逐日小结 + 整体 arc 生成出来。
 
     **只写新的天和内容变了的天**，其余小结原样留着；有任何一天变了，arc 才重新汇总（一次调用）。
@@ -227,6 +256,8 @@ def _generate(st, conv_id, refresh, progress):
     have = notes_for(conv_id)
     notes = dict(have['days'])
     todo_dates = set(pending(conv_id, w))
+    if only is not None:
+        todo_dates &= set(only)
     if not todo_dates and have['arc']:
         return have                                # 什么都没变，一次都不调
     todo = [d for d in days if d['date'] in todo_dates]

@@ -40,7 +40,7 @@ function tlRow(d) {
   return `<div class="tl-row ${d.note ? '' : 'nonote'}" data-d="${d.date}">
     <div class="tl-date"><span class="tl-day">${d.date.slice(5)}</span><span class="tl-year">${d.date.slice(0, 4)}</span></div>
     <div class="tl-main">
-      <div class="tl-note">${d.note ? esc(d.note) : '<span class="dim">还没生成小结</span>'}${d.stale ? '<span class="tl-stale">这天后来又聊了，会重写</span>' : ''}</div>
+      <div class="tl-note">${d.note ? esc(d.note) : '<span class="dim">还没生成小结</span>'}${d.stale ? '<span class="tl-stale">这天后来又聊了，下次补的时候重写</span>' : ''}</div>
       <div class="tl-meta">${d.msgs} 条 · ${(d.chars || 0).toLocaleString()} 字 · ${d.a}–${d.b}
         <a class="tl-open" data-d="${d.date}">展开原文</a>
         ${d.has_diary ? `<a class="tl-diary" data-day="${d.date}">看这天的日记</a>` : ''}</div>
@@ -63,7 +63,7 @@ function renderWin(r) {
   $('#winArc').innerHTML = j.running
     ? `<div class="win-status"><span class="pulse"></span>在读这个窗口… ${j.done}/${j.total}${j.current && j.current !== 'arc' ? ` · ${j.current}` : ''}</div>`
     : r.arc
-      ? `<p>${esc(r.arc)}</p><div class="diary-foot">${days.length} 天的小结汇总而成${r.generated_at ? ` · ${rel(r.generated_at)}` : ''}${missing ? ` · 有 ${missing} 天是新的或有更新，在补` : ''}</div>`
+      ? `<p>${esc(r.arc)}</p><div class="diary-foot">${days.length} 天的小结汇总而成${r.generated_at ? ` · ${rel(r.generated_at)}` : ''}${missing ? ` · 后来又聊了 ${missing} 天，每周补一次 · <a id="winNow">现在就补</a>` : ''}</div>`
       : `<p class="dim">还没给这个窗口生成回顾。会为它活跃的 ${days.length} 天各写一句小结，再汇总成一段。</p>
          <button id="winGen" class="btn-primary" style="margin-top:14px">生成回顾</button>`;
 
@@ -71,14 +71,14 @@ function renderWin(r) {
 
   const g = $('#winGen');
   if (g) g.onclick = () => startWinGen(false);
+  const now = $('#winNow');
+  if (now) now.onclick = () => startWinGen(false);
 
   clearTimeout(WPOLL);
   if (j.running) WPOLL = setTimeout(() => openWindow(S.wsel, true), 2000);
-  // 已经做过回顾的窗口，又多聊了几天：自动只补这几天，旧小结不动
-  else if (r.arc && missing && !WAUTO[S.wsel]) { WAUTO[S.wsel] = true; startWinGen(false); }
+  // 又多聊了几天的窗口：不在打开时自动补（以前天天聊就天天重写一遍汇总），早上整理时每周补一次；急的话点「现在就补」
 }
 
-const WAUTO = {};      // 每个窗口每次打开页面只自动补一次，补失败了不会死循环
 async function startWinGen(refresh) {
   if (!S.wsel) return;
   $('#winArc').innerHTML = '<div class="win-status"><span class="pulse"></span>起来了…</div>';
@@ -99,7 +99,7 @@ export async function openWindow(id, quiet) {
   renderWin(r);
 }
 
-$('#winRegen').onclick = () => { if (confirm('把这个窗口的小结全部删掉重写？\n（平时不用：新聊的天打开时会自动补，旧的不会动）')) startWinGen(true); };
+$('#winRegen').onclick = () => { if (confirm('把这个窗口的小结全部删掉重写？\n（平时不用：新聊的天每周自动补一次，旧的不会动）')) startWinGen(true); };
 $('#winFilter').addEventListener('input', () => { WIN_SHOWN = 80; renderWinList(); });
 $('#winlist').addEventListener('click', e => {
   const a = e.target.closest('.wl-row');

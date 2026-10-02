@@ -1,10 +1,11 @@
-"""回顾面板那段话：每周一写一次，平时加数据、打卡都不重写（以前一变就重写四个范围，浪费钱）。"""
+"""回顾面板那段话：有新东西才重写，每周最多一次；平时加数据、打卡都不重写（以前一变就重写四个范围，浪费钱）。"""
 import _env  # noqa: F401
 import json
 import time
 import unittest
 from datetime import date, timedelta
 
+import days
 import jobs
 import llm
 import reflect_chat
@@ -28,7 +29,7 @@ class Weekly(unittest.TestCase):
         self.calls = []
         self.answer = GOOD
         llm.use(lambda prompt: (self.calls.append(1), self.answer)[1])
-        self.monday = reflect_chat._week_start()
+        self.monday = days.week_start()
         self.last_week = (date.fromisoformat(self.monday) - timedelta(days=3)).isoformat()
 
     def tearDown(self):
@@ -73,6 +74,14 @@ class Weekly(unittest.TestCase):
         self.build('1w')
         self.assertEqual(len(self.calls), tries)              # 这周不再自动试
         self.assertEqual(self.headline('1w'), '旧的那版')
+
+    def test_last_week_but_nothing_changed_stays(self):
+        # 上周写的，这一周一条新东西都没有（指纹一样）：不重写
+        fp = reflect_chat._fingerprint(reflect_chat.compute('1w'))
+        store.run('INSERT OR REPLACE INTO reflect VALUES (?,?,?,?,?,?)', '1w', fp, '旧的那版', '旧的叙事。', '[]',
+                  self.last_week + 'T09:00:00')
+        self.build('1w')
+        self.assertEqual((len(self.calls), self.headline('1w')), (0, '旧的那版'))
 
     def test_refresh_button_always_rewrites(self):
         self.put('1w', self.monday)

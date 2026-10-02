@@ -27,7 +27,7 @@ Ephemeris 把轴换过来：先把每一天从当天碰过的所有窗口里拼�
 - **全屏打卡页。** 点一个词，可以写一句，记下。一天能记好几刻，也能补前几天。每次记完会收到几句回话，它知道你最近在忙什么。月视图有情绪构成比例条、每天一颗星的日历、心情星座和一句话总结。
 - **话题河流。** 所有主题归成几个大类，按周画出你的精力在它们之间怎么流动。
 - **全文搜索**你发过的所有消息。
-- **每天 08:30 自动从 claude.ai 同步。** 拉新对话，补写缺的日记，不用点任何东西。
+- **每天 08:30 自动从 claude.ai 同步。** 拉新对话，补写缺的日记（今天还没过完，不写），不用点任何东西。手动点「立刻同步」走的是同一条流程。
 - **可选同步到 Notion。** 日记写进一个 Notion 数据库。那天你自己已经写过一页，就接在后面写，不动你写的内容。
 
 **日记写一次就定下来。** 新功能都建立在现成的日记上，不会批量重写旧日记。
@@ -64,7 +64,7 @@ claude.ai（每日同步）─┐
 
 需要：Python 3.9+、Google Chrome（claude.ai 同步用）、Gemini API key。
 
-> Ephemeris 目前借用 [Verbatim](https://github.com/Kapozux/_Verbatim_) 的模型调用代码：它要求 Verbatim 的 `getAudio/` 文件夹放在旁边，并从那里 import `reflect._call_model`。默认模型是 `gemini-3.5-flash-lite`。
+> 所有模型调用都走 `llm.py`。默认用 Gemini（`gemini-3.5-flash-lite`，不行退到 `gemini-2.5-flash`），key 读 `.env` 的 `GEMINI_API_KEY`。建 Gemini 客户端的代码仍借自 [Verbatim](https://github.com/Kapozux/_Verbatim_)，所以它的 `getAudio/` 文件夹要放在旁边。设 `EPHEMERIS_LLM=verbatim` 可以改走 Verbatim 自己的模型分流。
 
 ```bash
 pip install flask websocket-client
@@ -78,6 +78,8 @@ python app.py               # http://localhost:5055
 | --- | --- |
 | `CLAUDE_SESSION_KEY`、`CLAUDE_ORG_ID` | 每日 claude.ai 同步（浏览器里的 cookie） |
 | `NOTION_TOKEN`、`NOTION_DIARY_DS` | Notion 同步（internal integration secret + 数据库的 data_source_id） |
+| `GEMINI_API_KEY` | 调模型（没填就用 Verbatim 设置里存的 key） |
+| `EPHEMERIS_LLM` | `gemini`（默认）或 `verbatim` |
 | `DIARY_NAME` | 日记 prompt 里怎么称呼你 |
 
 ## 隐私

@@ -7,44 +7,38 @@
 """
 import hashlib
 import json
-import threading
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 
-
-import store
+import diary
 import index as _index
+import jobs
+import store
+
 RANGES = {'1w': 7, '1m': 30, '3m': 90, 'all': None}
-_lock = store.LOCK       # 全库一把锁
-_regen = set()
 
 
 # ------------------------------------------------------------- 纯数据
 
-def _rows(conn, sql, *a):
-    with _lock:
-        return [dict(r) for r in conn.execute(sql, a).fetchall()]
-
-
-def compute(conn, range_key='1m', now=None):
+def compute(range_key='1m', now=None):
     now = now or datetime.now()
     days_n = RANGES.get(range_key, 30)
-    last = _rows(conn, "SELECT MAX(date) d FROM messages WHERE role='human'")[0]['d']
+    last = store.q("SELECT MAX(date) d FROM messages WHERE role='human'")[0]['d']
     end = datetime.fromisoformat(last) if last else now
     if days_n:
         start = end - timedelta(days=days_n - 1)
         prev_start = start - timedelta(days=days_n)
     else:
-        first = _rows(conn, "SELECT MIN(date) d FROM messages WHERE role='human'")[0]['d']
+        first = store.q("SELECT MIN(date) d FROM messages WHERE role='human'")[0]['d']
         start = datetime.fromisoformat(first) if first else end
         prev_start = start
     s, e, ps = start.date().isoformat(), end.date().isoformat(), prev_start.date().isoformat()
 
-    day_rows = _rows(conn, """
+    day_rows = store.q("""
         SELECT date, COUNT(*) msgs, SUM(chars) chars, COUNT(DISTINCT conv_id) threads,
                SUM(CASE WHEN source='gemini' THEN chars ELSE 0 END) g_chars
           FROM messages WHERE role='human' AND date BETWEEN ? AND ? GROUP BY date""", s, e)
-    prev_rows = _rows(conn, """
+    prev_rows = store.q("""
         SELECT date, COUNT(*) msgs, SUM(chars) chars, COUNT(DISTINCT conv_id) threads
           FROM messages WHERE role='human' AND date >= ? AND date < ? GROUP BY date""", ps, s)
     by = {r['date']: r for r in day_rows}
@@ -64,24 +58,23 @@ def compute(conn, range_key='1m', now=None):
     pser = pser[-len(ser):]
 
     hr = defaultdict(int); wd = defaultdict(int)
-    for r in _rows(conn, """SELECT substr(hhmm,1,2) h, date, COUNT(*) n FROM messages
+    for r in store.q("""SELECT substr(hhmm,1,2) h, date, COUNT(*) n FROM messages
                              WHERE role='human' AND date BETWEEN ? AND ? GROUP BY h, date""", s, e):
         hr[int(r['h'])] += r['n']
         wd[datetime.fromisoformat(r['date']).weekday()] += r['n']
 
-    diaries = _rows(conn, "SELECT * FROM diaries WHERE date BETWEEN ? AND ?", s, e)
+    diaries = store.q("SELECT * FROM diaries WHERE date BETWEEN ? AND ?", s, e)
     tc, moods, n_art, n_open = Counter(), Counter(), 0, 0
-    for d in diaries:
-        try:
-            for t in json.loads(d['topics'] or '[]'): tc[t.strip()] += 1
-            n_art += len(json.loads(d['artifacts'] or '[]'))
-            n_open += len(json.loads(d['open_loops'] or '[]'))
-        except ValueError:
-            pass
-        if d.get('mood'): moods[d['mood']] += 1
+    for d in map(diary.parse, diaries):
+        for t in d['topics']:
+            tc[t.strip()] += 1
+        n_art += len(d['artifacts'])
+        n_open += len(d['open_loops'])
+        if d.get('mood'):
+            moods[d['mood']] += 1
     raw_tags = tc.most_common()          # 全部原始标签及次数；归组后再算占比
 
-    long_convs = _rows(conn, """
+    long_convs = store.q("""
         SELECT c.id, c.title, c.source, COUNT(DISTINCT m.date) days, COUNT(*) msgs,
                MIN(m.date) a, MAX(m.date) b
           FROM messages m JOIN conversations c ON c.id=m.conv_id
@@ -167,10 +160,9 @@ def _voice(d, n=80, cut=120):
     太短的（「好」「继续」）也不算 —— 要的是能看出他怎么做事、怎么想问题的原话。"""
     from slice import looks_pasted
     s, e = d['period']['start'], d['period']['end']
-    with store.LOCK:
-        rows = [r[0] for r in store.connect().execute(
-            "SELECT text FROM messages WHERE role='human' AND date BETWEEN ? AND ? AND chars BETWEEN 15 AND 400 ORDER BY ts",
-            (s, e))]
+    rows = [r['text'] for r in store.q(
+        "SELECT text FROM messages WHERE role='human' AND date BETWEEN ? AND ? AND chars BETWEEN 15 AND 400 ORDER BY ts",
+        s, e)]
     rows = [r for r in rows if not looks_pasted(r)]
     if not rows:
         return ''
@@ -236,36 +228,29 @@ def _drop_sentences(text, bad):
     return ''.join(p for p in parts if not any(f'「{b}」' in p for b in bad)).strip()
 
 
-def _bg(conn, range_key, d):
-    try:
-        out = _generate(d)
-        if not out:
-            print('reflect', range_key, 'no usable output, keeping previous')
-            return
-        with _lock:
-            conn.execute('INSERT OR REPLACE INTO reflect VALUES (?,?,?,?,?,?)',
-                         (range_key, _fingerprint(d), out.get('headline', ''), out.get('narrative', ''),
-                          json.dumps(out.get('groups') or [], ensure_ascii=False),
-                          datetime.now().isoformat(timespec='seconds')))
-            conn.commit()
-    except Exception as e:  # noqa: BLE001
-        print('reflect', range_key, 'failed:', e)
-    finally:
-        _regen.discard(range_key)
+def _job(range_key):
+    return f'reflect:{range_key}'
 
 
-def build(conn, range_key='1m', refresh=False):
-    """旧的先给；指纹变了或强制刷新就后台重算。"""
-    d = compute(conn, range_key)
-    fp = _fingerprint(d)
-    with _lock:
-        row = conn.execute('SELECT * FROM reflect WHERE range_key=?', (range_key,)).fetchone()
-    row = dict(row) if row else None
-    stale = refresh or not row or row['fingerprint'] != fp
-    if stale and range_key not in _regen and d['totals']['diaries']:
-        _regen.add(range_key)
+def _regenerate(job, range_key, d):
+    out = _generate(d)
+    if not out:
+        print('reflect', range_key, 'no usable output, keeping previous')
+        return
+    store.run('INSERT OR REPLACE INTO reflect VALUES (?,?,?,?,?,?)',
+              range_key, _fingerprint(d), out.get('headline', ''), out.get('narrative', ''),
+              json.dumps(out.get('groups') or [], ensure_ascii=False),
+              datetime.now().isoformat(timespec='seconds'))
+
+
+def build(range_key='1m', refresh=False):
+    """旧的先给；指纹变了或强制刷新就后台重算（jobs：reflect:区间，同一个区间不会同时算两遍）。"""
+    d = compute(range_key)
+    row = store.one('SELECT * FROM reflect WHERE range_key=?', range_key)
+    stale = refresh or not row or row['fingerprint'] != _fingerprint(d)
+    if stale and d['totals']['diaries']:
         # 传浅拷贝：下面马上会 d.pop('_diaries') 给接口瘦身，线程慢一步就拿不到日记了（踩过）
-        threading.Thread(target=_bg, args=(conn, range_key, dict(d)), daemon=True).start()
+        jobs.start(_job(range_key), _regenerate, range_key, dict(d))
 
     groups = []
     if row:
@@ -305,15 +290,15 @@ def build(conn, range_key='1m', refresh=False):
         'narrative': row['narrative'] if row else '',
         'generated_at': row['generated_at'] if row else None,
         'generated': bool(row and row['headline']),
-        'regenerating': range_key in _regen,
+        'regenerating': jobs.running(_job(range_key)),
     })
     return d
 
 
-def warm(conn):
+def warm():
     """启动时把四个区间都算一遍（旧的在就不会重算）。"""
     for k in RANGES:
         try:
-            build(conn, k)
+            build(k)
         except Exception as e:  # noqa: BLE001
             print('reflect warm', k, e)

@@ -1,22 +1,25 @@
-"""一篇日记：写（generate）和读（parse / get / as_text / loose_ends）。
+"""一篇日记：读、写、补。
 
-读的这几个是「日记长什么样」的唯一定义：库里 topics / artifacts / open_loops 存的是 JSON 字符串，
-拿出来先 parse；要拼成纯文本（喂模型、写备份）用 as_text / loose_ends。
-以前这几步在 app、主题账本、情绪打分、每周备份、Notion 里各写一份。
+    读  parse(行) / get(日期) / as_text / loose_ends
+        「日记长什么样」的唯一定义：库里 topics / artifacts / open_loops 存的是 JSON 字符串，拿出来先 parse；
+        要拼成纯文本（喂模型、写备份）用 as_text / loose_ends。以前这几步在 5 个地方各写一份。
+    写  write(日期)：切好的一天 → 模型 → 存库 → 记进主题账本。失败的原因记在补全任务的 errors 里
+    补  missing() 该有还没有的天；start_batch / run_batch 从早往晚一天天写（后台任务 diary-batch，见 jobs.py）
 
-把切好的一天变成一篇日记：
-
-模型调用走 llm.py（默认 gemini-3.5-flash-lite），叙事口径也沿用「回顾面板约定」：
+模型调用走 llm.py（默认 gemini-3.5-flash-lite），叙事口径沿用「回顾面板约定」：
 直白，先说主要在弄什么，不要比喻和抒情。
 """
 import json
 import os
+import time
+from datetime import datetime
 
-
-import index as idx  # noqa: E402
-import llm  # noqa: E402
+import bundle
+import index as idx
+import jobs
+import llm
 import store
-from slice import render_day  # noqa: E402
+from slice import render_day
 
 LISTS = ('topics', 'artifacts', 'open_loops')
 LOOSE_ENDS = (('artifacts', '做出来的'), ('open_loops', '没做完的'))
@@ -32,7 +35,7 @@ def parse(row):
                 v = json.loads(v or '[]')
             except (TypeError, ValueError):
                 v = []
-        d[k] = v
+        d[k] = v if isinstance(v, list) else []
     return d
 
 
@@ -115,11 +118,7 @@ def _render_prev(prev, date):
     from datetime import date as D
     gap = (D.fromisoformat(date) - D.fromisoformat(prev['date'])).days
     when = '昨天' if gap == 1 else f'{gap} 天前'
-    loops = prev.get('open_loops') or '[]'
-    try:
-        loops = json.loads(loops) if isinstance(loops, str) else loops
-    except ValueError:
-        loops = []
+    loops = parse(prev)['open_loops']
     out = [f"{prev['date']}（{when}）　{prev.get('headline') or ''}", prev.get('narrative') or '']
     if loops:
         out.append('当时没做完的：' + '；'.join(loops))
@@ -155,6 +154,125 @@ def generate(day, refresh=False, char_budget=60000, prev=None, ledger=''):
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(parsed, f, ensure_ascii=False, indent=1)
     return parsed
+
+
+# ------------------------------------------------------------------ 写：一天
+
+MIN_CHARS = 800          # 少于这个字数的天不值得写日记
+COST_PER_DAY = 0.01      # flash-lite 一天约 6 万字进去，按「回顾面板约定」记的 $0.006/次 放宽一点算
+RETRY_AFTER = 3          # 秒。模型偶尔抽风，隔一会儿原样再跑就过了
+
+
+def write(date):
+    """写这一天的日记并存下，接着记进主题账本。写不出来返回 False。"""
+    import ledger            # 账本读日记文本要用本模块，放这里免得两边互相导入
+    entry = generate(bundle.day_bundle(date), refresh=True,
+                     prev=ledger.previous_diary(date), ledger=ledger.render_for_prompt(date))
+    if not entry:
+        # generate() 返回 None = 模型输出解析不成 JSON。不记下来的话批量跑完只剩一个数字。
+        _fail(date, '模型返回解析不出 JSON')
+        return False
+    store.run('INSERT OR REPLACE INTO diaries VALUES (?,?,?,?,?,?,?,?,?)',
+              date, entry.get('headline', ''), entry.get('narrative', ''),
+              json.dumps(entry.get('topics') or [], ensure_ascii=False),
+              json.dumps(entry.get('artifacts') or [], ensure_ascii=False),
+              json.dumps(entry.get('open_loops') or [], ensure_ascii=False),
+              entry.get('mood', ''), os.environ.get('REFLECT_MODEL', ''),
+              datetime.now().isoformat(timespec='seconds'))
+    ledger.record(date, ledger.match(date, entry.get('threads'), llm.ask))
+    return True
+
+
+def start_one(date):
+    """日记页上的「重新生成」。这天已经在写就不重复开。"""
+    jobs.start(f'diary:{date}', lambda job: write(date))
+
+
+def writing(date):
+    return jobs.running(f'diary:{date}')
+
+
+# ------------------------------------------------------------------ 补：缺的那些天
+
+BATCH = 'diary-batch'
+BATCH_IDLE = {'total': 0, 'done': 0, 'failed': 0, 'current': None, 'stop': False, 'errors': []}
+
+
+def missing(force=False):
+    """聊够 MIN_CHARS 字、还没有日记的天，新的在前。force=True 连已经有的也算（改了 prompt 之后重写用）。"""
+    have = set() if force else {r['date'] for r in store.q('SELECT date FROM diaries')}
+    # 别名不能叫 chars：SQLite 在 HAVING 里会把它解析成原始列，不是聚合值（实测 35 vs 271 天）
+    rows = store.q("""SELECT date, SUM(chars) total FROM messages WHERE role='human'
+                       GROUP BY date HAVING total >= ? ORDER BY date DESC""", MIN_CHARS)
+    return [r['date'] for r in rows if r['date'] not in have]
+
+
+def _fail(date, why):
+    """某天失败的原因记在补全任务上。以前是 except: pass，跑完只剩个计数，没法查。"""
+    print(f'[diary] {date} 失败：{why}', flush=True)
+    errs = jobs.state(BATCH).setdefault('errors', [])
+    errs.append({'date': date, 'error': why[:300]})
+    del errs[:-30]
+
+
+def _write_or_note(date):
+    try:
+        return write(date)
+    except Exception as e:                                  # noqa: BLE001
+        _fail(date, f'{type(e).__name__}: {e}')
+        return False
+
+
+def _write_many(job, dates, progress=None):
+    # 日记是一天接一天的（上一篇 + 账本），必须从早往晚写
+    for d in sorted(dates):
+        if job['stop']:
+            break
+        job['current'] = d
+
+        def one(_job):
+            # 2026-09-20 实测：73 天里 1 天解析不成 JSON 或超时，隔一会儿原样再跑就过了
+            if _write_or_note(d):
+                return True
+            time.sleep(RETRY_AFTER)
+            return _write_or_note(d)
+        ok = jobs.run(f'diary:{d}', one)             # 这天要是正被单独写着，跳过（记失败）
+        job['done' if ok else 'failed'] += 1
+        if progress:
+            progress(job['done'] + job['failed'], job['total'])
+
+
+def _fresh(dates):
+    return {**BATCH_IDLE, 'total': len(dates), 'errors': []}
+
+
+def batch_status():
+    return jobs.get(BATCH, **BATCH_IDLE)
+
+
+def start_batch(force=False):
+    """「补全」按钮：后台把缺的写掉。已经在跑就只返回状态。"""
+    if jobs.running(BATCH):
+        return batch_status()
+    dates = missing(force)
+    if not dates:
+        return {**batch_status(), 'total': 0}
+    jobs.start(BATCH, _write_many, dates, **_fresh(dates))
+    return batch_status()
+
+
+def run_batch(dates, progress=None):
+    """在当前线程写这些天（早上的流程用）。补全正在跑就什么都不做，返回 False。"""
+    if jobs.running(BATCH):
+        return False
+    jobs.run(BATCH, _write_many, dates, progress, **_fresh(dates))
+    return True
+
+
+def stop_batch():
+    if jobs.running(BATCH):
+        jobs.state(BATCH)['stop'] = True
+    return batch_status()
 
 
 def to_markdown(entry):

@@ -25,6 +25,7 @@ import urllib.request
 from datetime import datetime
 
 import diary
+import jobs
 import store
 import index as idx
 
@@ -169,24 +170,18 @@ def invalidate_scan():
 
 # --------------------------------------------------------------- 日记取数
 
-def load_diaries(conn=None, dates=None):
-    conn = conn or store.connect()
+def load_diaries(dates=None):
     sql = 'SELECT * FROM diaries'
     args = []
     if dates:
         sql += ' WHERE date IN (%s)' % ','.join('?' * len(dates))
         args = list(dates)
     out = []
-    with store.LOCK:
-        rows = list(conn.execute(sql + ' ORDER BY date', args))
-    for r in rows:
+    for r in store.q(sql + ' ORDER BY date', *args):
         d = diary.parse(r)
-        with store.LOCK:
-            st = conn.execute("""SELECT COUNT(DISTINCT conv_id) threads, COUNT(*) msgs,
-                                        SUM(chars) chars, MIN(hhmm) a, MAX(hhmm) b
-                                   FROM messages WHERE date=? AND role='human'""",
-                              (d['date'],)).fetchone()
-        d['stats'] = dict(st) if st else {}
+        d['stats'] = store.one("""SELECT COUNT(DISTINCT conv_id) threads, COUNT(*) msgs,
+                                         SUM(chars) chars, MIN(hhmm) a, MAX(hhmm) b
+                                    FROM messages WHERE date=? AND role='human'""", d['date']) or {}
         out.append(d)
     return out
 
@@ -499,6 +494,58 @@ def status():
     return {'connected': True, 'integration': who,
             'remote_pages': remote['total'],
             'diaries': len(actions), **n}
+
+
+# -------------------------------------------------------------------- 后台（Notion 面板）
+# 两个后台任务（jobs.py）：notion-scan 扫远端算一览，notion-sync 真的去推。
+
+JOB = 'notion-sync'
+IDLE = {'total': 0, 'done': 0, 'failed': 0, 'current': None, 'action': None, 'errors': []}
+_panel = {'data': None}          # 上一次扫出来的一览
+
+
+def _scan_work(job):
+    try:
+        _panel['data'] = status()
+    except Exception as e:                                    # noqa: BLE001
+        _panel['data'] = {'connected': False, 'error': str(e)}
+
+
+def panel(refresh=False):
+    """面板要的一览。扫一遍远端要 90s+（1200 页 / 12 次分页），不能让 HTTP 干等 ——
+    第一次返回「算着呢」，后台扫完，前端轮询下一拍就拿到。refresh=True 丢掉缓存重扫。"""
+    if refresh:
+        invalidate_scan()
+    if refresh or _panel['data'] is None:
+        jobs.start('notion-scan', _scan_work)          # 正在扫就不重复开
+    if _panel['data'] is None:
+        return {'computing': True, 'job': job()}
+    return {**_panel['data'], 'computing': jobs.running('notion-scan'), 'job': job()}
+
+
+def _sync_work(job, only, fix):
+    def prog(i, total, date, action):
+        job.update(total=total, done=i, current=date, action=action)
+
+    try:
+        r = fix_duplicates(progress=prog) if fix else sync(only=only, progress=prog)
+        job['failed'] = len(r['failed'])
+        job['errors'] = r['failed'][:20]
+    except Exception as e:                                    # noqa: BLE001
+        job['errors'] = [{'date': '-', 'error': str(e)}]
+        job['failed'] = 1
+    finally:
+        invalidate_scan()          # 远端变了，下次一览重新扫
+        _panel['data'] = None
+
+
+def start_sync(only=None, fix=False):
+    jobs.start(JOB, _sync_work, only, fix, **IDLE)
+    return job()
+
+
+def job():
+    return jobs.get(JOB, **IDLE)
 
 
 # -------------------------------------------------------------------- CLI

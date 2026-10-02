@@ -9,6 +9,7 @@ import unittest
 
 import app as ephemeris
 import checkin
+import diary
 import llm
 import store
 
@@ -71,7 +72,7 @@ class Routes(unittest.TestCase):
         # 模型被换成返回空 → 那天写不出来：批量跑完应该是 failed=1，并且记下原因
         import threading
         tick = threading.Event()
-        sleep, ephemeris.time.sleep = ephemeris.time.sleep, lambda s: None   # 跳过重试前的 3 秒
+        retry, diary.RETRY_AFTER = diary.RETRY_AFTER, 0      # 跳过重试前的等待
         try:
             r = self.c.post('/api/diary/batch').get_json()
             self.assertEqual(r['total'], 1)
@@ -79,12 +80,37 @@ class Routes(unittest.TestCase):
                 st = self.c.get('/api/diary/batch').get_json()
                 if not st['running']:
                     break
-                tick.wait(0.02)                 # time.sleep 被换掉了，用这个等
+                tick.wait(0.02)
         finally:
-            ephemeris.time.sleep = sleep
+            diary.RETRY_AFTER = retry
         self.assertEqual((st['running'], st['done'], st['failed']), (False, 0, 1))
         self.assertEqual(st['errors'][0]['date'], NO_DIARY)
         self.assertFalse(self.c.get(f'/api/day/{NO_DIARY}').get_json()['generating'])
+
+    def test_checkin_write_flow(self):
+        cid = self.c.post('/api/checkin', json={'date': DAY, 'word': '平稳', 'note': '还行'}).get_json()['id']
+        self.assertEqual(self.c.put(f'/api/checkin/{cid}', json={'word': '满足'}).get_json(), {'ok': True})
+        self.assertEqual(self.c.post(f'/api/checkin/{cid}/reply').get_json(), {'reply': ''})   # 模型是假的
+        self.assertEqual(self.c.delete(f'/api/checkin/{cid}').get_json(), {'ok': True})
+        self.assertEqual(self.c.post('/api/checkin', json={'word': '不认识'}).status_code, 400)
+        self.assertEqual(self.c.post('/api/stars/note?month=2026-03').status_code, 200)
+
+    def test_import_markdown(self):
+        import io
+        import tempfile
+        import index as idx
+        md = ('# 导入测试\n\n## Human (Mar 5, 2026, 10:00 AM):\n\n' + '新导入的一句话 zebra ' * 20 +
+              '\n\n## Claude (Mar 5, 2026, 10:01 AM):\n\n好的\n')
+        saved, idx.IMPORT_DIR = idx.IMPORT_DIR, tempfile.mkdtemp(prefix='ephemeris-import-')
+        try:
+            r = self.c.post('/api/import', data={'file': (io.BytesIO(md.encode()), 'test.md')},
+                            content_type='multipart/form-data').get_json()
+        finally:
+            idx.IMPORT_DIR = saved
+        self.assertTrue(r['results'][0]['ok'], r)
+        day = self.c.get('/api/day/2026-03-05').get_json()
+        self.assertEqual([t['title'] for t in day['threads']], ['导入测试'])
+        self.assertTrue(any(h['date'] == '2026-03-05' for h in self.c.get('/api/search?q=zebra').get_json()['hits']))
 
     def test_day_shows_checkin_feel(self):
         sig = self.c.get(f'/api/day/{DAY}').get_json()['signals']

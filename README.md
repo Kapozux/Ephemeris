@@ -27,7 +27,7 @@ Ephemeris flips the axis. It rebuilds every day from all the windows you touched
 - **A full-screen check-in page.** Pick a word, add a line if you want, and record. You can log several moments a day or backfill earlier days. Each check-in gets a short reply that knows what you've been working on lately. A month view shows the mood mix, a star per day on the calendar, a mood constellation, and a one-line summary.
 - **A topic river.** Every theme is sorted into a handful of categories, and a streamgraph shows how your attention moved between them week by week.
 - **Full-text search** over everything you've ever sent.
-- **Daily auto-sync from claude.ai at 08:30.** New conversations come in, missing diaries get written, and nothing needs clicking.
+- **Daily auto-sync from claude.ai at 08:30.** New conversations come in, missing diaries get written (never today's, which isn't over yet), and nothing needs clicking. The "sync now" button runs the same flow.
 - **Optional Notion sync.** Diaries go into a Notion database. If you already wrote a page for that day, Ephemeris appends below it and never touches your text.
 
 Entries are **written once and kept**. New features build on the existing diaries, and old entries are never regenerated in bulk.
@@ -64,7 +64,7 @@ Importing the same data twice is safe. Messages are de-duplicated, and only days
 
 Requirements: Python 3.9+, Google Chrome (for the claude.ai sync), and a Gemini API key.
 
-> Ephemeris currently borrows its model-calling code from [Verbatim](https://github.com/Kapozux/_Verbatim_): it expects Verbatim's `getAudio/` folder next to it and imports `reflect._call_model` from there. The default model is `gemini-3.5-flash-lite`.
+> All model calls go through `llm.py`. By default they use Gemini (`gemini-3.5-flash-lite`, falling back to `gemini-2.5-flash`) with `GEMINI_API_KEY` from `.env`. The Gemini client setup is still borrowed from [Verbatim](https://github.com/Kapozux/_Verbatim_), so its `getAudio/` folder must sit next to this one. Set `EPHEMERIS_LLM=verbatim` to use Verbatim's own model routing instead.
 
 ```bash
 pip install flask websocket-client
@@ -78,6 +78,8 @@ python app.py               # http://localhost:5055
 | --- | --- |
 | `CLAUDE_SESSION_KEY`, `CLAUDE_ORG_ID` | daily claude.ai sync (your browser cookie) |
 | `NOTION_TOKEN`, `NOTION_DIARY_DS` | Notion sync (internal integration secret + the database's data_source_id) |
+| `GEMINI_API_KEY` | model calls (falls back to the key saved in Verbatim's settings) |
+| `EPHEMERIS_LLM` | `gemini` (default) or `verbatim` |
 | `DIARY_NAME` | what the diary prompts call you |
 
 ## Privacy

@@ -24,6 +24,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 
+import diary
 import store
 import index as idx
 
@@ -179,12 +180,7 @@ def load_diaries(conn=None, dates=None):
     with store.LOCK:
         rows = list(conn.execute(sql + ' ORDER BY date', args))
     for r in rows:
-        d = dict(r)
-        for k in ('topics', 'artifacts', 'open_loops'):
-            try:
-                d[k] = json.loads(d.get(k) or '[]')
-            except (TypeError, ValueError):
-                d[k] = []
+        d = diary.parse(r)
         with store.LOCK:
             st = conn.execute("""SELECT COUNT(DISTINCT conv_id) threads, COUNT(*) msgs,
                                         SUM(chars) chars, MIN(hhmm) a, MAX(hhmm) b

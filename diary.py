@@ -1,4 +1,10 @@
-"""把切好的一天变成一篇日记。
+"""一篇日记：写（generate）和读（parse / get / as_text / loose_ends）。
+
+读的这几个是「日记长什么样」的唯一定义：库里 topics / artifacts / open_loops 存的是 JSON 字符串，
+拿出来先 parse；要拼成纯文本（喂模型、写备份）用 as_text / loose_ends。
+以前这几步在 app、主题账本、情绪打分、每周备份、Notion 里各写一份。
+
+把切好的一天变成一篇日记：
 
 模型调用走 llm.py（默认 gemini-3.5-flash-lite），叙事口径也沿用「回顾面板约定」：
 直白，先说主要在弄什么，不要比喻和抒情。
@@ -9,7 +15,45 @@ import os
 
 import index as idx  # noqa: E402
 import llm  # noqa: E402
+import store
 from slice import render_day  # noqa: E402
+
+LISTS = ('topics', 'artifacts', 'open_loops')
+LOOSE_ENDS = (('artifacts', '做出来的'), ('open_loops', '没做完的'))
+
+
+def parse(row):
+    """库里的一行 → dict，列表字段解开；坏了 / 没有的当空列表。已经解开的原样留着。"""
+    d = dict(row)
+    for k in LISTS:
+        v = d.get(k)
+        if not isinstance(v, list):
+            try:
+                v = json.loads(v or '[]')
+            except (TypeError, ValueError):
+                v = []
+        d[k] = v
+    return d
+
+
+def get(date):
+    r = store.one('SELECT * FROM diaries WHERE date=?', date)
+    return parse(r) if r else None
+
+
+def loose_ends(d):
+    """['做出来的：a；b', '没做完的：c']，空的不出。"""
+    d = parse(d)
+    return [lab + '：' + '；'.join(d[k]) for k, lab in LOOSE_ENDS if d[k]]
+
+
+def as_text(d):
+    """纯文本：标题、正文、做出来的 / 没做完的，一行一段。没有日记给空串。"""
+    if not d:
+        return ''
+    d = parse(d)
+    return '\n'.join(x for x in [d.get('headline') or '', d.get('narrative') or '', *loose_ends(d)] if x)
+
 
 CACHE_DIR = os.environ.get('DIARY_CACHE') or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), '.cache')

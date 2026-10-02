@@ -11,10 +11,10 @@
 上次距今）+ 上一篇日记。它只回答「今天碰了哪几个编号、有没有新主题、各推进到哪」。
 天数由 Python 数。
 """
-import json
 import re
 from datetime import date as _date
 
+import diary
 import store
 
 ACTIVE_DAYS = 45        # 这么多天内出现过的主题，把现状也给模型看；更早的只给名字
@@ -292,21 +292,9 @@ EXTRACT_HAND_PROMPT = """下面是一篇手写日记。列出这天写到的、�
 """
 
 
-def _diary_text(d):
-    out = [d.get('headline') or '', d.get('narrative') or '']
-    for key, label in (('artifacts', '做出来的'), ('open_loops', '没做完的')):
-        try:
-            arr = json.loads(d.get(key) or '[]')
-        except ValueError:
-            arr = []
-        if arr:
-            out.append(label + '：' + '；'.join(arr))
-    return '\n'.join(x for x in out if x)
-
-
 def extract(d, call_model, prompt=None):
     import llm
-    arr = llm.parse_json(call_model((prompt or EXTRACT_PROMPT).format(date=d['date'], text=_diary_text(d))), list)
+    arr = llm.parse_json(call_model((prompt or EXTRACT_PROMPT).format(date=d['date'], text=diary.as_text(d))), list)
     if arr is None:
         return None
     return [x for x in arr if isinstance(x, dict) and x.get('name')]
@@ -342,7 +330,7 @@ def backfill_hand(call_model, say=print, max_chars=4000):
     dates = sorted(d for d, c in journal.dates().items() if c >= 30)
     fails = []
     for i, date in enumerate(dates, 1):
-        text = '\n\n'.join(j['text'] for j in journal.for_date(date) if j['text'])[:max_chars]
+        text = journal.text_for(date, max_chars)
         d = {'date': date, 'headline': '', 'narrative': text}
         items = extract(d, call_model, EXTRACT_HAND_PROMPT)
         if items is None:
@@ -361,7 +349,7 @@ def record_hand_for(dates, call_model, max_chars=4000):
     import journal
     n = 0
     for date in sorted(set(dates)):
-        text = '\n\n'.join(j['text'] for j in journal.for_date(date) if j['text'])[:max_chars]
+        text = journal.text_for(date, max_chars)
         if len(text) < 30:
             record(date, [], src='hand')
             continue

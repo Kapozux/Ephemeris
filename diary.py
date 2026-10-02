@@ -1,7 +1,6 @@
 """把切好的一天变成一篇日记。
 
-模型调用复用 getAudio/reflect.py 的那一套（默认 gemini-3.5-flash-lite，
-配了 REFLECT_OPENROUTER_MODEL 就走 OpenRouter），叙事口径也沿用「回顾面板约定」：
+模型调用走 llm.py（默认 gemini-3.5-flash-lite），叙事口径也沿用「回顾面板约定」：
 直白，先说主要在弄什么，不要比喻和抒情。
 """
 import json
@@ -9,10 +8,10 @@ import os
 import re
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'getAudio'))
 
-from slice import render_day  # noqa: E402
 import index as idx  # noqa: E402
+import llm  # noqa: E402
+from slice import render_day  # noqa: E402
 
 CACHE_DIR = os.environ.get('DIARY_CACHE') or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), '.cache')
@@ -63,39 +62,6 @@ threads 通常 2-5 条，只顺口提了一句的不算。一条只说一件事�
 PROMPT = PROMPT.replace('__NAME__', idx.who())
 
 
-def _call_model(prompt):
-    from reflect import _call_model as reflect_call
-    return reflect_call(prompt)
-
-
-def _fix_backslashes(s):
-    """把不是合法 JSON 转义的反斜杠补成 \\。
-
-    模型写数学时会直接吐 LaTeX：narrative 里出现 `$\\sqrt{3}$`，而 `\\s` 不是合法的
-    JSON 转义，整串就解析不了 —— 返回的内容本身是好的、完整的，只卡在这一个字符。
-    2026-09-21 实测：199 天里 3 天栽在这，全是数学重的日子。
-    """
-    return re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', s)
-
-
-def _extract_json(text):
-    if not text:
-        return None
-    text = text.strip()
-    text = re.sub(r'^```(?:json)?\s*', '', text)
-    text = re.sub(r'\s*```$', '', text)
-    m = re.search(r'\{.*\}', text, re.S)
-    for cand in (text, m.group(0) if m else None):
-        if not cand:
-            continue
-        for attempt in (cand, _fix_backslashes(cand)):      # 先原样，不行再修反斜杠
-            try:
-                return json.loads(attempt)
-            except json.JSONDecodeError:
-                continue
-    return None
-
-
 def _cache_path(date):
     os.makedirs(CACHE_DIR, exist_ok=True)
     return os.path.join(CACHE_DIR, f'{date}.json')
@@ -132,8 +98,7 @@ def generate(day, refresh=False, char_budget=60000, prev=None, ledger=''):
     prompt = PROMPT.format(date=day['date'], n_threads=day['n_threads'], body=body,
                            prev=_render_prev(prev, day['date']),
                            ledger=ledger or '（账本还是空的。）')
-    raw = _call_model(prompt)
-    parsed = _extract_json(raw)
+    parsed = llm.ask_json(prompt, dict, tries=1)
     if not parsed:
         return None
 

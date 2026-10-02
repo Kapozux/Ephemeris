@@ -15,6 +15,7 @@ from flask import Flask, jsonify, render_template, request
 from werkzeug.utils import secure_filename
 
 import backup
+import llm
 import daily
 import flashback
 import bundle
@@ -217,7 +218,7 @@ def _generate_one(date):
              entry.get('mood', ''), os.environ.get('REFLECT_MODEL', ''),
              datetime.now().isoformat(timespec='seconds')))
         DB.commit()
-    ledger.record(date, ledger.match(date, entry.get('threads'), diary_mod._call_model))
+    ledger.record(date, ledger.match(date, entry.get('threads'), llm.ask))
     return True
 
 
@@ -360,7 +361,7 @@ def api_checkin_home():
 @app.route('/api/checkin/<int:cid>/reply', methods=['POST'])
 def api_checkin_reply(cid):
     import diary
-    return jsonify({'reply': checkin.oracle(cid, diary._call_model)})
+    return jsonify({'reply': checkin.oracle(cid, llm.ask)})
 
 
 @app.route('/api/checkin/month')
@@ -379,7 +380,7 @@ def api_stars():
 def api_stars_note():
     import diary
     month = request.args.get('month') or checkin.today()[:7]
-    return jsonify({'note': checkin.month_note(month, diary._call_model, refresh=request.args.get('refresh') == '1')})
+    return jsonify({'note': checkin.month_note(month, llm.ask, refresh=request.args.get('refresh') == '1')})
 
 
 @app.route('/api/backup')
@@ -593,8 +594,7 @@ def _csync_scheduler():
                         print(f'[claude-sync] 接着写日记：{len(dates)} 天', flush=True)
                         _batch_worker(dates)
                 # 之后的整理：手写日记 → 手写进账本 → 两个指标 → 主题归类 → 窗口回顾（见 daily.py）
-                import diary as _d
-                daily.run(_d._call_model)
+                daily.run(llm.ask)
         except Exception as e:                               # noqa: BLE001
             print(f'[claude-sync] 调度器出错：{e}', flush=True)
         time.sleep(60)
@@ -604,6 +604,7 @@ def _csync_scheduler():
 def api_csync_status():
     last = claude_sync.last_run()
     return jsonify({'job': _csync, 'last_run': last, 'daily': daily.last(),
+                    'llm': {**llm.status(), 'check': llm.check()},
                     'configured': bool(claude_sync.env('CLAUDE_SESSION_KEY')),
                     'at': '%02d:%02d' % SYNC_AT})
 
@@ -693,5 +694,7 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT') or 5055)
     threading.Timer(3.0, reflect_chat.warm, args=(DB,)).start()   # 提前算好，打开面板不用等
     threading.Thread(target=_csync_scheduler, daemon=True).start()
+    err = llm.check()
+    print(f"[llm] 后端 {llm.backend()}：{'不可用 —— ' + err if err else '正常'}", flush=True)
     print(f'Ephemeris -> http://localhost:{port}')
     app.run(host='127.0.0.1', port=port, debug=False, threaded=True)

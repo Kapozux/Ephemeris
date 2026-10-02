@@ -170,11 +170,11 @@ def match(date, items, call_model, future=False):
     if not as_of(date) and not (future and later_themes(date)):   # 账本是空的，全是新的，不用问
         return [{'id': None, 'name': t['name'], 'note': t.get('note', '')} for t in items]
     lines = '\n'.join(f"{i}. {t['name']}：{t.get('note', '')}" for i, t in enumerate(items, 1))
-    raw = call_model(MATCH_PROMPT.format(ledger=led, items=lines))
+    import llm
+    arr = llm.parse_json(call_model(MATCH_PROMPT.format(ledger=led, items=lines)), list) or []
     try:
-        txt = re.search(r'\[.*\]', raw or '', re.S).group(0)
-        got = {int(x['i']): x for x in json.loads(txt) if isinstance(x, dict) and 'i' in x}
-    except (AttributeError, ValueError, TypeError, KeyError):
+        got = {int(x['i']): x for x in arr if isinstance(x, dict) and 'i' in x}
+    except (ValueError, TypeError, KeyError):
         got = {}                               # 解析不了就全当新的 —— 宁可多建，不乱并
     out = []
     for i, t in enumerate(items, 1):
@@ -352,12 +352,11 @@ def _diary_text(d):
 
 
 def extract(d, call_model, prompt=None):
-    raw = call_model((prompt or EXTRACT_PROMPT).format(date=d['date'], text=_diary_text(d)))
-    try:
-        arr = json.loads(re.search(r'\[.*\]', raw or '', re.S).group(0))
-        return [x for x in arr if isinstance(x, dict) and x.get('name')]
-    except (AttributeError, ValueError, TypeError):
+    import llm
+    arr = llm.parse_json(call_model((prompt or EXTRACT_PROMPT).format(date=d['date'], text=_diary_text(d))), list)
+    if arr is None:
         return None
+    return [x for x in arr if isinstance(x, dict) and x.get('name')]
 
 
 def backfill(call_model, start=None, say=print):
@@ -428,10 +427,10 @@ def record_hand_for(dates, call_model, max_chars=4000):
 
 if __name__ == '__main__':
     import sys
-    import diary
+    import llm
     say = lambda m: print(m, flush=True)                    # noqa: E731
     if sys.argv[1:2] == ['--hand']:
-        f = backfill_hand(diary._call_model, say=say)
+        f = backfill_hand(llm.ask, say=say)
     else:
-        f = backfill(diary._call_model, start=sys.argv[1] if len(sys.argv) > 1 else None, say=say)
+        f = backfill(llm.ask, start=sys.argv[1] if len(sys.argv) > 1 else None, say=say)
     print('DONE', '失败：' + ','.join(f) if f else '')

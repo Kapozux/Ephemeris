@@ -1242,7 +1242,11 @@ function renderCSync(s) {
   const detail = last?.ok
     ? `拉了 ${last.n_fetched || 0} 个对话${last.n_msgs_new ? `，新消息 ${last.n_msgs_new}` : '，没有新内容'}`
     : esc(j.error || last?.note || '失败');
-  box.innerHTML = `<div class="sync-row">
+  // 模型不可用要看得见：以前调模型失败只返回空，日记写不出来也没人知道
+  const L = s.llm || {};
+  const llmWarn = L.check ? `模型不可用（${esc(L.backend)}）：${esc(L.check)}`
+    : (L.failures && L.last_error) ? `最近有 ${L.failures} 次调模型失败（${esc(L.backend)}）：${esc(L.last_error)}` : '';
+  box.innerHTML = (llmWarn ? `<div class="sync-row"><span class="sync-dot bad"></span><span><b>模型</b>　${llmWarn}</span></div>` : '') + `<div class="sync-row">
       <span class="sync-dot ${bad ? 'bad' : 'ok'}"></span>
       <span><b>claude.ai 自动同步</b>　每天 ${s.at}，拉完自动写日记 · 上次 ${when} · ${detail}</span>
       <a id="csyncNow">${bad ? '重试' : '立刻同步'}</a>

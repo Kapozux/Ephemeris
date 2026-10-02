@@ -17,9 +17,9 @@ import sys
 import threading
 from datetime import datetime
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'getAudio'))
 
 import index as idx  # noqa: E402
+import llm  # noqa: E402
 
 PER_DAY_CHARS = 9000      # 单日喂进去的上限，长消息按比例截
 MAX_DAYS = 40             # 超过这么多活跃日就抽样（目前最多 27 天，留余量）
@@ -71,8 +71,7 @@ ARC_PROMPT = ARC_PROMPT.replace('__NAME__', idx.who())
 
 
 def _call_model(prompt):
-    from reflect import _call_model as m
-    return m(prompt)
+    return llm.ask(prompt)
 
 
 # ------------------------------------------------------------------- 存储

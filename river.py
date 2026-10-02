@@ -61,13 +61,14 @@ def classify(call_model, batch=80, say=print):
         lines = '\n'.join(f"{t['id']}. {t['name']}：{(t['desc'] or t['note'] or '')[:50]}" for t in chunk)
         got = {}
         for _ in range(2):
-            raw = call_model(CLASSIFY_PROMPT.format(items=lines))
-            m = re.search(r'\{.*\}', raw or '', re.S)
+            import llm
+            d = llm.parse_json(call_model(CLASSIFY_PROMPT.format(items=lines)), dict)
             try:
-                got = {int(k): v for k, v in json.loads(m.group(0)).items()}
+                got = {int(k): v for k, v in (d or {}).items()}
+            except (ValueError, TypeError):
+                got = {}
+            if got:
                 break
-            except (AttributeError, ValueError, TypeError):
-                continue
         with idx.LOCK:
             db = idx.connect()
             for t in chunk:
@@ -116,8 +117,7 @@ def series(start='2025-08-18', smooth=3):
 
 if __name__ == '__main__':
     import sys
-    sys.path.insert(0, '.')
-    import diary
-    classify(diary._call_model, say=lambda m: print(m, flush=True))
+    import llm
+    classify(llm.ask, say=lambda m: print(m, flush=True))
     from collections import Counter
     print(Counter(r['cat'] for r in _q('SELECT cat FROM theme_cats')).most_common())

@@ -18,6 +18,9 @@
 !/static/*.js
 !/static/*.css
 !/static/*.svg
+!/static/js/
+/static/js/*
+!/static/js/*.js
 /templates/*
 !/templates/*.html
 /tests/*

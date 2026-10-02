@@ -359,7 +359,7 @@ async function pollBatch() {
   if (s.running) {
     bar.classList.remove('hidden');
     const p = s.total ? ((s.done + s.failed) / s.total * 100) : 0;
-    bar.querySelector('i').style.width = p + '%';
+    bar.querySelector('i').style.transform = `scaleX(${p / 100})`;
     bar.querySelector('span').textContent = `${s.done + s.failed}/${s.total}　${s.current || ''}`;
     $('#batchBtn').textContent = '停止';
     $('#batchBtn').dataset.stop = '1';
@@ -397,6 +397,11 @@ $('#batchBtn').onclick = async () => {
   // 冷启动交给路由：hash 里有什么就恢复什么，没有就落到最近一天
   LATEST = d.latest;
   window.addEventListener('hashchange', applyRoute);
+  // 刚打开页面时，地址里如果是浮层（面板 / 回忆卡），不要直接弹出来：
+  // 那是上次关页面时停在那儿留下的（浏览器恢复标签页也会带着），打开应用第一眼应该是日记。
+  // 应用里面点过去的面板链接不受影响 —— 这里只管冷启动这一次。
+  const head0 = location.hash.replace(/^#\/?/, '').split('/')[0];
+  if (head0 === 'panel' || head0 === 'flashback') history.replaceState(null, '', '#/');
   applyRoute();
 })();
 
@@ -1270,11 +1275,12 @@ async function pollBackup() {
   }
   const bad = last && !last.ok;
   const where = (b.dest || '').replace(/^.*\/My Drive\//, 'Google Drive / ');
+  const kb = n => n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`;
   const detail = bad ? esc(last.note || '失败')
-    : ok ? `上次 ${rel(ok.finished_at)} · 快照 ${Math.round(ok.size / 1048576)} MB · 留最近 ${b.keep} 周（现有 ${b.snapshots} 份）` : '还没备份过';
+    : ok ? `上次 ${rel(ok.finished_at)} · 全部保留，只传有变化的 · 这次写了 ${ok.files_written ?? '?'} / ${ok.files_total ?? '?'} 个文件（${kb(ok.bytes_written || 0)}）` : '还没备份过';
   box.innerHTML = `<div class="sync-row">
       <span class="sync-dot ${bad ? 'bad' : ok ? 'ok' : 'off'}"></span>
-      <span><b>数据备份</b>　每 ${b.every_days} 天一次 → ${esc(where || '（没找到 Google Drive）')} · ${detail}</span>
+      <span><b>数据备份</b>　${b.every_days === 1 ? '每天' : `每 ${b.every_days} 天`}一次 → ${esc(where || '（没找到 Google Drive）')} · ${detail}</span>
       <a id="backupNow">${bad ? '重试' : '立刻备份'}</a></div>`;
   $('#backupNow').onclick = async () => { await fetch('/api/backup', { method: 'POST' }); setTimeout(pollBackup, 300); };
 }

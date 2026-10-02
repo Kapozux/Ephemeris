@@ -4,6 +4,7 @@
     ask_json(prompt, want) → 解析好的 dict / list，或 None（会重试）
     parse_json(text, want) → 纯函数：从模型输出里抠 JSON（去代码块、修 LaTeX 反斜杠）
     status()               → 现在用哪个后端、能不能用、上次失败原因
+    stray(text, source)    → 输出里冒出来、材料里没有的别的文字（ask 自动重来一次）
 
 为什么要有它（2026-10-02 体检）：
 - 以前 3 个模块各自 `sys.path` 伸进 getAudio 借 `reflect._call_model`，8 个地方各写一遍「抠 JSON + 重试」。
@@ -29,7 +30,7 @@ GETAUDIO = os.path.join(HERE, '..', 'getAudio')
 MODELS = ('gemini-3.5-flash-lite', 'gemini-2.5-flash')
 
 _override = None                 # 测试用：use(fn)
-_state = {'last_error': None, 'calls': 0, 'failures': 0}
+_state = {'last_error': None, 'calls': 0, 'failures': 0, 'stray': 0}
 _lock = threading.Lock()
 
 
@@ -85,8 +86,19 @@ def _call(prompt, model=None):
     return _gemini(prompt, model)
 
 
+# 天城文、阿拉伯文、西里尔、泰文、希伯来、韩文、日文假名。中文日记里出现它们，多半是模型串了语言：
+# 2026-10 查到两处 ——「SVM 분류기」（韩文「分类器」）、「खासकर 9月11日」（印地语「尤其」），材料里都没有。
+_STRAY = re.compile(r'[\u0900-\u097F\u0600-\u06FF\u0400-\u04FF\u0E00-\u0E7F\u0590-\u05FF\uAC00-\uD7AF\u3040-\u30FF]+')
+
+
+def stray(text, source=''):
+    """输出里有、材料里却没有的「别的文字」片段。材料里本来就有的（日文歌名之类）不算。"""
+    return [w for w in _STRAY.findall(text or '') if w not in (source or '')]
+
+
 def ask(prompt, model=None):
-    """调一次模型，返回文本；失败返回 None，原因记在 status() 里（界面能看到）。"""
+    """调一次模型，返回文本；失败返回 None，原因记在 status() 里（界面能看到）。
+    输出里冒出材料里没有的外文词：重来一次；还这样就照收（总比没有强），次数记在 status()['stray']。"""
     with _lock:
         _state['calls'] += 1
     try:
@@ -96,6 +108,15 @@ def ask(prompt, model=None):
             _state['failures'] += 1
             _state['last_error'] = f'{type(e).__name__}: {e}'[:300]
         return None
+    if stray(text, prompt):
+        with _lock:
+            _state['stray'] += 1
+        try:
+            again = _call(prompt, model)
+        except Exception:                                    # noqa: BLE001  重来失败就用第一次的
+            again = None
+        if again and not stray(again, prompt):
+            text = again
     return (text or '').strip() or None
 
 

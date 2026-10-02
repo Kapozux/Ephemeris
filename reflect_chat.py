@@ -13,7 +13,6 @@ import threading
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'getAudio'))
 
 import index as _index
 RANGES = {'1w': 7, '1m': 30, '3m': 90, 'all': None}
@@ -223,8 +222,7 @@ def _fingerprint(d):
 
 
 def _generate(d):
-    from reflect import _call_model
-    from diary import _extract_json
+    import llm
     feel = _feel_words(d)
     items = '\n'.join(f"{x['date']} | {x['headline']}" + (f" | {feel[x['date']]}" if x['date'] in feel else '')
                       for x in sorted(d['_diaries'], key=lambda x: x['date']))
@@ -235,7 +233,7 @@ def _generate(d):
     voice = _voice(d)
     best = None
     for _ in range(3):                       # 长区间输出长，偶尔 JSON 断掉；引用对不上原话也重来
-        out = _extract_json(_call_model(prompt))
+        out = llm.parse_json(llm.ask(prompt), dict)
         if not (out and out.get('headline')):
             continue
         bad = _bad_quotes(out.get('narrative', ''), voice)

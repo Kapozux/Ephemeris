@@ -17,9 +17,9 @@ from datetime import datetime
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bundle                   # noqa: E402
-sys.path.insert(0, os.path.join(HERE, '..', 'getAudio'))
 
 import diary                    # noqa: E402
+import llm                      # noqa: E402
 import index as idx             # noqa: E402
 import mood                     # noqa: E402
 from slice import render_day    # noqa: E402
@@ -30,16 +30,8 @@ N = 40
 
 
 def call(prompt, model):
-    """指定模型调一次 Gemini。reflect._call_model 只认配置里那个，实验要能换。"""
-    import usage
-    from config import GEMINI_API_KEY, make_gemini_client
-    client = make_gemini_client(GEMINI_API_KEY or os.environ.get('GEMINI_API_KEY', ''))
-    try:
-        resp = client.models.generate_content(model=model, contents=prompt)
-    except Exception:                                        # noqa: BLE001
-        return None
-    usage.record_gemini(resp, model, 'ephemeris-lab')
-    return (resp.text or '').strip() or None
+    """实验要能指定模型；走 llm.py，不再自己建 Gemini client。"""
+    return llm.ask(prompt, model=model)
 
 
 CHAT_NOTE = ('【聊天原文】这是他当天发给 AI 的全部消息（只有他自己说的，没有 AI 的回复）。'
@@ -110,7 +102,7 @@ def make_diary2(date):
                                   prev=diary._render_prev(ledger.previous_diary(date), date),
                                   ledger=ledger.render_for_prompt(date) or '（账本还是空的。）')
     raw = call(prompt, LITE)
-    d = diary._extract_json(raw)
+    d = llm.parse_json(raw, dict)
     if not d:
         return None
     with idx.LOCK:

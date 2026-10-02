@@ -11,6 +11,7 @@
 !/export_claude.js
 !/static/
 !/templates/
+!/tests/
 
 # 白名单里的目录也只放行代码类型
 /static/*
@@ -19,3 +20,5 @@
 !/static/*.svg
 /templates/*
 !/templates/*.html
+/tests/*
+!/tests/*.py

@@ -92,11 +92,11 @@ def material(date, src):
 
 
 def _parse(raw):
-    m = re.search(r'\{.*\}', raw or '', re.S)
-    if not m:
+    import llm
+    d = llm.parse_json(raw, dict)
+    if not d:
         return None
     try:
-        d = json.loads(m.group(0))
         v = max(-2.0, min(2.0, float(d.get('valence'))))
     except (ValueError, TypeError):
         return None
@@ -172,10 +172,9 @@ def score_friction(date, call_model):
     day = bundle.day_bundle(date)
     if not day['threads']:
         return None
-    raw = call_model(FRICTION_PROMPT.format(material=render_day(day)))
-    m = re.search(r'\{.*\}', raw or '', re.S)
+    import llm
+    d = llm.parse_json(call_model(FRICTION_PROMPT.format(material=render_day(day))), dict) or {}
     try:
-        d = json.loads(m.group(0))
         f = max(0, min(4, int(round(float(d.get('friction'))))))
     except (AttributeError, ValueError, TypeError):
         return None
@@ -253,9 +252,9 @@ def _corr(xs, ys):
 
 
 if __name__ == '__main__':
-    import diary
+    import llm
     if sys.argv[1:2] == ['--fill']:
-        print('DONE', fill(diary._call_model, say=lambda m: print(m, flush=True)))
+        print('DONE', fill(llm.ask, say=lambda m: print(m, flush=True)))
     else:
-        f = run(diary._call_model, say=lambda m: print(m, flush=True))
+        f = run(llm.ask, say=lambda m: print(m, flush=True))
         print('DONE 失败', f)

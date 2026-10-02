@@ -169,23 +169,10 @@ PROMPT = PROMPT.replace('__NAME__', _index.who())
 
 
 def _feel_words(d):
-    """这段时间每天的心情词：打卡优先（最后一条），其次手写日记读出来的。"""
-    s, e = d['period']['start'], d['period']['end']
-    with _index.LOCK:
-        db = _index.connect()
-        hand = {r[0]: r[1] for r in db.execute(
-            "SELECT date, label FROM mood_scores WHERE src='hand' AND date BETWEEN ? AND ?", (s, e))}
-        try:
-            ck = {}
-            for d, w in db.execute(
-                    "SELECT date, word FROM checkins WHERE date BETWEEN ? AND ? ORDER BY created_at", (s, e)):
-                seq = ck.setdefault(d, [])
-                if not seq or seq[-1] != w:          # 同一个词连着记了几次只算一次
-                    seq.append(w)
-        except Exception:                                    # noqa: BLE001  还没建表
-            ck = {}
-    # 一天记了好几次：按时间写成「崩溃→满足」，一天里的起伏也看得见（以前只取最后一个词，会漏掉）
-    return {**{k: v for k, v in hand.items() if v}, **{d: '→'.join(ws) for d, ws in ck.items()}}
+    """这段时间每天的心情词（days.feel 的 words：一天打了几次卡就是「崩溃→满足」）。"""
+    import days
+    return {k: f['words'] for k, f in days.feel_range(d['period']['start'], d['period']['end']).items()
+            if f['words']}
 
 
 def _voice(d, n=80, cut=120):

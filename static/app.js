@@ -98,7 +98,7 @@ function markDiary(date) {
 // 两个指标：过得怎么样（手写）、卡得多狠（聊天）。分开放，不合成一个数 —— 它们量的是一天里不同的部分
 function renderSignals(sg) {
   const f = sg.mood, k = sg.friction, out = [];
-  if (f) out.push(`<span class="sig" title="${esc(f.evidence || '')}"><i style="background:${feelColor(f.valence)}"></i>过得 <b>${f.valence > 0 ? '+' : ''}${f.valence}</b> ${esc(f.label || '')}<em>${f.src === 'checkin' ? '打卡' : '手写'}</em></span>`);
+  if (f) out.push(`<span class="sig" title="${esc(f.note || '')}"><i style="background:${feelColor(f.v)}"></i>过得 <b>${f.v > 0 ? '+' : ''}${+f.v.toFixed(1)}</b> ${esc(f.words || '')}<em>${f.src === 'checkin' ? '打卡' : '手写'}</em></span>`);
   if (k) out.push(`<span class="sig" title="${esc(k.evidence || '')}"><i style="background:var(--s${k.valence})"></i>卡得 <b>${k.valence}/4</b> ${esc(k.label || '')}<em>聊天</em></span>`);
   out.push(`<a class="sig sig-add" href="/checkin?date=${SEL}">${(sg.checkins || []).length ? '改打卡' : '补打卡'}</a>`);
   $('#daySig').innerHTML = out.join('');

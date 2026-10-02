@@ -5,8 +5,8 @@ from datetime import datetime, timezone
 
 import checkin
 import days
-import index as idx
 import mood
+import store
 
 
 def utc(*a):
@@ -29,15 +29,13 @@ class Bucket(unittest.TestCase):
 
 class Feel(unittest.TestCase):
     def setUp(self):
-        checkin.ensure_table()
-        mood.ensure_table()
-        db = idx.connect()
+        db = store.connect()
         db.execute('DELETE FROM checkins')
         db.execute('DELETE FROM mood_scores')
         db.commit()
 
     def hand(self, date, v, label, evidence=''):
-        db = idx.connect()
+        db = store.connect()
         db.execute("INSERT INTO mood_scores(date, src, valence, label, evidence) VALUES (?, 'hand', ?, ?, ?)",
                    (date, v, label, evidence))
         db.commit()

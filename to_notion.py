@@ -18,13 +18,13 @@ API 版本必须 2025-09-03：老的 2022-06-28 没有 data_sources 端点，
 import hashlib
 import http.client
 import json
-import os
 import re
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime
 
+import store
 import index as idx
 
 NOTION_VERSION = '2025-09-03'
@@ -86,22 +86,10 @@ def whoami():
 
 # --------------------------------------------------------------- 本地记账
 
-def ensure_table():
-    with idx.LOCK:
-        idx.connect().execute("""
-            CREATE TABLE IF NOT EXISTS notion_pages (
-                date     TEXT PRIMARY KEY,
-                page_id  TEXT NOT NULL,
-                mode     TEXT NOT NULL,      -- create | append
-                hash     TEXT NOT NULL,      -- 推上去那版内容的指纹
-                pushed_at TEXT NOT NULL
-            )""")
-        idx.connect().commit()
-
 
 def _record(date, page_id, mode, h):
-    with idx.LOCK:
-        c = idx.connect()
+    with store.LOCK:
+        c = store.connect()
         c.execute('INSERT OR REPLACE INTO notion_pages VALUES (?,?,?,?,?)',
                   (date, page_id, mode, h, datetime.now().isoformat(timespec='seconds')))
         c.commit()
@@ -109,10 +97,9 @@ def _record(date, page_id, mode, h):
 
 def recorded():
     """date -> {page_id, mode, hash}"""
-    ensure_table()
-    with idx.LOCK:
+    with store.LOCK:
         return {r['date']: dict(r) for r in
-                idx.connect().execute('SELECT * FROM notion_pages')}
+                store.connect().execute('SELECT * FROM notion_pages')}
 
 
 # ------------------------------------------------------------ 日期与标题
@@ -182,14 +169,14 @@ def invalidate_scan():
 # --------------------------------------------------------------- 日记取数
 
 def load_diaries(conn=None, dates=None):
-    conn = conn or idx.connect()
+    conn = conn or store.connect()
     sql = 'SELECT * FROM diaries'
     args = []
     if dates:
         sql += ' WHERE date IN (%s)' % ','.join('?' * len(dates))
         args = list(dates)
     out = []
-    with idx.LOCK:
+    with store.LOCK:
         rows = list(conn.execute(sql + ' ORDER BY date', args))
     for r in rows:
         d = dict(r)
@@ -198,7 +185,7 @@ def load_diaries(conn=None, dates=None):
                 d[k] = json.loads(d.get(k) or '[]')
             except (TypeError, ValueError):
                 d[k] = []
-        with idx.LOCK:
+        with store.LOCK:
             st = conn.execute("""SELECT COUNT(DISTINCT conv_id) threads, COUNT(*) msgs,
                                         SUM(chars) chars, MIN(hhmm) a, MAX(hhmm) b
                                    FROM messages WHERE date=? AND role='human'""",
@@ -312,7 +299,6 @@ def fix_duplicates(progress=None, dry=False):
     对每个这样的日期：把 Ephemeris 建的那页扔废纸篓，内容改为追加到他那页。
     只动 icon 是 💬 的页，绝不碰他自己写的。
     """
-    ensure_table()
     remote = scan_remote(fresh=True)
     dupes = sorted(set(remote['ours']) & set(remote['theirs']))
     if dry:
@@ -442,7 +428,6 @@ def plan(remote=None, fresh=False):
     replace = 那天的日记重跑过，而内容是追加在他自己写的页面里的。
     不能再 append（会叠两份），走 replace_append：只删掉属于 Ephemeris 的那几块再写新的。
     """
-    ensure_table()
     remote = remote or scan_remote(fresh=fresh)
     seen = recorded()
     out = {}
@@ -465,7 +450,6 @@ def plan(remote=None, fresh=False):
 
 def sync(only=None, progress=None, limit=0, dry=False):
     """把待办的推上去。progress(done, total, date, action) 会被逐条调用。"""
-    ensure_table()
     actions, remote, seen = plan(fresh=True)   # 开跑前拿最新的，别用缓存
     todo = [(dt, a) for dt, a in sorted(actions.items())
             if a != 'skip' and (not only or a in only)]
@@ -506,7 +490,6 @@ def sync(only=None, progress=None, limit=0, dry=False):
 
 def status():
     """给 UI 用的一览。"""
-    ensure_table()
     if not token():
         return {'connected': False}
     try:

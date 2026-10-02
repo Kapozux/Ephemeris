@@ -13,38 +13,13 @@ import hashlib
 import json
 from datetime import datetime, timedelta
 
-import index as idx
+import store
 import days
 
 # 词 → 分数（-2..+2）。顺序就是界面上的顺序：从好到糟
 WORDS = [('兴奋', 2), ('开心', 1.5), ('满足', 1), ('平稳', 0), ('说不上来', 0), ('疲惫', -0.5),
          ('焦虑', -1), ('烦躁', -1), ('低落', -1.5), ('崩溃', -2)]
 VALUE = dict(WORDS)
-
-
-def ensure_table():
-    with idx.LOCK:
-        db = idx.connect()
-        db.executescript("""
-        CREATE TABLE IF NOT EXISTS checkins (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          date TEXT NOT NULL, word TEXT NOT NULL, valence REAL NOT NULL,
-          note TEXT DEFAULT '', created_at TEXT, updated_at TEXT
-        );
-        CREATE INDEX IF NOT EXISTS checkins_date ON checkins(date);
-        CREATE TABLE IF NOT EXISTS star_notes (
-          month TEXT PRIMARY KEY, fingerprint TEXT, text TEXT, made_at TEXT
-        );
-        """)
-        # reply：记下之后 AI 回的那几句（打卡时的「陪伴」口吻，跟日记/回顾的「镜子」口吻分开）
-        if 'reply' not in [r[1] for r in db.execute('PRAGMA table_info(checkins)')]:
-            db.execute('ALTER TABLE checkins ADD COLUMN reply TEXT')
-        db.commit()
-
-
-def _q(sql, *a):
-    with idx.LOCK:
-        return [dict(r) for r in idx.connect().execute(sql, a).fetchall()]
 
 
 def _now():
@@ -54,12 +29,11 @@ def _now():
 # ------------------------------------------------------------------ 增删改查
 
 def add(date, word, note=''):
-    ensure_table()
     if word not in VALUE:
         raise ValueError(f'不认识的词：{word}')
     datetime.strptime(date, '%Y-%m-%d')
-    with idx.LOCK:
-        db = idx.connect()
+    with store.LOCK:
+        db = store.connect()
         cur = db.execute('INSERT INTO checkins(date, word, valence, note, created_at, updated_at) VALUES (?,?,?,?,?,?)',
                          (date, word, VALUE[word], (note or '').strip()[:500], _now(), _now()))
         db.commit()
@@ -67,36 +41,33 @@ def add(date, word, note=''):
 
 
 def update(cid, word=None, note=None):
-    ensure_table()
-    r = _q('SELECT * FROM checkins WHERE id=?', cid)
+    r = store.q('SELECT * FROM checkins WHERE id=?', cid)
     if not r:
         raise KeyError(cid)
     r = r[0]
     word = word or r['word']
     if word not in VALUE:
         raise ValueError(f'不认识的词：{word}')
-    with idx.LOCK:
-        db = idx.connect()
+    with store.LOCK:
+        db = store.connect()
         db.execute('UPDATE checkins SET word=?, valence=?, note=?, updated_at=? WHERE id=?',
                    (word, VALUE[word], (r['note'] if note is None else note).strip()[:500], _now(), cid))
         db.commit()
 
 
 def delete(cid):
-    with idx.LOCK:
-        db = idx.connect()
+    with store.LOCK:
+        db = store.connect()
         db.execute('DELETE FROM checkins WHERE id=?', (cid,))
         db.commit()
 
 
 def for_date(date):
-    ensure_table()
-    return _q('SELECT id, date, word, valence, note, reply, created_at FROM checkins WHERE date=? ORDER BY created_at', date)
+    return store.q('SELECT id, date, word, valence, note, reply, created_at FROM checkins WHERE date=? ORDER BY created_at', date)
 
 
 def dates():
-    ensure_table()
-    return [r['date'] for r in _q('SELECT DISTINCT date FROM checkins ORDER BY date')]
+    return [r['date'] for r in store.q('SELECT DISTINCT date FROM checkins ORDER BY date')]
 
 
 # ------------------------------------------------------------------ 星座图
@@ -156,13 +127,12 @@ NOTE_PROMPT = """下面是一个人某个月每天「过得怎么样」的统计
 
 def month_note(month, call_model=None, refresh=False):
     """星座图下面那一句话。数据没变就用缓存；变了（新打卡、改了）才重写。"""
-    ensure_table()
     cur = _stats(month_stars(month))
     if not cur:
         return ''
     prv = _stats(month_stars(_prev_month(month)))
     fp = hashlib.sha1(json.dumps([cur, prv], ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:16]
-    have = _q('SELECT fingerprint, text FROM star_notes WHERE month=?', month)
+    have = store.q('SELECT fingerprint, text FROM star_notes WHERE month=?', month)
     if have and have[0]['fingerprint'] == fp and not refresh:
         return have[0]['text']
     if call_model is None:
@@ -172,8 +142,8 @@ def month_note(month, call_model=None, refresh=False):
     text = (call_model(prompt) or call_model(prompt) or '').strip()      # 模型偶尔回空，再试一次
     text = text.strip('「」"“”').split('\n')[0][:80]
     if text:
-        with idx.LOCK:
-            db = idx.connect()
+        with store.LOCK:
+            db = store.connect()
             db.execute('INSERT OR REPLACE INTO star_notes VALUES (?,?,?,?)', (month, fp, text, _now()))
             db.commit()
     return text
@@ -187,28 +157,26 @@ def month_stats(month):
 
 def progress():
     """光球总数、打过卡的天数、连到今天的连续天数（今天还没打就从昨天往回数）。"""
-    ensure_table()
-    n = _q('SELECT COUNT(*) c FROM checkins')[0]['c']
+    n = store.q('SELECT COUNT(*) c FROM checkins')[0]['c']
     ds = set(dates())
-    streak, d = 0, datetime.strptime(today(), '%Y-%m-%d').date()
+    streak, d = 0, datetime.strptime(days.today(), '%Y-%m-%d').date()
     if d.isoformat() not in ds:
         d -= timedelta(days=1)
     while d.isoformat() in ds:
         streak += 1
         d -= timedelta(days=1)
-    return {'moments': n, 'days': len(ds), 'streak': streak, 'today_done': today() in ds}
+    return {'moments': n, 'days': len(ds), 'streak': streak, 'today_done': days.today() in ds}
 
 
 def orbs(limit=60):
-    ensure_table()
-    return _q('SELECT id, date, word, note, created_at FROM checkins ORDER BY created_at DESC LIMIT ?', limit)
+    return store.q('SELECT id, date, word, note, created_at FROM checkins ORDER BY created_at DESC LIMIT ?', limit)
 
 
 def month_view(month):
     """日历每天一颗星（颜色 = 那天的词：打卡取最后一条，没打卡用手写读出来的词），外加这个月的构成比例。"""
     stars = month_stars(month)
     ck = {}
-    for r in _q("SELECT word FROM checkins WHERE date LIKE ?", month + '%'):
+    for r in store.q("SELECT word FROM checkins WHERE date LIKE ?", month + '%'):
         ck[r['word']] = ck.get(r['word'], 0) + 1
     # 构成：打卡按条数算（一刻一份），没打卡的天用手写读出来的词、一天一份
     comp = dict(ck)
@@ -251,15 +219,14 @@ def _oracle_context(date):
     week = days.feel_range((d0 - timedelta(days=7)).isoformat(), (d0 - timedelta(days=1)).isoformat())
     recent = [f"{d[5:]} {f['word']}" for d, f in week.items() if f['word']]
     themes = [f"{r['name']}（上次到：{r['state'][:30]}）" for r in ledger.as_of(date)[:5] if r['ago'] <= 10]
-    y = _q('SELECT headline, narrative FROM diaries WHERE date=?', (d0 - timedelta(days=1)).isoformat())
+    y = store.q('SELECT headline, narrative FROM diaries WHERE date=?', (d0 - timedelta(days=1)).isoformat())
     yesterday = f"{y[0]['headline']}。{(y[0]['narrative'] or '')[:300]}" if y else '（没有）'
     return '；'.join(recent) or '（没有记录）', '；'.join(themes) or '（不清楚）', yesterday
 
 
 def oracle(cid, call_model):
     """给一条打卡写回话，存下来。"""
-    ensure_table()
-    r = _q('SELECT * FROM checkins WHERE id=?', cid)
+    r = store.q('SELECT * FROM checkins WHERE id=?', cid)
     if not r:
         return ''
     r = r[0]
@@ -271,8 +238,8 @@ def oracle(cid, call_model):
                                   themes=themes, yesterday=yesterday)
     text = (call_model(prompt) or call_model(prompt) or '').strip().strip('「」"“”')
     if text:
-        with idx.LOCK:
-            db = idx.connect()
+        with store.LOCK:
+            db = store.connect()
             db.execute('UPDATE checkins SET reply=? WHERE id=?', (text[:400], cid))
             db.commit()
     return text

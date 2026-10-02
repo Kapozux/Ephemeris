@@ -20,7 +20,7 @@ import bundle                   # noqa: E402
 
 import diary                    # noqa: E402
 import llm                      # noqa: E402
-import index as idx             # noqa: E402
+import store
 import mood                     # noqa: E402
 from slice import render_day    # noqa: E402
 
@@ -53,39 +53,24 @@ if DIARY2_PROMPT == diary.PROMPT:
     DIARY2_PROMPT = diary.PROMPT
 
 
-def _q(sql, *a):
-    with idx.LOCK:
-        return [dict(r) for r in idx.connect().execute(sql, a).fetchall()]
-
-
-def ensure():
-    mood.ensure_table()
-    with idx.LOCK:
-        db = idx.connect()
-        db.execute("""CREATE TABLE IF NOT EXISTS diaries_lab (
-            date TEXT PRIMARY KEY, headline TEXT, narrative TEXT, feelings TEXT, mood TEXT, raw TEXT, made_at TEXT)""")
-        db.execute('CREATE TABLE IF NOT EXISTS mood_lab2_pick (date TEXT PRIMARY KEY)')
-        db.commit()
-
-
 def pick():
-    have = [r['date'] for r in _q('SELECT date FROM mood_lab2_pick ORDER BY date')]
+    have = [r['date'] for r in store.q('SELECT date FROM mood_lab2_pick ORDER BY date')]
     if have:
         return have
-    both = [r['date'] for r in _q("""SELECT a.date FROM mood_scores a JOIN mood_scores h
+    both = [r['date'] for r in store.q("""SELECT a.date FROM mood_scores a JOIN mood_scores h
                                        ON h.date=a.date AND h.src='hand' WHERE a.src='ai'""")]
     random.Random(11).shuffle(both)
     days = sorted(both[:N])
-    with idx.LOCK:
-        db = idx.connect()
+    with store.LOCK:
+        db = store.connect()
         db.executemany('INSERT INTO mood_lab2_pick VALUES (?)', [(d,) for d in days])
         db.commit()
     return days
 
 
 def _save(date, src, r):
-    with idx.LOCK:
-        db = idx.connect()
+    with store.LOCK:
+        db = store.connect()
         db.execute('INSERT OR REPLACE INTO mood_scores VALUES (?,?,?,?,?,?)',
                    (date, src, r['valence'], r['label'], r['evidence'], datetime.now().isoformat(timespec='seconds')))
         db.commit()
@@ -105,8 +90,8 @@ def make_diary2(date):
     d = llm.parse_json(raw, dict)
     if not d:
         return None
-    with idx.LOCK:
-        db = idx.connect()
+    with store.LOCK:
+        db = store.connect()
         db.execute('INSERT OR REPLACE INTO diaries_lab VALUES (?,?,?,?,?,?,?)',
                    (date, d.get('headline', ''), d.get('narrative', ''), d.get('feelings', ''), d.get('mood', ''),
                     raw, datetime.now().isoformat(timespec='seconds')))
@@ -115,10 +100,9 @@ def make_diary2(date):
 
 
 def run(say=print):
-    ensure()
     days = pick()
-    done = {(r['date'], r['src']) for r in _q('SELECT date, src FROM mood_scores')}
-    have2 = {r['date'] for r in _q('SELECT date FROM diaries_lab')}
+    done = {(r['date'], r['src']) for r in store.q('SELECT date, src FROM mood_scores')}
+    have2 = {r['date'] for r in store.q('SELECT date FROM diaries_lab')}
     for i, d in enumerate(days, 1):
         chat = CHAT_NOTE + '\n\n' + render_day(bundle.day_bundle(d))
         for src, model in (('chat_lite', LITE), ('chat_flash', FLASH)):
@@ -129,7 +113,7 @@ def run(say=print):
         if d not in have2:
             make_diary2(d) or make_diary2(d)
         if (d, 'diary2') not in done:
-            row = _q('SELECT headline, narrative, feelings FROM diaries_lab WHERE date=?', d)
+            row = store.q('SELECT headline, narrative, feelings FROM diaries_lab WHERE date=?', d)
             if row:
                 x = row[0]
                 r = _score(f"{DIARY2_NOTE}\n\n{x['headline']}\n{x['narrative']}\n感受：{x['feelings']}", LITE)
@@ -141,7 +125,7 @@ def run(say=print):
 def report():
     days = pick()
     sc = {}
-    for r in _q('SELECT date, src, valence FROM mood_scores'):
+    for r in store.q('SELECT date, src, valence FROM mood_scores'):
         sc.setdefault(r['date'], {})[r['src']] = r['valence']
     rows = []
     for src, name in (('chat_lite', '聊天原文 · flash-lite'), ('chat_flash', '聊天原文 · 3.5-flash'),

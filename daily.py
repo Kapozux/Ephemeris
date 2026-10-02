@@ -12,15 +12,7 @@ import json
 import time
 from datetime import datetime
 
-import index as idx
-
-
-def ensure_table():
-    with idx.LOCK:
-        db = idx.connect()
-        db.execute("""CREATE TABLE IF NOT EXISTS daily_runs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, started_at TEXT, finished_at TEXT, steps TEXT)""")
-        db.commit()
+import store
 
 
 def _step(name, fn, out):
@@ -40,7 +32,6 @@ def run(call_model):
     import ledger
     import mood
     import river
-    ensure_table()
     started = datetime.now().isoformat(timespec='seconds')
     out, ctx = [], {}
 
@@ -57,14 +48,13 @@ def run(call_model):
         return {'friction': a, 'hand': b}
 
     def s_cats():
-        before = idx.connect().execute('SELECT COUNT(*) FROM theme_cats').fetchone()[0]
+        before = store.one('SELECT COUNT(*) n FROM theme_cats')['n']
         river.classify(call_model, say=lambda m: None)
-        return {'new': idx.connect().execute('SELECT COUNT(*) FROM theme_cats').fetchone()[0] - before}
+        return {'new': store.one('SELECT COUNT(*) n FROM theme_cats')['n'] - before}
 
     def s_windows():
-        conv_review.ensure_table()
-        with idx.LOCK:
-            cids = [r[0] for r in idx.connect().execute("SELECT conv_id FROM conv_notes WHERE date=''")]
+        with store.LOCK:
+            cids = [r[0] for r in store.connect().execute("SELECT conv_id FROM conv_notes WHERE date=''")]
         done = []
         for cid in cids:
             todo = conv_review.pending(cid)
@@ -77,8 +67,8 @@ def run(call_model):
                      ('主题归类', s_cats), ('窗口回顾', s_windows)):
         _step(name, fn, out)
 
-    with idx.LOCK:
-        db = idx.connect()
+    with store.LOCK:
+        db = store.connect()
         db.execute('INSERT INTO daily_runs(started_at, finished_at, steps) VALUES (?,?,?)',
                    (started, datetime.now().isoformat(timespec='seconds'), json.dumps(out, ensure_ascii=False)))
         db.commit()
@@ -88,9 +78,8 @@ def run(call_model):
 
 
 def last():
-    ensure_table()
-    with idx.LOCK:
-        r = idx.connect().execute('SELECT * FROM daily_runs ORDER BY id DESC LIMIT 1').fetchone()
+    with store.LOCK:
+        r = store.connect().execute('SELECT * FROM daily_runs ORDER BY id DESC LIMIT 1').fetchone()
     if not r:
         return None
     r = dict(r)

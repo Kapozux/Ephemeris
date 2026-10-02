@@ -9,10 +9,9 @@
   - MD    浏览器脚本旧版导出的 markdown（凑合能用，时间是本地时区字符串）
 """
 import json
-import os
 import re
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 MONTHS = {m: i for i, m in enumerate(
     ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',

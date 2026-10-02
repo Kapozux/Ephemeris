@@ -14,37 +14,10 @@ import re
 import time
 from datetime import datetime
 
-import index as idx
+import store
 import to_notion as tn
 
 MAX_DEPTH = 3            # 嵌套块（toggle、列表子项）往下读几层
-
-
-def ensure_tables():
-    with idx.LOCK:
-        db = idx.connect()
-        db.executescript("""
-        CREATE TABLE IF NOT EXISTS journal (
-          page_id     TEXT PRIMARY KEY,
-          date        TEXT NOT NULL,
-          title       TEXT,
-          text        TEXT,
-          chars       INTEGER,
-          stripped    INTEGER DEFAULT 0,   -- 去掉了几段 Ephemeris 追加的内容
-          last_edited TEXT,
-          fetched_at  TEXT
-        );
-        CREATE INDEX IF NOT EXISTS journal_date ON journal(date);
-        CREATE VIRTUAL TABLE IF NOT EXISTS journal_fts USING fts5(
-          text, date UNINDEXED, page_id UNINDEXED, tokenize='unicode61'
-        );
-        """)
-        db.commit()
-
-
-def _q(sql, *args):
-    with idx.LOCK:
-        return [dict(r) for r in idx.connect().execute(sql, args).fetchall()]
 
 
 # ------------------------------------------------------------------ Notion → 文本
@@ -164,12 +137,11 @@ def list_pages():
 def sync(full=False, say=print):
     """拉新的和改过的，删掉 Notion 里已经没了的。
     返回 {'pages', 'fetched', 'removed', 'failed', 'dates'}；dates = 这次内容变了的日期（账本要跟着补）。"""
-    ensure_tables()
     pages = list_pages()
-    have = {r['page_id']: r['last_edited'] for r in _q('SELECT page_id, last_edited FROM journal')}
+    have = {r['page_id']: r['last_edited'] for r in store.q('SELECT page_id, last_edited FROM journal')}
     todo = [p for p in pages if full or have.get(p['page_id']) != p['last_edited']]
     gone = set(have) - {p['page_id'] for p in pages}
-    gone_dates = {r['date'] for r in _q('SELECT page_id, date FROM journal') if r['page_id'] in gone}
+    gone_dates = {r['date'] for r in store.q('SELECT page_id, date FROM journal') if r['page_id'] in gone}
     changed = set()
     say(f'手写日记：Notion 里 {len(pages)} 页，要拉 {len(todo)} 页，要删 {len(gone)} 页')
 
@@ -182,8 +154,8 @@ def sync(full=False, say=print):
             say(f"  {i}/{len(todo)} {p['date']} 失败：{failed[-1][1]}")
             continue
         now = datetime.now().isoformat(timespec='seconds')
-        with idx.LOCK:
-            db = idx.connect()
+        with store.LOCK:
+            db = store.connect()
             db.execute('INSERT OR REPLACE INTO journal VALUES (?,?,?,?,?,?,?,?)',
                        (p['page_id'], p['date'], p['title'], text, len(text), n, p['last_edited'], now))
             db.execute('DELETE FROM journal_fts WHERE page_id=?', (p['page_id'],))
@@ -197,8 +169,8 @@ def sync(full=False, say=print):
         time.sleep(0.2)                                      # Notion 限流约 3 次/秒
 
     if gone:
-        with idx.LOCK:
-            db = idx.connect()
+        with store.LOCK:
+            db = store.connect()
             for pid in gone:
                 db.execute('DELETE FROM journal WHERE page_id=?', (pid,))
                 db.execute('DELETE FROM journal_fts WHERE page_id=?', (pid,))
@@ -210,8 +182,7 @@ def sync(full=False, say=print):
 # ------------------------------------------------------------------ 读
 
 def for_date(date):
-    ensure_tables()
-    rows = _q('SELECT page_id, title, text, chars, stripped FROM journal WHERE date=? ORDER BY title', date)
+    rows = store.q('SELECT page_id, title, text, chars, stripped FROM journal WHERE date=? ORDER BY title', date)
     for r in rows:
         r['url'] = 'https://www.notion.so/' + r['page_id'].replace('-', '')
     return rows
@@ -219,15 +190,13 @@ def for_date(date):
 
 def dates():
     """{date: 字数}，只算有正文的。"""
-    ensure_tables()
     return {r['date']: r['c'] for r in
-            _q('SELECT date, SUM(chars) c FROM journal WHERE chars > 0 GROUP BY date')}
+            store.q('SELECT date, SUM(chars) c FROM journal WHERE chars > 0 GROUP BY date')}
 
 
 def search(kw, limit=50):
-    ensure_tables()
     safe = '"' + kw.replace('"', '""') + '"'
-    return _q("""SELECT date, page_id, snippet(journal_fts, 0, '<mark>', '</mark>', '…', 20) snip
+    return store.q("""SELECT date, page_id, snippet(journal_fts, 0, '<mark>', '</mark>', '…', 20) snip
                    FROM journal_fts WHERE journal_fts MATCH ? ORDER BY date DESC LIMIT ?""", safe, limit)
 
 

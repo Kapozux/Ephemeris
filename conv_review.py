@@ -12,12 +12,11 @@
 
 都是**按需生成**，点开哪个窗口才算哪个，不做全量批处理。
 """
-import os
-import sys
 import threading
 from datetime import datetime
 
 
+import store
 import index as idx  # noqa: E402
 import llm  # noqa: E402
 
@@ -76,27 +75,7 @@ def _call_model(prompt):
 
 # ------------------------------------------------------------------- 存储
 
-LOCK = idx.LOCK
-
-
-def ensure_table():
-    with LOCK:
-        c = idx.connect()
-        c.execute("""CREATE TABLE IF NOT EXISTS conv_notes (
-                        conv_id TEXT NOT NULL,
-                        date    TEXT NOT NULL,     -- '' 表示整体 arc
-                        text    TEXT NOT NULL,
-                        generated_at TEXT NOT NULL,
-                        PRIMARY KEY (conv_id, date))""")
-        # fp：写这条小结时，这个窗口这一天我发了几条、多少字。之后又聊了，fp 就对不上 → 只重写这一天。
-        # 老数据没有 fp：迁移时按现在的内容补上，当它是新的，免得一升级就把所有小结重写一遍。
-        if 'fp' not in [r[1] for r in c.execute('PRAGMA table_info(conv_notes)')]:
-            c.execute('ALTER TABLE conv_notes ADD COLUMN fp TEXT')
-            c.execute("""UPDATE conv_notes SET fp = (
-                           SELECT COUNT(*) || ':' || COALESCE(SUM(chars), 0) FROM messages m
-                            WHERE m.conv_id = conv_notes.conv_id AND m.date = conv_notes.date AND m.role='human')
-                         WHERE date <> ''""")
-        c.commit()
+LOCK = store.LOCK
 
 
 def _fp(day):
@@ -109,7 +88,7 @@ def _save(conv_id, date, text, fp=None):
     # SQLite 的 datetime('now') 是 UTC，前端 rel() 按本地算，会差 8 小时。
     now = datetime.now().isoformat(timespec='seconds')
     with LOCK:
-        c = idx.connect()
+        c = store.connect()
         c.execute('INSERT OR REPLACE INTO conv_notes (conv_id, date, text, generated_at, fp) VALUES (?,?,?,?,?)',
                   (conv_id, date, text, now, fp))
         c.commit()
@@ -117,9 +96,8 @@ def _save(conv_id, date, text, fp=None):
 
 def notes_for(conv_id):
     """-> {'arc': str|None, 'days': {date: text}, 'fps': {date: fp}, 'at': iso|None}"""
-    ensure_table()
     with LOCK:
-        rows = list(idx.connect().execute(
+        rows = list(store.connect().execute(
             'SELECT date, text, generated_at, fp FROM conv_notes WHERE conv_id=?', (conv_id,)))
     out = {'arc': None, 'days': {}, 'fps': {}, 'at': None}
     for r in rows:
@@ -133,9 +111,8 @@ def notes_for(conv_id):
 
 
 def clear(conv_id):
-    ensure_table()
     with LOCK:
-        c = idx.connect()
+        c = store.connect()
         c.execute('DELETE FROM conv_notes WHERE conv_id=?', (conv_id,))
         c.commit()
 
@@ -145,7 +122,7 @@ def clear(conv_id):
 def resolve(conv_id):
     """允许用 id 前缀（命令行里列表是截断显示的）。"""
     with LOCK:
-        c = idx.connect()
+        c = store.connect()
         if c.execute('SELECT 1 FROM conversations WHERE id=?', (conv_id,)).fetchone():
             return conv_id
         hit = c.execute('SELECT id FROM conversations WHERE id LIKE ? LIMIT 2',
@@ -155,7 +132,7 @@ def resolve(conv_id):
 
 def window(conv_id):
     with LOCK:
-        c = idx.connect()
+        c = store.connect()
         conv = c.execute('SELECT * FROM conversations WHERE id=?', (conv_id,)).fetchone()
         if not conv:
             return None
@@ -169,7 +146,7 @@ def window(conv_id):
 def day_text(conv_id, date, budget=PER_DAY_CHARS):
     """这个窗口在这一天的消息，拼成喂模型的纯文本。长消息按人头均分预算。"""
     with LOCK:
-        msgs = list(idx.connect().execute(
+        msgs = list(store.connect().execute(
             """SELECT hhmm, text FROM messages
                 WHERE conv_id=? AND date=? AND role='human' ORDER BY ts""", (conv_id, date)))
     if not msgs:
@@ -231,7 +208,6 @@ def generate(conv_id, refresh=False, progress=None):
 
     **只写新的天和内容变了的天**，其余小结原样留着；有任何一天变了，arc 才重新汇总（一次调用）。
     refresh=True 才是全部重写。"""
-    ensure_table()
     w = window(conv_id)
     if not w:
         return {'error': 'not found'}
@@ -300,7 +276,7 @@ if __name__ == '__main__':
 
     if args.list or not args.conv_id:
         with LOCK:
-            rows = list(idx.connect().execute("""
+            rows = list(store.connect().execute("""
                 SELECT c.id, c.title, COUNT(DISTINCT m.date) days, COUNT(*) msgs
                   FROM messages m JOIN conversations c ON c.id=m.conv_id
                  WHERE m.role='human' GROUP BY m.conv_id HAVING days > 1

@@ -19,11 +19,10 @@ import json
 import os
 import re
 import shutil
-import sqlite3
-import threading
 from datetime import datetime, timedelta, timezone
 from html import unescape
 
+import store
 from days import LOCAL_TZ, bucket    # 一天怎么算：days.py
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -46,56 +45,10 @@ def env(key, default=''):
 def who():
     """prompt 里怎么称呼你。在 .env 里设 DIARY_NAME。"""
     return env('DIARY_NAME', '用户')
-DB_PATH = os.environ.get('DIARY_DB') or os.path.join(HERE, 'chats.db')
 IMPORT_DIR = os.path.join(HERE, 'imports')
-# 整个应用共用一个 sqlite 连接（check_same_thread=False）；所有线程的读写必须走这一把锁。
-# 之前 app 和 reflect_chat 各用各的锁，导入和回顾重算同时写 -> 'database disk image is malformed'（踩过）。
-LOCK = threading.RLock()
 
 MONTHS = {m: i for i, m in enumerate(
     ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], 1)}
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS conversations (
-  id TEXT PRIMARY KEY, source TEXT, title TEXT, title_fallback INTEGER DEFAULT 0,
-  first_ts TEXT, last_ts TEXT, n_msgs INTEGER, chars INTEGER,
-  n_days INTEGER, first_import TEXT, last_import TEXT
-);
-CREATE TABLE IF NOT EXISTS messages (
-  id TEXT PRIMARY KEY, conv_id TEXT, source TEXT,
-  ts TEXT, date TEXT, hhmm TEXT, role TEXT, text TEXT, chars INTEGER
-);
-CREATE INDEX IF NOT EXISTS idx_msg_date ON messages(date);
-CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conv_id);
-CREATE TABLE IF NOT EXISTS diaries (
-  date TEXT PRIMARY KEY, headline TEXT, narrative TEXT,
-  topics TEXT, artifacts TEXT, open_loops TEXT, mood TEXT,
-  model TEXT, generated_at TEXT
-);
-CREATE TABLE IF NOT EXISTS imports (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, file TEXT, kind TEXT, source TEXT,
-  imported_at TEXT, n_convs INTEGER, n_convs_new INTEGER, n_msgs INTEGER, n_msgs_new INTEGER,
-  days_touched INTEGER, diaries_invalidated INTEGER, note TEXT
-);
-CREATE VIRTUAL TABLE IF NOT EXISTS msg_fts USING fts5(
-  text, conv_title, date UNINDEXED, msg_id UNINDEXED, tokenize='unicode61'
-);
-"""
-
-
-def connect(path=DB_PATH):
-    conn = sqlite3.connect(path, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.executescript(SCHEMA)
-    # 老库补列（第一版没有这些）
-    cols = {r[1] for r in conn.execute('PRAGMA table_info(conversations)')}
-    for col, typ in (('title_fallback', 'INTEGER DEFAULT 0'), ('n_days', 'INTEGER'),
-                     ('first_import', 'TEXT'), ('last_import', 'TEXT')):
-        if col not in cols:
-            conn.execute(f'ALTER TABLE conversations ADD COLUMN {col} {typ}')
-    conn.commit()
-    return conn
-
 
 def _h(s, n=20):
     return hashlib.sha1(s.encode()).hexdigest()[:n]
@@ -469,7 +422,7 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('files', nargs='*', help='要导入的文件；不给就按 SOURCES 从头重建')
     args = ap.parse_args()
-    conn = connect()
+    conn = store.connect()
     if args.files:
         for f in args.files:
             r = import_file(conn, f)
@@ -485,4 +438,4 @@ if __name__ == '__main__':
     r = conn.execute("""SELECT COUNT(DISTINCT conv_id) c, COUNT(*) m, COUNT(DISTINCT date) d, SUM(chars) ch
                           FROM messages WHERE role='human'""").fetchone()
     print(f"\n索引：{r['c']} 个窗口 · {r['m']:,} 条我的消息 · {r['d']} 天 · {r['ch']:,} 字 · "
-          f"日记 {conn.execute('SELECT COUNT(*) FROM diaries').fetchone()[0]} 篇 -> {DB_PATH}")
+          f"日记 {conn.execute('SELECT COUNT(*) FROM diaries').fetchone()[0]} 篇 -> {store.DB_PATH}")

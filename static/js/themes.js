@@ -7,7 +7,7 @@ let THEMES = null, TH_OPEN = null, TH_ONES = false;
 export async function loadThemes(openId) {
   if (openId) TH_OPEN = +openId;
   // 每次打开都重拿：新写一篇日记账本就变了，数据量也就几百行
-  if (!THEMES) $('#thBody').innerHTML = '<div class="reflect-loading">在翻账本…</div>';
+  if (!THEMES) $('#thBody').innerHTML = '<div class="pane-loading">在翻账本…</div>';
   THEMES = (await fetch('/api/themes').then(r => r.json())).themes;
   renderThemes();
   if (openId) setTimeout(() => $(`.th[data-id="${openId}"]`)?.scrollIntoView({ block: 'center' }), 30);
@@ -20,7 +20,7 @@ function renderThemes() {
   const ones = hit.filter(t => t.n_days === 1 && t.id !== TH_OPEN);
   const list = (TH_ONES || kw) ? hit : hit.filter(t => !ones.includes(t));
   if (!THEMES.length) {
-    $('#thBody').innerHTML = '<div class="reflect-loading">账本还是空的——新写的日记会往里记。</div>';
+    $('#thBody').innerHTML = '<div class="pane-loading">账本还是空的——新写的日记会往里记。</div>';
     return;
   }
   // 横条的时间轴：所有主题共用同一段，一眼看出谁连着、谁断了又回来
@@ -42,7 +42,7 @@ function renderThemes() {
       </div>
       <div class="th-state">${esc(t.state || '')}</div>
       ${TH_OPEN === t.id ? `<ol class="th-days">${t.days.slice().reverse().map(d =>
-        `<li><a data-open="${d.date}">${d.date}</a><span>${(d.srcs || '').includes('hand') ? '<em class="src-hand">手写</em>' : ''}${esc(d.note || '')}</span></li>`).join('')}</ol>` : ''}
+        `<li><a data-open="${d.date}">${d.date}</a><span>${(d.srcs || '').includes('hand') ? '<em class="th-src-hand">手写</em>' : ''}${esc(d.note || '')}</span></li>`).join('')}</ol>` : ''}
     </div>`).join('') + (!kw && ones.length
       ? `<a class="th-more" id="thOnes">${TH_ONES ? '收起' : `还有 ${ones.length} 个只出现过一天的`}</a>` : '');
   const more = $('#thOnes');

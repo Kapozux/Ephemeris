@@ -21,17 +21,17 @@ let LATEST = null;      // 冷启动落在哪天：最近一篇写好的日记
 
 function setMode(mode) {
   S.mode = mode;
-  document.querySelectorAll('.ms-item').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+  document.querySelectorAll('.sb-mode').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
   const win = mode === 'win';
   $('#cal').classList.toggle('hidden', win);
   $('#batch').classList.toggle('hidden', win || !$('#batch').dataset.want);
-  document.querySelector('.legend').classList.toggle('hidden', win);
+  document.querySelector('.sb-legend').classList.toggle('hidden', win);
   $('#winpane').classList.toggle('hidden', !win);
   $('#day').classList.toggle('hidden', win || !S.sel);
   $('#win').classList.toggle('hidden', !win || !S.wsel);
   if (win) ensureWindows();
 }
-document.querySelectorAll('.ms-item').forEach(b => b.onclick = () =>
+document.querySelectorAll('.sb-mode').forEach(b => b.onclick = () =>
   navigate(b.dataset.mode === 'win' ? (S.wsel ? 'win/' + S.wsel : 'win') : (S.sel ? 'day/' + S.sel : 'day')));
 
 // ---------------------------------------------------------------- 打卡入口（单独的全屏页 /checkin）

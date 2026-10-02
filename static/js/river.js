@@ -6,7 +6,7 @@ const RV_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#0083
 let RV = null, RV_SCALE = 'share', RV_FROM = '2025-08-18', RV_HI = -1;
 
 export async function loadRiver() {
-  $('#rvChart').innerHTML = '<div class="reflect-loading">在数…</div>';
+  $('#rvChart').innerHTML = '<div class="pane-loading">在数…</div>';
   RV = await fetch('/api/river?from=' + RV_FROM).then(r => r.json());
   renderRiver();
 }
@@ -45,7 +45,7 @@ function rvValues() {
 
 function renderRiver() {
   const box = $('#rvChart');
-  if (!RV.weeks.length) { box.innerHTML = '<div class="reflect-loading">还没有数据</div>'; return; }
+  if (!RV.weeks.length) { box.innerHTML = '<div class="pane-loading">还没有数据</div>'; return; }
   const vals = rvValues(), n = vals.length, K = RV.cats.length;
   const W = Math.max(box.clientWidth, 300), H = 400, L = 38, R = 10, T = 10, B = 26;
   const stacks = vals.map(row => { if (!row) return null; let acc = 0; return row.map(v => { const y0 = acc; acc += v; return [y0, acc]; }); });

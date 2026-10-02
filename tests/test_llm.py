@@ -46,5 +46,25 @@ class AskJson(unittest.TestCase):
         self.assertIn('key 失效', llm.status()['last_error'])
 
 
+class Stray(unittest.TestCase):
+    def tearDown(self):
+        llm.use(None)
+
+    def test_detects_only_words_missing_from_source(self):
+        self.assertEqual(llm.stray('确定了 SVM 분류기 的阈值', '材料'), ['분류기'])
+        self.assertEqual(llm.stray('在听「アイドル」', '今天循环アイドル'), [])     # 材料里本来就有
+        self.assertEqual(llm.stray('纯中文 and English', ''), [])
+
+    def test_ask_retries_once_and_keeps_clean_answer(self):
+        answers = iter(['情绪剧烈拉扯，खासकर 那天', '情绪剧烈拉扯，尤其那天'])
+        llm.use(lambda p: next(answers))
+        self.assertEqual(llm.ask('材料'), '情绪剧烈拉扯，尤其那天')
+
+    def test_ask_keeps_first_if_retry_also_strays(self):
+        answers = iter(['A 분류기', 'B 분류기'])
+        llm.use(lambda p: next(answers))
+        self.assertEqual(llm.ask('材料'), 'A 분류기')
+
+
 if __name__ == '__main__':
     unittest.main()

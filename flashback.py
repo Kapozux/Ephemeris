@@ -13,6 +13,7 @@ import re
 from datetime import date as _date, datetime, timedelta
 
 import days
+import journal
 import store
 import ledger
 import mood
@@ -96,7 +97,7 @@ def _template_lines():
         from collections import Counter
         cnt = Counter()
         for r in store.q('SELECT text FROM journal'):
-            cnt.update({ln.strip() for ln in (r['text'] or '').split('\n') if ln.strip()})
+            cnt.update({ln.strip() for ln in journal.plain(r['text']).split('\n') if ln.strip()})
         _TEMPLATE = {ln for ln, n in cnt.items() if n >= 4}
     return _TEMPLATE
 
@@ -122,7 +123,7 @@ def card(date):
     d0 = _date.fromisoformat(date)
     ago = (_today() - d0).days
     dy = store.q('SELECT headline FROM diaries WHERE date=?', date)
-    hand = ''.join(r['text'] or '' for r in store.q('SELECT text FROM journal WHERE date=? ORDER BY title', date))
+    hand = journal.text_for(date)
     q = _quote(hand)
     feel = days.feel(date)
 

@@ -439,6 +439,21 @@ button { font-family:inherit; }
 .j-tag { font-size:11px; font-weight:600; letter-spacing:.08em; color:var(--ink-soft); }
 .j-body p { font-size:14.5px; line-height:1.85; color:var(--ink); margin-bottom:6px; white-space:pre-wrap; word-break:break-word; }
 .j-body h4 { font-size:14px; font-weight:600; margin:12px 0 4px; }
+/* 从 Notion 带过来的格式（md.js）：跟正文一个字号，记号都用淡色，不抢眼 */
+.j-body .j-li, .j-body .j-todo { position:relative; padding-left:18px; font-size:14.5px; line-height:1.85; color:var(--ink); word-break:break-word; }
+.j-body .j-li::before { content:'•'; position:absolute; left:5px; color:var(--faint); }
+.j-body .j-num { padding-left:24px; }
+.j-body .j-num::before { content:attr(data-n); left:0; color:var(--muted); font-size:13px; font-variant-numeric:tabular-nums; }
+.j-body .j-todo::before { content:'☐'; position:absolute; left:0; color:var(--muted); }
+.j-body .j-todo.done { color:var(--muted); }
+.j-body .j-todo.done::before { content:'☑'; }
+.j-body blockquote { margin:4px 0 8px; padding-left:12px; border-left:2px solid var(--line-2); font-size:14.5px; line-height:1.85; color:var(--ink-soft); }
+.j-body hr { border:0; border-top:1px solid var(--line); margin:14px 0; }
+.j-body code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px; background:var(--code-bg); padding:1px 5px; border-radius:4px; }
+.j-body .j-in1 { margin-left:18px; } .j-body .j-in2 { margin-left:36px; } .j-body .j-in3 { margin-left:54px; }
+.j-fig { margin:10px 0 12px; }
+.j-fig img { display:block; max-width:100%; max-height:360px; width:auto; height:auto; border-radius:var(--r-sm); cursor:zoom-in; }
+.j-fig figcaption { font-size:12px; color:var(--muted); margin-top:5px; }
 .j-body.folded { max-height:260px; overflow:hidden; -webkit-mask-image:linear-gradient(#000 70%, transparent); mask-image:linear-gradient(#000 70%, transparent); }
 .j-more { display:inline-block; margin-top:6px; font-size:12.5px; color:var(--muted); cursor:pointer; }
 .j-more:hover { color:var(--coral-deep); }

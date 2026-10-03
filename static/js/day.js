@@ -4,6 +4,7 @@ import { S } from './state.js';
 import { navigate } from './nav.js';
 import { markDiary } from './calendar.js';
 import { refreshBatchButton } from './batch.js';
+import { journalHtml, imageCount } from './md.js';
 
 const CLIP = 300;   // 长消息先折到这么多字
 let NAV = { prev: null, next: null }, POLL = null;
@@ -18,7 +19,7 @@ function renderSignals(sg) {
 }
 
 // ---------------------------------------------------------------- 手写日记
-// 我自己在 Notion 里写的，放在 AI 日记上面。只读；长的先收起来。
+// 我自己在 Notion 里写的，放在 AI 日记上面。只读；带格式和图片（md.js）；长的、图多的先收起来。
 
 const J_FOLD = 700;
 
@@ -26,18 +27,13 @@ function renderJournal(list, open) {
   const box = $('#journal');
   const pages = list.filter(j => (j.text || '').trim());
   if (!pages.length) { box.className = 'journal hidden'; box.innerHTML = ''; return; }
-  const para = t => t.split('\n').map(l => {
-    const h = l.match(/^(#{1,3}) (.*)$/);
-    if (h) return `<h4>${esc(h[2])}</h4>`;
-    return l.trim() ? `<p>${esc(l)}</p>` : '';
-  }).join('');
   box.className = 'journal card-shell';
   box.innerHTML = `<div class="j-head"><span class="j-tag">我当天写的</span>
       <span class="dim tnum">${pages.reduce((a, j) => a + j.chars, 0).toLocaleString()} 字</span>
       <span class="sp"></span>${pages.map(j => `<a href="${j.url}" target="_blank" rel="noopener">在 Notion 打开</a>`).join(' · ')}</div>` +
     pages.map((j, i) => {
-      const long = j.text.length > J_FOLD && !open;
-      return `<div class="j-body${long ? ' folded' : ''}" data-i="${i}">${para(j.text)}</div>` +
+      const long = (j.chars > J_FOLD || imageCount(j.text) > 1) && !open;
+      return `<div class="j-body${long ? ' folded' : ''}" data-i="${i}">${journalHtml(j.text)}</div>` +
              (long ? `<a class="j-more" data-i="${i}">展开全文</a>` : '');
     }).join('');
   box.querySelectorAll('.j-more').forEach(a => a.onclick = () => {

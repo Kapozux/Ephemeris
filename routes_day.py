@@ -1,5 +1,5 @@
-"""主页：日历、某一天、搜索、闪回卡，以及写日记（单篇重写、补全缺的）。"""
-from flask import Blueprint, jsonify, render_template, request
+"""主页：日历、某一天、搜索、闪回卡，以及写日记（单篇重写、补全缺的）、手写日记（图片、从 Notion 刷新）。"""
+from flask import Blueprint, jsonify, render_template, request, send_from_directory
 
 import checkin
 import diary
@@ -137,6 +137,23 @@ def api_search():
     jh = [{'date': h['date'], 'kind': 'journal', 'page_id': h['page_id'], 'snip': h['snip'],
            'conv_title': '手写日记', 'hhmm': ''} for h in journal.search(kw)]
     return jsonify({'hits': jh + hits, 'q': kw})
+
+
+# ---------------------------------------------------------------- 手写日记（journal.py）
+
+@bp.route('/journal-files/<path:name>')
+def journal_file(name):
+    """手写日记里的图片（同步时从 Notion 下载到本地的）。"""
+    return send_from_directory(journal.FILES_DIR, name)
+
+
+@bp.route('/api/journal/refresh', methods=['POST'])
+def api_journal_refresh():
+    """打开 / 切回页面时前端悄悄调一下：Notion 里最近改过的几页有新的就拉下来。不调模型，两分钟内最多一次。"""
+    try:
+        return jsonify(journal.refresh_recent())
+    except Exception as e:                                   # noqa: BLE001  连不上 Notion 就算了，早上那次还会全量对
+        return jsonify({'changed': [], 'error': f'{type(e).__name__}: {e}'[:200]})
 
 
 @bp.route('/api/flashback')

@@ -85,10 +85,11 @@ CREATE INDEX IF NOT EXISTS theme_days_date ON theme_days(date);
 CREATE TABLE IF NOT EXISTS theme_cats (theme_id INTEGER PRIMARY KEY, cat TEXT NOT NULL);
 
 -- ---------------------------------------------------------------- 我自己说的
--- Notion 手写日记（journal.py）。stripped：去掉了几段 Ephemeris 追加进去的内容
+-- Notion 手写日记（journal.py）。text 是 Markdown（图片指向 journal_files/），chars 按纯文字数；
+-- stripped：去掉了几段 Ephemeris 追加进去的内容；digested：上次记进主题账本时正文的指纹（journal.digest）
 CREATE TABLE IF NOT EXISTS journal (
   page_id TEXT PRIMARY KEY, date TEXT NOT NULL, title TEXT, text TEXT, chars INTEGER,
-  stripped INTEGER DEFAULT 0, last_edited TEXT, fetched_at TEXT
+  stripped INTEGER DEFAULT 0, last_edited TEXT, fetched_at TEXT, digested TEXT
 );
 CREATE INDEX IF NOT EXISTS journal_date ON journal(date);
 CREATE VIRTUAL TABLE IF NOT EXISTS journal_fts USING fts5(
@@ -172,6 +173,12 @@ def _migrate(db):
                         SELECT COUNT(*) || ':' || COALESCE(SUM(chars), 0) FROM messages m
                          WHERE m.conv_id = conv_notes.conv_id AND m.date = conv_notes.date AND m.role='human')
                       WHERE date <> ''""")
+    # journal 加 digested（2026-10-03）：以前的手写都已经记进账本了，按现在的正文记一笔，免得一升级全部重抽一遍
+    if 'digested' not in _cols(db, 'journal'):
+        import journal                                # 指纹的算法在 journal 里；这里只跑这一次
+        db.execute('ALTER TABLE journal ADD COLUMN digested TEXT')
+        for pid, text in db.execute('SELECT page_id, text FROM journal').fetchall():
+            db.execute('UPDATE journal SET digested=? WHERE page_id=?', (journal.digest(text or ''), pid))
     db.commit()
 
 

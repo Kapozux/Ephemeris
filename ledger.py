@@ -345,13 +345,15 @@ def backfill_hand(call_model, say=print, max_chars=4000):
 
 
 def record_hand_for(dates, call_model, max_chars=4000):
-    """手写日记有新写/改过的那几天，重新记进账本（只动 src='hand' 的行）。页面删了就把那天的手写记录清掉。"""
+    """手写日记有新写/改过的那几天，重新记进账本（只动 src='hand' 的行）。页面删了就把那天的手写记录清掉。
+    返回处理完的日期；抽不出来的不在里面（下次早上再试）。"""
     import journal
-    n = 0
+    done = []
     for date in sorted(set(dates)):
         text = journal.text_for(date, max_chars)
         if len(text) < 30:
             record(date, [], src='hand')
+            done.append(date)
             continue
         d = {'date': date, 'headline': '', 'narrative': text}
         items = extract(d, call_model, EXTRACT_HAND_PROMPT)
@@ -360,8 +362,8 @@ def record_hand_for(dates, call_model, max_chars=4000):
         if items is None:
             continue
         record(date, match(date, items, call_model, future=True), src='hand')
-        n += 1
-    return n
+        done.append(date)
+    return done
 
 
 if __name__ == '__main__':

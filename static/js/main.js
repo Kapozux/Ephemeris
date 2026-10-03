@@ -4,7 +4,7 @@
 //   panel 浮层（reflect 回顾/数据 · themes 主题 · river 河流 · convs 窗口与导入 · notion）
 // 共用的状态在 state.js（S），路由约定在 nav.js 开头。
 import { $ } from './util.js';
-import { S, setDays } from './state.js';
+import { S, setDays, daysChanged } from './state.js';
 import { navigate, setRouter } from './nav.js';
 import { buildCalendar } from './calendar.js';
 import { refreshBatchButton, watchBatch } from './batch.js';
@@ -43,16 +43,28 @@ async function refreshCkDot() {
   $('#ckDot').classList.toggle('hidden', r.items.length > 0);
 }
 $('#ckOpen').onclick = () => { location.href = '/checkin'; };
-window.addEventListener('focus', refreshCkDot);
+window.addEventListener('focus', () => { refreshCkDot(); refreshJournal(); });
 
 // ---------------------------------------------------------------- 数据变了（补全跑完、导入了新文件）
 
-document.addEventListener('days-changed', async () => {
+document.addEventListener('days-changed', async e => {
   const d = await fetch('/api/days').then(r => r.json());
   setDays(d.days);
   buildCalendar(); refreshBatchButton(); invalidateReflect();
-  if (S.sel) openDay(S.sel);
+  if (S.sel && (!e.detail || e.detail.includes(S.sel))) openDay(S.sel);
+  else if (S.sel) document.querySelector(`.cal-day[data-d="${S.sel}"]`)?.classList.add('sel');
 });
+
+// ---------------------------------------------------------------- 手写日记：打开 / 切回页面时看一眼 Notion
+// 只看最近改过的几页、不调模型；服务端两分钟内最多一次。晚上在 Notion 写完，切回来就有了
+
+let J_LAST = 0;
+async function refreshJournal() {
+  if (Date.now() - J_LAST < 120000) return;
+  J_LAST = Date.now();
+  const r = await fetch('/api/journal/refresh', { method: 'POST' }).then(r => r.json()).catch(() => null);
+  if (r?.changed?.length) daysChanged(r.changed);
+}
 
 // ---------------------------------------------------------------- 路由分发（约定见 nav.js）
 
@@ -123,4 +135,5 @@ function applyRoute() {
   const head0 = location.hash.replace(/^#\/?/, '').split('/')[0];
   if (head0 === 'panel' || head0 === 'flashback') history.replaceState(null, '', '#/');
   applyRoute();
+  refreshJournal();                    // 先把页面画出来，再悄悄看一眼 Notion
 })();

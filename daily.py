@@ -10,8 +10,8 @@
 全量第一次同步要 25 分钟，之后每天只拉动过的那几个对话，一两分钟。
 
 整理（tidy）一步接一步，每步独立：前一步失败不拦后一步，结果记在 daily_runs。
-  1. 手写日记    从 Notion 拉新写/改过的页（只读）
-  2. 手写进账本  那几天的手写记进主题账本（src='hand'）
+  1. 手写日记    从 Notion 拉新写/改过的页（只读），删掉 Notion 里没了的
+  2. 手写进账本  正文真的变了的那几天，记进主题账本（src='hand'）
   3. 两个指标    新聊天天打「卡得多狠」，新手写天打「过得怎么样」
   4. 主题归类    新冒出来的主题归到河流图的大类里
   5. 窗口回顾    做过回顾的窗口，每周补一次新聊的天（见 conv_review.update_weekly）
@@ -136,11 +136,15 @@ def tidy(call_model):
 
     def s_journal():
         r = journal.sync(say=lambda m: None)
-        ctx['dates'] = r['dates']
-        return {'fetched': r['fetched'], 'removed': r['removed'], 'dates': r['dates'], 'failed': len(r['failed'])}
+        ctx['gone'] = r['gone']
+        return {'fetched': r['fetched'], 'removed': r['removed'], 'failed': len(r['failed'])}
 
     def s_hand():
-        return {'days': ledger.record_hand_for(ctx.get('dates') or [], call_model)}
+        # 正文真的变了的才重新抽主题（白天打开 Ephemeris 时也可能已经把新写的拉下来了，所以不看这次同步拉了哪些）
+        dates = sorted(set(journal.dirty_dates()) | set(ctx.get('gone') or []))
+        done = ledger.record_hand_for(dates, call_model)
+        journal.mark_digested(done)                     # 抽不出来的不记，明天早上再试
+        return {'days': len(done), 'dates': done}
 
     def s_mood():
         a, b = mood.fill(call_model, say=lambda m: None)

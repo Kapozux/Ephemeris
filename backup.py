@@ -27,6 +27,7 @@ import diary
 import jobs
 import store
 import index as idx
+import journal
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 EVERY_DAYS = 1
@@ -169,7 +170,8 @@ def _week_md(monday):
         if d in cks:
             out.append('')
         for h in hand.get(d, []):
-            out += ['**我手写的**', '', h['text'] or '', '']
+            # 图片指向备份里的「日记图片」文件夹（应用里是 /journal-files/…）
+            out += ['**我手写的**', '', (h['text'] or '').replace('](' + journal.FILES_URL, '](../日记图片/'), '']
         dy = diaries.get(d)
         if dy:
             out += [f"**{dy['headline']}**", '', dy['narrative'] or '', '', *diary.loose_ends(dy), '']
@@ -192,19 +194,26 @@ def _weeks_md(w):
     return n
 
 
-def _imports(root):
-    """导入原件：只增不删，已经在的（同名同大小）跳过。"""
-    src, out = os.path.join(HERE, 'imports'), os.path.join(root, '导入原件')
+def _copy_new(src, out):
+    """src 下的文件（含子目录）抄到 out：只增不删，已经在的（同路径同大小）跳过。返回抄了几个。"""
     if not os.path.isdir(src):
         return 0
-    os.makedirs(out, exist_ok=True)
     n = 0
-    for name in os.listdir(src):
-        a, b = os.path.join(src, name), os.path.join(out, name)
-        if os.path.isfile(a) and not (os.path.exists(b) and os.path.getsize(b) == os.path.getsize(a)):
-            shutil.copy2(a, b)
-            n += 1
+    for folder, _, files in os.walk(src):
+        rel = os.path.relpath(folder, src)
+        for name in files:
+            a, b = os.path.join(folder, name), os.path.join(out, rel, name)
+            if not (os.path.exists(b) and os.path.getsize(b) == os.path.getsize(a)):
+                os.makedirs(os.path.dirname(b), exist_ok=True)
+                shutil.copy2(a, b)
+                n += 1
     return n
+
+
+def _imports(root):
+    """导入原件和手写日记里的图片。"""
+    return (_copy_new(os.path.join(HERE, 'imports'), os.path.join(root, '导入原件'))
+            + _copy_new(journal.FILES_DIR, os.path.join(root, '日记图片')))
 
 
 # ------------------------------------------------------------------ 跑
@@ -232,7 +241,7 @@ def _run(job):
         job['stage'] = '写每周的 Markdown'
         nmd = _weeks_md(w)
         w.commit()
-        job['stage'] = '同步导入原件'
+        job['stage'] = '同步导入原件和日记图片'
         nimp = _imports(root)
         with store.LOCK:
             db = store.connect()
@@ -242,7 +251,7 @@ def _run(job):
                        (started, datetime.now().isoformat(timespec='seconds'), 1, week, root, nmd, nimp,
                         w.written, w.total, w.bytes, f'聊天 {ndays} 天'))
             db.commit()
-        print(f'[backup] 共 {w.total} 个文件，这次写了 {w.written} 个（{w.bytes // 1024} KB），新导入原件 {nimp}', flush=True)
+        print(f'[backup] 共 {w.total} 个文件，这次写了 {w.written} 个（{w.bytes // 1024} KB），新抄过去的原件和图片 {nimp}', flush=True)
         return last_ok()
     except Exception as e:                                   # noqa: BLE001
         job['error'] = f'{type(e).__name__}: {e}'[:300]
@@ -290,11 +299,14 @@ def restore(src, out):
         if t in known and t != 'messages':        # 只增不删：备份目录里可能有以前导出过、现在不再备份的表
             counts[t] = load(t, p)
     counts['messages'] = sum(load('messages', p) for p in sorted(glob.glob(os.path.join(src, '聊天记录', '*', '*.jsonl'))))
-    # 全文索引从数据重建
+    # 全文索引从数据重建（手写日记按纯文字建，跟 journal.py 一个口径）
     idx.rebuild_fts(db)
-    db.execute("INSERT INTO journal_fts(text, date, page_id) SELECT text, date, page_id FROM journal WHERE text <> ''")
+    for pid, date, text in db.execute("SELECT page_id, date, text FROM journal WHERE text <> ''").fetchall():
+        db.execute('INSERT INTO journal_fts(text, date, page_id) VALUES (?,?,?)', (journal.plain(text), date, pid))
     db.commit()
     db.close()
+    # 日记里的图片放回新库旁边的 journal_files/
+    counts['日记图片'] = _copy_new(os.path.join(src, '日记图片'), os.path.join(os.path.dirname(os.path.abspath(out)), 'journal_files'))
     return counts
 
 

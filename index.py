@@ -322,7 +322,13 @@ def ingest(conn, path, kind=None, source=None, label=None, invalidate=True):
         fresh = [r for r in rows if r[0] not in have]
         fresh_all += fresh
         touched.update(r[4] for r in fresh if r[6] == 'human')
-        conn.executemany('INSERT OR REPLACE INTO messages VALUES (?,?,?,?,?,?,?,?,?)', rows)
+        # 不用 INSERT OR REPLACE：它是先删再插，rowid 会变，全文索引（跟着 rowid 走）就对不上了
+        conn.executemany('''INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?)
+                            ON CONFLICT(id) DO UPDATE SET conv_id=excluded.conv_id, source=excluded.source, ts=excluded.ts,
+                              date=excluded.date, hhmm=excluded.hhmm, role=excluded.role, text=excluded.text, chars=excluded.chars
+                            WHERE messages.text IS NOT excluded.text OR messages.date IS NOT excluded.date
+                               OR messages.hhmm IS NOT excluded.hhmm OR messages.ts IS NOT excluded.ts
+                               OR messages.conv_id IS NOT excluded.conv_id OR messages.role IS NOT excluded.role''', rows)
         n_msgs += len(rows)
         n_new_msgs += len(fresh)
 
@@ -373,16 +379,13 @@ def _recount(conn):
 
 
 def rebuild_fts(conn):
-    conn.execute('DELETE FROM msg_fts')
-    conn.execute("""INSERT INTO msg_fts(text, conv_title, date, msg_id)
-                    SELECT m.text, c.title, m.date, m.id
-                      FROM messages m JOIN conversations c ON c.id = m.conv_id
-                     WHERE m.role = 'human'""")
+    """从头重建全文索引。平时用不着（messages 上的触发器随写随更新），只在还原备份之后跑一次。"""
+    conn.execute("INSERT INTO msg_fts(msg_fts) VALUES ('rebuild')")
     conn.commit()
 
 
 def import_file(conn, path, keep_copy=True):
-    """给 app / CLI 用：导入一个文件，存一份副本到 imports/，重建 FTS。"""
+    """给 app / CLI 用：导入一个文件，存一份副本到 imports/。"""
     kind, source = sniff(path)
     label = os.path.basename(path)
     if keep_copy:
@@ -390,9 +393,7 @@ def import_file(conn, path, keep_copy=True):
         dst = os.path.join(IMPORT_DIR, f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{label}")
         if os.path.abspath(path) != os.path.abspath(dst):
             shutil.copy2(path, dst)
-    summary = ingest(conn, path, kind, source, label)
-    rebuild_fts(conn)
-    return summary
+    return ingest(conn, path, kind, source, label)
 
 
 # 以前这里有 reindex_all + SOURCES：清空 messages / conversations，再从几个写死的导出文件重建。

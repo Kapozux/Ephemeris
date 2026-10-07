@@ -36,7 +36,7 @@ def export(path, uuid, msgs):
 class ImportKeepsOldDiaries(unittest.TestCase):
     def setUp(self):
         with store.tx() as db:
-            for t in ('messages', 'conversations', 'diaries', 'msg_fts'):
+            for t in ('messages', 'conversations', 'diaries'):
                 db.execute(f'DELETE FROM {t}')
         self.old, self.recent = day(30), day(1)
         for d in (self.old, self.recent):

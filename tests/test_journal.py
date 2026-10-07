@@ -9,6 +9,7 @@ import tempfile
 import unittest
 
 import journal
+import search
 import store
 import to_notion as tn
 
@@ -77,7 +78,7 @@ class Digested(unittest.TestCase):
         journal._store(self.PAGE, '改 **essay** 草稿\n![晚饭](/journal-files/p/a.jpg)', 0)
         self.assertEqual(journal.text_for('2026-03-03'), '改 essay 草稿\n[图片：晚饭]')
         self.assertEqual(journal.for_date('2026-03-03')[0]['chars'], len('改 essay 草稿\n[图片：晚饭]'))
-        snip = journal.search('essay')[0]['snip']
+        snip = search.journal('草稿')[0]['snip']                          # 中文子串也搜得到
         self.assertNotIn('**', snip)                                        # 索引里是纯文字
         self.assertNotIn('journal-files', snip)
 

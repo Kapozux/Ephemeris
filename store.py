@@ -36,9 +36,22 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS idx_msg_date ON messages(date);
 CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conv_id);
+-- 全文索引（search.py）：trigram 分词，中文子串也搜得到（2026-10-07 借 Verbatim 的；以前 unicode61 一个中文词都搜不到）。
+-- 不另存一份正文（content=messages），也不记位置（detail=none）：片段在 Python 里切。
+-- 由下面三个触发器跟着 messages 走：不管谁写消息（导入、claude.ai 同步、还原），索引都是新的。
 CREATE VIRTUAL TABLE IF NOT EXISTS msg_fts USING fts5(
-  text, conv_title, date UNINDEXED, msg_id UNINDEXED, tokenize='unicode61'
+  text, content='messages', content_rowid='rowid', tokenize='trigram', detail=none
 );
+CREATE TRIGGER IF NOT EXISTS msg_fts_ai AFTER INSERT ON messages BEGIN
+  INSERT INTO msg_fts(rowid, text) VALUES (new.rowid, new.text);
+END;
+CREATE TRIGGER IF NOT EXISTS msg_fts_ad AFTER DELETE ON messages BEGIN
+  INSERT INTO msg_fts(msg_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+END;
+CREATE TRIGGER IF NOT EXISTS msg_fts_au AFTER UPDATE OF text ON messages BEGIN
+  INSERT INTO msg_fts(msg_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+  INSERT INTO msg_fts(rowid, text) VALUES (new.rowid, new.text);
+END;
 CREATE TABLE IF NOT EXISTS imports (
   id INTEGER PRIMARY KEY AUTOINCREMENT, file TEXT, kind TEXT, source TEXT,
   imported_at TEXT, n_convs INTEGER, n_convs_new INTEGER, n_msgs INTEGER, n_msgs_new INTEGER,
@@ -184,6 +197,13 @@ def _migrate(db):
         db.execute('ALTER TABLE journal ADD COLUMN digested TEXT')
         for pid, text in db.execute('SELECT page_id, text FROM journal').fetchall():
             db.execute('UPDATE journal SET digested=? WHERE page_id=?', (journal.digest(text or ''), pid))
+    # msg_fts 换成 trigram（2026-10-07）：老的那张只有我的话、claude.ai 同步进来的不在里面、中文搜不到。重建一次约 20 秒
+    sql = (db.execute("SELECT sql FROM sqlite_master WHERE name='msg_fts'").fetchone() or [''])[0] or ''
+    if 'trigram' not in sql:
+        db.execute('DROP TABLE IF EXISTS msg_fts')
+        db.execute("""CREATE VIRTUAL TABLE msg_fts USING fts5(
+                        text, content='messages', content_rowid='rowid', tokenize='trigram', detail=none)""")
+        db.execute("INSERT INTO msg_fts(msg_fts) VALUES ('rebuild')")
     db.commit()
 
 

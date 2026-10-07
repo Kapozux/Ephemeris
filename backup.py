@@ -38,7 +38,9 @@ EVERY_DAYS = 1
 SKIP_TABLES = ('sqlite_sequence', 'backups', 'backup_files', 'backup_keys')
 # 只增不减的核心表 → 主键列
 CORE = {'messages': 'id', 'conversations': 'id', 'journal': 'page_id', 'checkins': 'id',
-        'diaries': 'date', 'imports': 'id', 'mood_ratings': 'date'}   # 再加上名字里带 _fts 的（全文索引，能重建）；备份自己的记账不备
+        'diaries': 'date', 'imports': 'id', 'mood_ratings': 'date'}
+# 只增不减、但改了不存旧版本的：窗口那行全是统计数（条数、最后一条时间），每次同步都变，存下来只是噪音
+NO_VERSIONS = {'conversations'}   # 再加上名字里带 _fts 的（全文索引，能重建）；备份自己的记账不备
 
 
 
@@ -103,7 +105,7 @@ class _Writer:
                 return False
             old = old or {}
             for k in changed:
-                if k in old:
+                if k in old and table not in NO_VERSIONS:
                     self._old[table].append(old[k])
             for k in lost:
                 if k in old:

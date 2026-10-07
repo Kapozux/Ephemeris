@@ -13,7 +13,6 @@
   claude_json  export_claude.js 导出的 JSON
   gemini_md    gemini_split/sess_*.md（**我** (2025-11-29 11:25):）
 """
-import glob
 import hashlib
 import json
 import os
@@ -46,6 +45,8 @@ def who():
     """prompt 里怎么称呼你。在 .env 里设 DIARY_NAME。"""
     return env('DIARY_NAME', '用户')
 IMPORT_DIR = os.path.join(HERE, 'imports')
+
+RECENT_DAYS = 3          # 导入新消息时，这么多天以内的日记作废重写；更早的不动（见 ingest）
 
 MONTHS = {m: i for i, m in enumerate(
     ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], 1)}
@@ -296,7 +297,7 @@ def ingest(conn, path, kind=None, source=None, label=None, invalidate=True):
     label = label or os.path.basename(path)
     now = datetime.now().isoformat(timespec='seconds')
     n_convs = n_new_convs = n_msgs = n_new_msgs = 0
-    touched = set()
+    touched, fresh_all = set(), []
 
     for c in PARSERS[kind](path):
         msgs = sorted(c['msgs'], key=lambda x: x[0])
@@ -319,6 +320,7 @@ def ingest(conn, path, kind=None, source=None, label=None, invalidate=True):
             have.update(r[0] for r in conn.execute(
                 f'SELECT id FROM messages WHERE id IN ({",".join("?" * len(chunk))})', chunk))
         fresh = [r for r in rows if r[0] not in have]
+        fresh_all += fresh
         touched.update(r[4] for r in fresh if r[6] == 'human')
         conn.executemany('INSERT OR REPLACE INTO messages VALUES (?,?,?,?,?,?,?,?,?)', rows)
         n_msgs += len(rows)
@@ -340,9 +342,17 @@ def ingest(conn, path, kind=None, source=None, label=None, invalidate=True):
     # 从消息重算每个窗口的统计（也顺手修 reconcile 留下的坑）
     _recount(conn)
     invalidated = 0
-    if touched and invalidate:          # 全量重建时不作废日记：消息没变，只是重新入库
-        ph = ','.join('?' * len(touched))
-        invalidated = conn.execute(f'DELETE FROM diaries WHERE date IN ({ph})', list(touched)).rowcount
+    if touched and invalidate:
+        # 最近几天（同步时晚到的消息）：日记作废，等补全重写。
+        # 更早的（导入旧聊天）：日记是当时写的，不动，只记一笔「之后又补进了几条」，要不要重写用户自己点
+        recent = (datetime.now(LOCAL_TZ).date() - timedelta(days=RECENT_DAYS)).isoformat()
+        recent_rows = [d for d in touched if d >= recent]
+        if recent_rows:
+            ph = ",".join("?" * len(recent_rows))
+            invalidated = conn.execute(f'DELETE FROM diaries WHERE date IN ({ph})', recent_rows).rowcount
+        for d in touched - set(recent_rows):
+            n = sum(1 for r in fresh_all if r[4] == d and r[6] == 'human')
+            conn.execute('UPDATE diaries SET added_later = COALESCE(added_later, 0) + ? WHERE date=?', (n, d))
     conn.execute('''INSERT INTO imports (file, kind, source, imported_at, n_convs, n_convs_new, n_msgs, n_msgs_new,
                     days_touched, diaries_invalidated) VALUES (?,?,?,?,?,?,?,?,?,?)''',
                  (label, kind, source, now, n_convs, n_new_convs, n_msgs, n_new_msgs, len(touched), invalidated))
@@ -385,56 +395,20 @@ def import_file(conn, path, keep_copy=True):
     return summary
 
 
-def reindex_all(conn, sources):
-    """从头重建 messages / conversations（保留 diaries / reflect / imports）。"""
-    conn.executescript('DELETE FROM messages; DELETE FROM conversations; DELETE FROM msg_fts;')
-    conn.commit()
-    out = []
-    for kind, path, source in sources:
-        paths = sorted(glob.glob(os.path.join(path, 'sess_*.md'))) if kind == 'gemini_dir' else [path]
-        for p in paths:
-            if not os.path.exists(p):
-                print(f'跳过（不存在）{p}')
-                continue
-            k = 'gemini_md' if kind == 'gemini_dir' else kind
-            try:
-                r = ingest(conn, p, k, source, os.path.basename(p) if kind != 'gemini_dir' else 'gemini_split',
-                           invalidate=False)
-                out.append(r)
-            except Exception as e:  # noqa: BLE001
-                print(f'失败 {p}: {e}')
-    # gemini 的 565 个文件别写 565 行导入记录，压成一条
-    conn.execute("""DELETE FROM imports WHERE file='gemini_split' AND id NOT IN
-                    (SELECT MAX(id) FROM imports WHERE file='gemini_split')""")
-    rebuild_fts(conn)
-    return out
+# 以前这里有 reindex_all + SOURCES：清空 messages / conversations，再从几个写死的导出文件重建。
+# 2026-10-07 删掉 —— claude.ai 每天同步进来的消息只在库里，一重建就全没了。库本身就是档案，只加不删。
 
-
-SOURCES = [
-    ('claude_md',  '/Users/me/Downloads/claude_export_1.md', 'claude'),
-    ('claude_md',  '/Users/me/Downloads/claude_export_2.md',            'claude'),
-    ('claude_md',  '/Users/me/Downloads/claude_export_3.md', 'claude'),
-    ('gemini_dir', '/Users/me/Desktop/gemini_split',                             'gemini'),
-]
 
 if __name__ == '__main__':
     import argparse
     ap = argparse.ArgumentParser()
-    ap.add_argument('files', nargs='*', help='要导入的文件；不给就按 SOURCES 从头重建')
+    ap.add_argument('files', nargs='*', help='要导入的文件（只加不删；不给就只看一眼库里有多少）')
     args = ap.parse_args()
     conn = store.connect()
-    if args.files:
-        for f in args.files:
-            r = import_file(conn, f)
-            print(f"{r['file'][:48]:<50} 窗口 {r['n_convs']}（新 {r['n_convs_new']}） 消息 {r['n_msgs']:,}（新 {r['n_msgs_new']:,}） "
-                  f"涉及 {len(r['days_touched'])} 天，作废日记 {r['diaries_invalidated']}")
-    else:
-        for r in reindex_all(conn, SOURCES):
-            if r['file'] != 'gemini_split' or r['n_convs_new']:
-                pass
-        rows = conn.execute("SELECT file, SUM(n_convs) c, SUM(n_msgs) m FROM imports GROUP BY file").fetchall()
-        for r in rows:
-            print(f"{r['file'][:48]:<50} {r['c']:>5} 个窗口  {r['m']:>7,} 条消息")
+    for f in args.files:
+        r = import_file(conn, f)
+        print(f"{r['file'][:48]:<50} 窗口 {r['n_convs']}（新 {r['n_convs_new']}） 消息 {r['n_msgs']:,}（新 {r['n_msgs_new']:,}） "
+              f"涉及 {len(r['days_touched'])} 天，作废日记 {r['diaries_invalidated']}")
     r = conn.execute("""SELECT COUNT(DISTINCT conv_id) c, COUNT(*) m, COUNT(DISTINCT date) d, SUM(chars) ch
                           FROM messages WHERE role='human'""").fetchone()
     print(f"\n索引：{r['c']} 个窗口 · {r['m']:,} 条我的消息 · {r['d']} 天 · {r['ch']:,} 字 · "

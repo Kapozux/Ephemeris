@@ -26,7 +26,13 @@ function renderConvs() {
 async function loadConvs() {
   const d = await fetch('/api/conversations').then(r => r.json());
   CONVS = d.conversations;
-  const src = Object.entries(d.by_source).map(([k, v]) => `${k === 'claude' ? 'Claude' : 'Gemini'} ${v}`).join(' · ');
+  // 每个来源新到哪天。太久没新数据的提醒一句怎么补（账号要是没了就导不出来了）
+  const HOW = { gemini: '去 Google Takeout 选「我的活动 → Gemini Apps」导一份拖进来', claude: '看看上面的 claude.ai 同步是不是坏了' };
+  const src = Object.entries(d.by_source).map(([k, v]) => {
+    const last = (d.latest || {})[k], ago = last ? Math.round((Date.now() - new Date(last + 'T12:00:00')) / 864e5) : null;
+    const name = k === 'claude' ? 'Claude' : k === 'gemini' ? 'Gemini' : k;
+    return `${name} ${v}` + (last ? `（最新 ${last.slice(5)}${ago > 30 ? `，${ago} 天前 · ${HOW[k] || '导一份新的补上'}` : ''}）` : '');
+  }).join(' · ');
   $('#convSub').textContent = `${d.total} 个窗口（${src}），其中 ${d.multi_day} 个横跨多天。最新的在上面。`;
   renderConvs();
   const h = await fetch('/api/imports').then(r => r.json());
@@ -126,11 +132,15 @@ async function pollBackup() {
   const bad = last && !last.ok;
   const where = (b.dest || '').replace(/^.*\/My Drive\//, 'Google Drive / ');
   const kb = n => n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`;
+  // 备份只增不减：本地少了的行在备份里留着、改掉的旧版本另存（backup.py）。有这种情况就顺带说一句
+  const extra = ok && /留着|旧版本/.test(ok.note || '') ? ' · ' + esc(ok.note.split(' · ').slice(1).join(' · ')) : '';
   const detail = bad ? esc(last.note || '失败')
-    : ok ? `上次 ${rel(ok.finished_at)} · 全部保留，只传有变化的 · 这次写了 ${ok.files_written ?? '?'} / ${ok.files_total ?? '?'} 个文件（${kb(ok.bytes_written || 0)}）` : '还没备份过';
+    : ok ? `上次 ${rel(ok.finished_at)} · 只增不减，只传有变化的 · 这次写了 ${ok.files_written ?? '?'} / ${ok.files_total ?? '?'} 个文件（${kb(ok.bytes_written || 0)}）${extra}` : '还没备份过';
+  const warn = !bad && ok?.warning;
   box.innerHTML = `<div class="cv-sync-row">
-      <span class="cv-sync-dot ${bad ? 'bad' : ok ? 'ok' : 'off'}"></span>
+      <span class="cv-sync-dot ${bad || warn ? 'bad' : ok ? 'ok' : 'off'}"></span>
       <span><b>数据备份</b>　${b.every_days === 1 ? '每天' : `每 ${b.every_days} 天`}一次 → ${esc(where || '（没找到 Google Drive）')} · ${detail}</span>
-      <a id="backupNow">${bad ? '重试' : '立刻备份'}</a></div>`;
+      <a id="backupNow">${bad ? '重试' : '立刻备份'}</a></div>` +
+    (warn ? `<div class="cv-sync-row"><span class="cv-sync-dot bad"></span><span>${esc(ok.warning)}</span></div>` : '');
   $('#backupNow').onclick = async () => { await fetch('/api/backup', { method: 'POST' }); setTimeout(pollBackup, 300); };
 }

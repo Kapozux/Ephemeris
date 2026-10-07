@@ -2,6 +2,7 @@
 claude.ai 和整理都换成假的 —— 只测这一串怎么接。"""
 import _env  # noqa: F401
 import unittest
+from datetime import datetime, timedelta
 
 import claude_sync
 import daily
@@ -11,18 +12,19 @@ import jobs
 import llm
 import store
 
-PAST = '2026-02-01'
+OLD = '2026-02-01'            # 很早以前缺日记的一天（比如导入了旧聊天）：早上不自动写
 
 
 class Morning(unittest.TestCase):
     def setUp(self):
         today = days.today()
+        self.past = (datetime.fromisoformat(today) - timedelta(days=2)).date().isoformat()
         with store.tx() as db:
             for t in ('messages', 'diaries', 'conversations'):
                 db.execute(f'DELETE FROM {t}')
             db.execute("INSERT INTO conversations(id, source, title, first_ts, last_ts) "
-                       "VALUES ('c', 'claude', 't', ?, ?)", (PAST, today))
-            for i, d in enumerate((PAST, today)):
+                       "VALUES ('c', 'claude', 't', ?, ?)", (OLD, today))
+            for i, d in enumerate((OLD, self.past, today)):
                 db.execute('INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?)',
                            (f'm{i}', 'c', 'claude', d + 'T10:00', d, '10:00', 'human', '字' * 900, 900))
         self.saved = claude_sync.sync, daily.tidy, diary.RETRY_AFTER
@@ -41,10 +43,10 @@ class Morning(unittest.TestCase):
         return jobs.get(daily.JOB, **daily.IDLE)
 
     def test_writes_missing_days_but_not_today(self):
-        claude_sync.sync = lambda force=False, progress=None: {'days': [PAST], 'new_msgs': 1}
+        claude_sync.sync = lambda force=False, progress=None: {'days': [self.past], 'new_msgs': 1}
         st = self.run_morning()
         # 写不出来会重试一次，所以同一天可能记两条；要看的是只试了以前那天，没碰今天
-        self.assertEqual({e['date'] for e in diary.batch_status()['errors']}, {PAST})
+        self.assertEqual({e['date'] for e in diary.batch_status()['errors']}, {self.past})   # 最近的写；很早的 OLD、今天都不写
         self.assertEqual((st['running'], st['error'], st['last']['new_msgs']), (False, None, 1))
         self.assertEqual(self.tidied, [1])
 

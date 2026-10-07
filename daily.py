@@ -10,7 +10,7 @@
 全量第一次同步要 25 分钟，之后每天只拉动过的那几个对话，一两分钟。
 
 整理（tidy）一步接一步，每步独立：前一步失败不拦后一步，结果记在 daily_runs。
-  1. 手写日记    从 Notion 拉新写/改过的页（只读），删掉 Notion 里没了的
+  1. 手写日记    从 Notion 拉新写/改过的页（只读）；Notion 里没了的本地照样留着
   2. 手写进账本  正文真的变了的那几天，记进主题账本（src='hand'）
   3. 两个指标    新聊天天打「卡得多狠」，新手写天打「过得怎么样」
   4. 主题归类    新冒出来的主题归到河流图的大类里
@@ -31,6 +31,7 @@ import store
 
 SYNC_AT = (8, 30)
 RETRY_MIN = 30           # 失败了隔多久再试
+AUTO_DAYS = 7            # 早上自动补日记只补这么多天以内的
 JOB = 'claude-sync'
 IDLE = {'stage': None, 'done': 0, 'total': 0, 'last': None}
 FRESH = {'stage': '起浏览器', 'done': 0, 'total': 0}
@@ -53,8 +54,11 @@ def morning(job, force=False):
         job['last'] = {**r, 'at': datetime.now().isoformat(timespec='seconds')}
         if r.get('days'):
             print(f"[claude-sync] 新消息 {r.get('new_msgs', 0)}，涉及 {len(r['days'])} 天", flush=True)
-        # 缺的都补，不只是今天碰过的 —— 顺手把漏网的也收了。今天还没过完，不写
-        dates = [d for d in diary.missing() if d < days.today()]
+        # 最近一周缺的都补（顺手把漏网的也收了）；今天还没过完，不写。
+        # 更早的缺口（多半是导入了旧聊天）不自动写 —— 可能一下几百天，留给侧栏「补全」按钮，那里先报价
+        today = days.today()
+        since = (datetime.fromisoformat(today) - timedelta(days=AUTO_DAYS)).date().isoformat()
+        dates = [d for d in diary.missing() if since <= d < today]
         if dates:
             print(f'[claude-sync] 接着写日记：{len(dates)} 天', flush=True)
             job.update(stage='写日记', done=0, total=len(dates))
@@ -132,16 +136,17 @@ def tidy(call_model):
     import reflect_chat
     import river
     started = datetime.now().isoformat(timespec='seconds')
-    out, ctx = [], {}
+    out = []
 
     def s_journal():
         r = journal.sync(say=lambda m: None)
-        ctx['gone'] = r['gone']
-        return {'fetched': r['fetched'], 'removed': r['removed'], 'failed': len(r['failed'])}
+        if r['warning']:
+            raise RuntimeError(r['warning'])                # 记成这一步失败，面板上看得见
+        return {'fetched': r['fetched'], 'gone': r['gone'], 'failed': len(r['failed'])}
 
     def s_hand():
         # 正文真的变了的才重新抽主题（白天打开 Ephemeris 时也可能已经把新写的拉下来了，所以不看这次同步拉了哪些）
-        dates = sorted(set(journal.dirty_dates()) | set(ctx.get('gone') or []))
+        dates = journal.dirty_dates()
         done = ledger.record_hand_for(dates, call_model)
         journal.mark_digested(done)                     # 抽不出来的不记，明天早上再试
         return {'days': len(done), 'dates': done}

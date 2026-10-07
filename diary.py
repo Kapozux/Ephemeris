@@ -172,7 +172,8 @@ def write(date):
         # generate() 返回 None = 模型输出解析不成 JSON。不记下来的话批量跑完只剩一个数字。
         _fail(date, '模型返回解析不出 JSON')
         return False
-    store.run('INSERT OR REPLACE INTO diaries VALUES (?,?,?,?,?,?,?,?,?)',
+    store.run('INSERT OR REPLACE INTO diaries (date, headline, narrative, topics, artifacts, open_loops, mood, '
+              'model, generated_at) VALUES (?,?,?,?,?,?,?,?,?)',
               date, entry.get('headline', ''), entry.get('narrative', ''),
               json.dumps(entry.get('topics') or [], ensure_ascii=False),
               json.dumps(entry.get('artifacts') or [], ensure_ascii=False),

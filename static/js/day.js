@@ -184,6 +184,8 @@ async function showSpan(convId, anchor) {
 document.addEventListener('click', e => {
   if (!e.target.closest('#pop') && !e.target.closest('.thread-span')) $('#pop').classList.add('hidden');
 });
+// 弹层是按点击时的位置摆的，列表一滚就对不上了：滚动就收起（弹层自己里面滚不算）
+window.addEventListener('scroll', e => { if (!e.target.closest?.('#pop')) $('#pop').classList.add('hidden'); }, true);
 
 // ---------------------------------------------------------------- 一天
 
@@ -224,8 +226,8 @@ export async function openDay(date, focus) {
 
 $('#prevBtn').onclick = () => NAV.prev && navigate('day/' + NAV.prev);
 $('#nextBtn').onclick = () => NAV.next && navigate('day/' + NAV.next);
-document.addEventListener('keydown', e => {
-  if (e.target.tagName === 'INPUT') return;
-  if (e.key === 'ArrowLeft' && NAV.prev) navigate('day/' + NAV.prev);
-  if (e.key === 'ArrowRight' && NAV.next) navigate('day/' + NAV.next);
-});
+// ←/→（main.js 的键盘处理调它）
+export function stepDay(dir) {
+  const d = dir < 0 ? NAV.prev : NAV.next;
+  if (d) navigate('day/' + d);
+}

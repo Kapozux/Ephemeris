@@ -16,17 +16,30 @@
 import { S } from './state.js';
 
 let apply = () => {};
+const current = () => location.hash.replace(/^#\/?/, '');
+const isLayer = h => /^(panel|flashback)(\/|$)/.test(h);
+// 浮层 / 回忆卡是在应用里点开的（占了一条历史）：关的时候退回去，这样按后退不会又把它打开
+let layerPushed = false;
 
 // main.js 启动时把 applyRoute 交进来
 export function setRouter(fn) {
   apply = fn;
-  window.addEventListener('hashchange', fn);
+  window.addEventListener('hashchange', () => { if (!isLayer(current())) layerPushed = false; fn(); });
 }
 
 export function navigate(hash, { replace = false } = {}) {
+  const cur = current();
+  if (isLayer(hash) && isLayer(cur)) replace = true;                 // 浮层里切栏、回忆卡换一张：不另占历史
+  else if (isLayer(hash) && !replace) layerPushed = true;
   if (replace) { history.replaceState(null, '', '#/' + hash); apply(); }
-  else if (location.hash === '#/' + hash) apply();   // 点同一个链接也要有反应
-  else location.hash = '/' + hash;                   // 触发 hashchange → apply
+  else if (cur === hash) apply();                                    // 点同一个链接也要有反应
+  else location.hash = '/' + hash;                                   // 触发 hashchange → apply
+}
+
+// 关掉浮层 / 回忆卡（关闭按钮、点外面、Esc 都走这里）
+export function closeLayer() {
+  if (layerPushed) { layerPushed = false; history.back(); }
+  else navigate(mainRoute(), { replace: true });
 }
 
 // 浮层关掉之后该回到哪 —— 回当前模式下正看着的东西

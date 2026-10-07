@@ -3,7 +3,7 @@ import { $, esc } from './util.js';
 import { navigate } from './nav.js';
 
 let tmr = null;
-const closeResults = () => $('#results').classList.add('hidden');
+export const closeResults = () => $('#results').classList.add('hidden');
 $('#q').addEventListener('input', e => {
   clearTimeout(tmr);
   const kw = e.target.value.trim();
@@ -27,4 +27,8 @@ $('#q').addEventListener('input', e => {
     };
   }, 240);
 });
-$('#q').addEventListener('keydown', e => { if (e.key === 'Escape') { e.target.value = ''; closeResults(); } });
+// Esc 在 main.js：第一下收起结果，第二下清空搜索框。点结果框外面也收起
+document.addEventListener('click', e => {
+  if (!e.target.closest('#results') && !e.target.closest('#q')) closeResults();
+});
+$('#q').addEventListener('focus', () => { if ($('#q').value.trim().length >= 2 && $('#results').innerHTML) $('#results').classList.remove('hidden'); });

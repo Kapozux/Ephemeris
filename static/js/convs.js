@@ -131,7 +131,6 @@ export async function pollCSync() {
   const s = await fetch('/api/claude/sync').then(r => r.json()).catch(() => null);
   if (s) renderCSync(s);
   pollBackup();
-  pollExport();
 }
 
 // 每周备份到 Google Drive：状态放在同步那行下面，坏了看得见
@@ -162,37 +161,3 @@ async function pollBackup() {
   $('#backupNow').onclick = async () => { await fetch('/api/backup', { method: 'POST' }); setTimeout(pollBackup, 300); };
 }
 
-// ---------------------------------------------------------------- 导出（export.py）
-// 两种：原文归档（每个对话一个 .md，不调模型）；给新账号的交接包（关于我 + 时间线 + 正在进行的事，调一次模型）
-let EXPOLL = null;
-const EXPORTS = [
-  ['archive', '原文归档', '每个对话一个 Markdown 文件，按来源和月份分文件夹，带总目录。不调模型'],
-  ['handoff', '给新账号的交接包', '「关于我」一页 + 时间线 + 正在进行的事，换账号时喂给新 AI。调一次模型，不到 $0.01'],
-];
-async function pollExport() {
-  const s = await fetch('/api/export').then(r => r.json()).catch(() => null);
-  const box = $('#exportBox'); if (!s || !box) return;
-  clearTimeout(EXPOLL);
-  const skip = $('#exportSkip')?.value || '';
-  box.innerHTML = EXPORTS.map(([k, name, what]) => {
-    const j = s[k];
-    if (j.running) {
-      const n = j.total ? ` ${j.done.toLocaleString()} / ${j.total.toLocaleString()}` : '';
-      return `<div class="cv-sync-row"><span class="pulse"></span><span><b>${name}</b>　正在${esc(j.stage || '导出')}${n}…</span></div>`;
-    }
-    const res = j.error ? `<span class="cv-ex-bad">没导完：${esc(j.error)}</span>`
-      : j.finished && j.path ? `上次 ${rel(j.finished)} · <a class="cv-ex-open" data-k="${k}">打开文件夹</a>` : '';
-    return `<div class="cv-sync-row">
-      <span class="cv-sync-dot ${j.error ? 'bad' : j.finished ? 'ok' : 'off'}"></span>
-      <span class="cv-ex-text"><b>${name}</b>　${what}${res ? ' · ' + res : ''}</span>
-      ${k === 'handoff' ? `<input id="exportSkip" class="cv-ex-skip" placeholder="跳过的话题，如：感情" value="${esc(skip)}">` : ''}
-      <a class="cv-ex-go" data-k="${k}">导出</a></div>`;
-  }).join('') + `<div class="cv-ex-note">导到「下载」里的 Ephemeris导出-日期 文件夹。交接包里有私事，上传前先看一遍、删改。</div>`;
-  box.querySelectorAll('.cv-ex-go').forEach(a => a.onclick = async () => {
-    const skip = a.dataset.k === 'handoff' ? $('#exportSkip').value : '';
-    await fetch(`/api/export/${a.dataset.k}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ skip }) });
-    pollExport();
-  });
-  box.querySelectorAll('.cv-ex-open').forEach(a => a.onclick = () => fetch(`/api/export/${a.dataset.k}/open`, { method: 'POST' }));
-  if (s.archive.running || s.handoff.running) EXPOLL = setTimeout(pollExport, 1500);
-}

@@ -5,6 +5,7 @@
     parse_json(text, want) → 纯函数：从模型输出里抠 JSON（去代码块、修 LaTeX 反斜杠）
     status()               → 现在用哪个后端、能不能用、上次失败原因
     stray(text, source)    → 输出里冒出来、材料里没有的别的文字（ask 自动重来一次）
+    ask_strong(prompt)     → (文本, 实际美元)：只给「交接包」用的大模型，Claude Opus 4.6（走 OpenRouter）。失败抛异常
 
 为什么要有它（2026-10-02 体检）：
 - 以前 3 个模块各自 `sys.path` 伸进 getAudio 借 `reflect._call_model`，8 个地方各写一遍「抠 JSON + 重试」。
@@ -84,6 +85,56 @@ def _call(prompt, model=None):
     if b != 'gemini':
         raise RuntimeError(f'不认识的 EPHEMERIS_LLM：{b}（只有 gemini / verbatim）')
     return _gemini(prompt, model)
+
+
+# ------------------------------------------------------------------ 大模型（只有交接包用）
+# 2026-10-07 用户要求：交接包（export.handoff）点一下请「类似 Claude Opus 4.6」的来写，一年一次，贵一点没关系。
+# 这是唯一一处把日记发给 Gemini 以外的服务（CLAUDE.md 规矩 4 的例外）。key 跟 Verbatim 共用一把 OpenRouter 的。
+STRONG_MODEL = 'anthropic/claude-opus-4.6'
+OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions'
+
+
+def strong_model():
+    return (idx.env('EPHEMERIS_STRONG_MODEL') or '').strip() or STRONG_MODEL
+
+
+def openrouter_key():
+    key = (idx.env('OPENROUTER_API_KEY') or os.environ.get('OPENROUTER_API_KEY') or '').strip()
+    if key:
+        return key
+    try:                                    # Verbatim 网页设置里填的 key 存在这里（不进仓库）
+        with open(os.path.join(GETAUDIO, 'settings.local.json'), encoding='utf-8') as f:
+            return (json.load(f).get('openrouter_key') or '').strip()
+    except (OSError, ValueError):
+        return ''
+
+
+def ask_strong(prompt, max_tokens=16000):
+    """调一次大模型，返回 (文本, 这一笔实际多少美元 / None)。没 key、报错、返回空都抛异常（上层要让用户看到原因）。"""
+    if _override:
+        return _override(prompt), None
+    import requests
+    key = openrouter_key()
+    if not key:
+        raise RuntimeError('没有 OpenRouter key：在 Verbatim 的设置 → OpenRouter 里填，或在 ephemeris/.env 设 OPENROUTER_API_KEY')
+    model = strong_model()
+    r = requests.post(OPENROUTER, timeout=900, headers={'Authorization': f'Bearer {key}'},
+                      json={'model': model, 'max_tokens': max_tokens, 'usage': {'include': True},
+                            'messages': [{'role': 'user', 'content': prompt}]})
+    if r.status_code != 200:
+        raise RuntimeError(f'{model} 返回 {r.status_code}：{r.text[:200]}')
+    body = r.json()
+    try:
+        _getaudio()
+        import usage
+        usage.record_openai(body, 'openrouter', model, 'ephemeris')
+    except Exception:                                        # noqa: BLE001  记账失败不影响结果
+        pass
+    text = ((body.get('choices') or [{}])[0].get('message') or {}).get('content') or ''
+    if not text.strip():
+        raise RuntimeError(f'{model} 返回空')
+    cost = (body.get('usage') or {}).get('cost')
+    return text.strip(), (float(cost) if cost is not None else None)
 
 
 # 天城文、阿拉伯文、西里尔、泰文、希伯来、韩文、日文假名。中文日记里出现它们，多半是模型串了语言：

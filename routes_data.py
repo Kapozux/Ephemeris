@@ -1,4 +1,4 @@
-"""数据进出：「窗口与导入」面板（窗口一览、导入、claude.ai 同步、备份）和 Notion 面板。"""
+"""数据进出：「窗口与导入」面板（窗口一览、搜索、导入、claude.ai 同步、备份）、「设置 → 导出」和 Notion 面板。"""
 import os
 import re
 from datetime import datetime
@@ -100,17 +100,21 @@ def api_backup_run():
 
 # ------------------------------------------------------------------ 导出（export.py）
 
+def _skip(raw):
+    return [k for k in re.split(r'[,，、\s]+', raw or '') if k]
+
+
 @bp.route('/api/export')
 def api_export():
-    return jsonify(export.status())
+    """两种导出的状态，外加交接包按现在填的「跳过」估多少钱。"""
+    return jsonify(export.status(_skip(request.args.get('skip'))))
 
 
 @bp.route('/api/export/<kind>', methods=['POST'])
 def api_export_run(kind):
-    if kind not in ('archive', 'handoff'):
+    if kind not in export.KINDS:
         return jsonify({'error': '没有这种导出'}), 404
-    skip = [k for k in re.split(r'[,，、\s]+', (request.get_json(silent=True) or {}).get('skip') or '') if k]
-    return jsonify(export.start(kind, skip))
+    return jsonify(export.start(kind, _skip((request.get_json(silent=True) or {}).get('skip'))))
 
 
 @bp.route('/api/export/<kind>/open', methods=['POST'])

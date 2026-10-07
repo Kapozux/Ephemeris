@@ -1,18 +1,19 @@
-"""导出（2026-10-07）：两种，用途不同。
+"""导出（2026-10-07）。「设置 → 导出」两个按钮，外加每个窗口自己的「导出 .md」。
 
-    archive(dir)          原文归档：每个对话一个 Markdown，按「来源/年-月」分文件夹，带总目录。不调模型。
-                          用来自己翻、搜；要接着某段旧对话聊，就把那一个文件拖给新 AI。
-    handoff(dir, skip)    给新账号的交接包：
-                            关于我.md        一页（模型写一次，约 6 万字进去，不到 $0.01）—— 贴进新账号的个人偏好 / 项目说明
-                            过去一年.md      按月，每天一行（日记标题拼的，不调模型）
-                            正在进行的事.md  主题账本里最近还在推进的线、做到哪（不调模型）
-                            怎么用.md
-                          skip：要跳过的话题关键词（比如「感情」）—— 主题名、日记标题里带它的不进，写「关于我」时也不提
+    one(conv_id)        单个窗口 → (文件名, Markdown)；跟完整导出里的是同一个格式（conv_md）
+    full(dir)           完整导出，不调模型：
+                          聊天原文/   每个窗口一个 .md，按「来源/年-月」分文件夹，带目录
+                          日记/       每周一份：AI 写的日记、手写日记、打卡（跟备份的「每周/」同一份，backup.weeks_md）
+                          日记图片/   手写日记里的图片
+                          主题.md     主题账本：每条线哪天做到哪
+    handoff(dir, skip)  给新账号的交接包：请 Claude Opus 4.6（llm.ask_strong）读一年的日记和主题账本，一次写出
+                          关于我.md / 过去一年.md / 正在进行的事.md，再附 怎么用.md。约 $1，按实际收，结果里记着花了多少。
+                        skip：要跳过的话题（比如「感情」）—— 标题带它的日记、名字带它的主题不给模型，也叫模型别写
 
 为什么不直接把聊天全倒进新账号：全部约 7500 万字，任何 AI 一个窗口只读得下几十万字；
 新账号也不「记得」旧聊天，只知道塞给它的东西。能带过去的是浓缩过的：日记 + 主题账本。
 
-后台任务（jobs）：export-archive / export-handoff；导出到 ~/Downloads/Ephemeris导出-日期/。
+后台任务（jobs）：export-full / export-handoff；导出到 ~/Downloads/Ephemeris导出-日期/，同一天再导另起一个文件夹，不覆盖。
 """
 import os
 import re
@@ -20,13 +21,16 @@ import subprocess
 from collections import defaultdict
 from datetime import datetime, timedelta
 
+import backup
 import days
 import jobs
+import journal
 import ledger
 import llm
 import store
 
 NAMES = {'claude': 'Claude', 'gemini': 'Gemini'}
+KINDS = ('full', 'handoff')
 
 
 def out_dir():
@@ -38,8 +42,6 @@ def _safe(s, n=40):
     return s or '无标题'
 
 
-# ------------------------------------------------------------------ 原文归档
-
 def _fresh(root, name):
     """今天已经导出过同名文件夹：新的一份带上时分，旧的不碰（标题改过的话，覆盖会留下两个文件）。"""
     path = os.path.join(root, name)
@@ -49,9 +51,16 @@ def _fresh(root, name):
     return path
 
 
+def _write(root, name, lines):
+    with open(os.path.join(root, name), 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines) + '\n')
+
+
+# ------------------------------------------------------------------ 单个窗口
+
 def conv_md(c, msgs=None):
     """一个窗口 → (文件名, Markdown)。c 至少有 id / source / title；msgs 不给就从库里读。
-    这里是唯一的格式：单个窗口的「导出 md」和整份原文归档都用它。"""
+    这里是唯一的格式：单个窗口的「导出 .md」和完整导出的「聊天原文」都用它。"""
     msgs = msgs if msgs is not None else store.q(
         'SELECT date, hhmm, role, text FROM messages WHERE conv_id=? ORDER BY ts, id', c['id'])
     src = NAMES.get(c['source'], c['source'] or '其他')
@@ -70,9 +79,10 @@ def one(conv_id):
     return conv_md(c) if c else None
 
 
+# ------------------------------------------------------------------ 完整导出
+
 def archive(job, root):
-    """每个对话一个 .md：标题、来源、时间跨度，然后按时间一条条（我 / AI）。"""
-    root = _fresh(root, '原文')
+    """聊天原文：每个对话一个 .md，按「来源/年-月」分文件夹，加一个目录。root 要已经存在。返回对话数。"""
     convs = store.q("""SELECT c.id, c.source, c.title, MIN(m.ts) first, COUNT(*) n
                          FROM conversations c JOIN messages m ON m.conv_id = c.id
                         GROUP BY c.id ORDER BY first""")
@@ -95,101 +105,156 @@ def archive(job, root):
         lines += [f'## {src} · {month}', '']
         lines += [f"- {d}　[{_safe(t, 60)}](<{rel}>)　{n} 条" for d, t, rel, n in index[(src, month)]]
         lines.append('')
-    with open(os.path.join(root, '目录.md'), 'w', encoding='utf-8') as f:
-        f.write('\n'.join(lines))
-    job['path'] = root
-    return root
+    _write(root, '目录.md', lines)
+    return len(convs)
+
+
+def themes_md():
+    """主题账本整本：每条线一节，哪天做到哪。"""
+    out = ['# 主题', '', '一件事聊了多少天、每天做到哪（每写一篇日记更新一次）。最近还在动的在前面。', '']
+    for t in ledger.all_themes():
+        out += [f"## {t['name']}", '', f"{t['first']} → {t['last']} · {t['n_days']} 天", '']
+        out += [f"- {d['date']}　{d['note'] or ''}" for d in t['days']] + ['']
+    return out
+
+
+def full(job, root):
+    base = _fresh(root, '完整导出')
+    job['stage'] = '聊天原文'
+    os.makedirs(os.path.join(base, '聊天原文'))
+    n_convs = archive(job, os.path.join(base, '聊天原文'))
+    job['stage'], job['done'], job['total'] = '日记', 0, 0
+    weeks = backup.weeks_md()
+    os.makedirs(os.path.join(base, '日记'))
+    for name, md in weeks:
+        with open(os.path.join(base, '日记', name), 'w', encoding='utf-8') as f:
+            f.write(md)
+    job['stage'] = '日记图片'
+    n_img = backup.copy_new(journal.FILES_DIR, os.path.join(base, '日记图片'))
+    job['stage'] = '主题'
+    _write(base, '主题.md', themes_md())
+    _write(base, '说明.md', [
+        '# Ephemeris 完整导出', '', f'导出于 {datetime.now():%Y-%m-%d %H:%M}。全是 Markdown，任何编辑器都能打开。', '',
+        f'- **聊天原文/**：{n_convs} 个对话，每个一个文件，先看「目录.md」。要接着某段旧对话聊，把那个文件拖给 AI。',
+        f'- **日记/**：{len(weeks)} 周，每周一个文件：AI 写的日记、我手写的、打卡。',
+        f'- **日记图片/**：手写日记里的 {n_img} 张图。',
+        '- **主题.md**：每件长期在做的事，哪天做到哪。'])
+    job['path'] = base
+    return base
 
 
 # ------------------------------------------------------------------ 交接包
 
-ABOUT_PROMPT = """下面是一个人过去一年的日记（AI 根据这个人每天跟 AI 的聊天写的）和长期在做的事。
-这个人换了一个新的 AI 账号，新 AI 不认识这个人。请替这个人写一页「关于我」，会贴进新 AI 的个人偏好里。
+HANDOFF_PROMPT = """下面是一个人过去一年的材料：每天的日记（AI 根据这个人当天跟 AI 的聊天写的，第一人称），
+和「主题账本」（长期在做的事：哪天开始、最近一次、前后多少天、最近几次做到哪）。
+
+这个人要换一个新的 AI 账号，新 AI 对这个人一无所知。请写三份文件，这个人看过、删改后交给新 AI：
+
+1.「关于我」—— 贴进新 AI 的个人偏好，每次对话都会带着。第一人称「我」，1500–2500 字。
+   小标题：我是谁 / 最近在做的事 / 我做事和说话的习惯 / 希望你怎么配合我。
+   「希望你怎么配合我」从这个人跟 AI 打交道的方式里归纳（日记里常写到对 AI 的回答满意或不满意），看不出来就少写。
+2.「过去一年」—— 作为项目知识上传，新 AI 要背景时去翻。按月，从早到晚，每月一个小标题，3–6 条要点：
+   这个月主要在做什么、有什么转折、做成了什么。
+3.「正在进行的事」—— 最近两个月还在推进的事，按重要程度排，最多 25 件，每件一个小标题：
+   是什么、从什么时候开始、现在做到哪、下一步或卡在哪。
 
 要求：
-- 用第一人称「我」，直白，像本人写的。1500–2500 字。
-- 分四段，用小标题：「我是谁」「最近在做的事」「我做事和说话的习惯」「希望你怎么配合我」。
-- 只写材料里看得出来的，别编；具体的东西（在读什么、做什么项目、用什么工具）要写出来，别泛泛而谈。
-- 「希望你怎么配合我」从这个人跟 AI 打交道的方式里归纳（比如喜欢直接给结论、讨厌某些写法），看不出来就少写。
+- 只写材料里有的，别编，别夸，别下判断。具体的东西要写出来：科目、项目名、工具、做到第几稿、分数。
+- 直白，不用比喻，不抒情。
+- 很私人的事（身体、心理、感情、家庭）：只在跟「怎么配合我」有关时简短提一句，不写细节。这个人上传前会自己删改。
 {skip}
-- 只输出这一页的正文（Markdown），不要前言后语。
+- 输出格式：严格按下面三段，每段以单独一行的分隔符开头；分隔符以外不要任何前言后语。段内用 Markdown，标题从 ## 开始。
+=====关于我=====
+=====过去一年=====
+=====正在进行的事=====
 
-【长期在做的事】
+【主题账本（最近还在动的在前）】
 {themes}
 
-【日记（近的在后）】
+【日记（从早到晚；最近三个月是全文，更早的只有开头）】
 {diaries}
 """
+SECTIONS = ('关于我', '过去一年', '正在进行的事')
+FULL_DAYS = 90            # 最近这么多天的日记给全文，更早的只给标题 + 开头
+OLD_CHARS = 150
+PRICE_IN, PRICE_OUT, OUT_TOKENS = 5 / 1e6, 25 / 1e6, 10000      # Opus 4.6：每百万 token $5 / $25；输出约一万 token
 
 
 def _hit(text, skip):
     return any(k and k in (text or '') for k in skip)
 
 
-def handoff(job, root, skip=()):
-    root = _fresh(root, '交接包')
-    skip = [k.strip() for k in skip if k.strip()]
-    job['stage'] = '时间线'
-    diaries = [d for d in store.q('SELECT date, headline, narrative FROM diaries ORDER BY date')
-               if not _hit(d['headline'], skip)]
-    by_month = defaultdict(list)
-    for d in diaries:
-        by_month[d['date'][:7]].append(d)
-    tl = ['# 过去这段时间', '', '每天一行，是 AI 根据我那天跟 AI 的聊天写的日记标题。', '']
-    for m in sorted(by_month):
-        tl += [f'## {m}', ''] + [f"- {d['date'][5:]}　{d['headline']}" for d in by_month[m]] + ['']
-    _write(root, '过去一年.md', tl)
-
-    job['stage'] = '正在进行的事'
+def material(skip=()):
+    """给模型的整段提示词。中文一个字大约一个 token，估价就按字数算。"""
+    skip = [k.strip() for k in skip if k and k.strip()]
+    recent = (datetime.fromisoformat(days.today()) - timedelta(days=FULL_DAYS)).date().isoformat()
     since = (datetime.fromisoformat(days.today()) - timedelta(days=60)).date().isoformat()
-    themes = [t for t in ledger.all_themes() if t['last'] >= since and t['n_days'] >= 2 and not _hit(t['name'], skip)]
-    th = ['# 正在进行的事', '', '最近两个月还在推进、聊过两天以上的事，做到哪一步（最后一次的进展）。', '']
-    for t in themes:
-        th += [f"## {t['name']}", '', f"{t['first']} 开始，前后 {t['n_days']} 天，最近一次 {t['last']}。", '',
-               f"做到：{t['state']}", '']
-    _write(root, '正在进行的事.md', th)
-
-    job['stage'] = '写「关于我」'
-    recent = diaries[-120:]
-    text = llm.ask(ABOUT_PROMPT.format(
+    lines = []
+    for d in store.q('SELECT date, headline, narrative FROM diaries ORDER BY date'):
+        if _hit(d['headline'], skip):
+            continue
+        body = (d['narrative'] or '') if d['date'] >= recent else (d['narrative'] or '')[:OLD_CHARS]
+        lines.append(f"{d['date']}　{d['headline']}\n{body}")
+    themes = [t for t in ledger.all_themes()
+              if (t['n_days'] >= 3 or t['last'] >= since) and not _hit(t['name'], skip)][:200]
+    th = [f"- {t['name']}：{t['first']} → {t['last']}，{t['n_days']} 天。最近："
+          + '；'.join(f"{x['date'][5:]} {x['note']}" for x in t['days'][-3:] if x['note']) for t in themes]
+    return HANDOFF_PROMPT.format(
         skip=f"- 不要写任何跟这些有关的内容：{'、'.join(skip)}。" if skip else '',
-        themes='\n'.join(f"- {t['name']}（{t['n_days']} 天）：{t['state']}" for t in themes[:40]) or '（无）',
-        diaries='\n\n'.join(f"{d['date']}　{d['headline']}\n{(d['narrative'] or '')[:400]}" for d in recent)))
-    if not text:
-        raise RuntimeError('「关于我」没写出来（模型没返回），另外三个文件已经导出了')
-    _write(root, '关于我.md', [text.strip()])
+        themes='\n'.join(th) or '（无）', diaries='\n\n'.join(lines) or '（无）')
 
-    _write(root, '怎么用.md', [
+
+def estimate(skip=()):
+    return round(len(material(skip)) * PRICE_IN + OUT_TOKENS * PRICE_OUT, 2)
+
+
+def split(text):
+    """模型的输出 → {段名: 正文}；分隔符缺了的段不在里面。"""
+    parts = re.split(r'^\s*=+\s*(' + '|'.join(SECTIONS) + r')\s*=+\s*$', text or '', flags=re.M)
+    return {parts[i]: parts[i + 1].strip() for i in range(1, len(parts) - 1, 2) if parts[i + 1].strip()}
+
+
+def handoff(job, root, skip=()):
+    base = _fresh(root, '交接包')
+    skip = [k.strip() for k in skip if k.strip()]
+    job['stage'] = f'在请 {llm.strong_model().split("/")[-1]} 读一年的日记，两三分钟'
+    text, cost = llm.ask_strong(material(skip))
+    job['cost'] = cost
+    got = split(text)
+    if len(got) < len(SECTIONS):
+        _write(base, '模型原文.md', [text])
+        raise RuntimeError(f'模型没按格式分成三段（只认出 {"、".join(got) or "零段"}），原文存在「模型原文.md」')
+    for name in SECTIONS:
+        _write(base, f'{name}.md', [f'# {name}', '', got[name]])
+    _write(base, '怎么用.md', [
         '# 怎么用这个交接包', '',
-        '1. **先看一遍、删改**：「关于我」是 AI 起草的，里面有私事，留哪些你说了算。',
-        '2. **「关于我」**：贴进新账号的个人偏好（Claude：设置 → 个人偏好；也可以放进某个项目的项目说明）。',
-        '3. **「过去一年」「正在进行的事」**：建一个项目，作为项目知识上传。新 AI 需要背景时会去翻。',
-        '4. **要接着某段旧对话聊**：去「原文」文件夹找那个对话的 .md，拖进新窗口。',
-        '', f'导出于 {datetime.now():%Y-%m-%d %H:%M}' + (f'；跳过了：{"、".join(skip)}' if skip else '') + '。'])
-    job['path'] = root
-    return root
-
-
-def _write(root, name, lines):
-    with open(os.path.join(root, name), 'w', encoding='utf-8') as f:
-        f.write('\n'.join(lines) + '\n')
+        '1. **先看一遍、删改**：三份都是 AI 起草的，里面有私事，留哪些你说了算。',
+        '2. **关于我**：贴进新账号的个人偏好（Claude：设置 → 个人资料 → 偏好；也可以放进某个项目的项目说明）。',
+        '3. **过去一年、正在进行的事**：建一个项目，作为项目知识上传。新 AI 要背景时会去翻。',
+        '4. **要接着某段旧对话聊**：去「完整导出 / 聊天原文」找那个对话的 .md，拖进新窗口。',
+        '', f'导出于 {datetime.now():%Y-%m-%d %H:%M}，{llm.strong_model()} 写的'
+        + (f'，花了 ${cost:.2f}' if cost is not None else '')
+        + (f'；跳过了：{"、".join(skip)}' if skip else '') + '。'])
+    job['path'] = base
+    return base
 
 
 # ------------------------------------------------------------------ 后台任务
 
-IDLE = {'stage': None, 'done': 0, 'total': 0, 'path': None}
+IDLE = {'stage': None, 'done': 0, 'total': 0, 'path': None, 'cost': None}
 
 
 def start(kind, skip=()):
-    name = f'export-{kind}'
-    fn = archive if kind == 'archive' else handoff
-    args = (out_dir(),) if kind == 'archive' else (out_dir(), tuple(skip))
-    jobs.start(name, fn, *args, stage='导出原文' if kind == 'archive' else '准备', done=0, total=0, path=None)
+    if kind == 'full':
+        jobs.start('export-full', full, out_dir(), stage='准备', done=0, total=0, path=None)
+    elif kind == 'handoff':
+        jobs.start('export-handoff', handoff, out_dir(), tuple(skip), stage='准备', path=None, cost=None)
     return status()
 
 
-def status():
-    return {k: jobs.get(f'export-{k}', **IDLE) for k in ('archive', 'handoff')}
+def status(skip=()):
+    return {**{k: jobs.get(f'export-{k}', **IDLE) for k in KINDS},
+            'model': llm.strong_model(), 'estimate': estimate(skip)}
 
 
 def reveal(kind):

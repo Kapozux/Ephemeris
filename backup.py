@@ -242,23 +242,31 @@ def _week_md(monday):
     return '\n'.join(out)
 
 
-def _weeks_md(w):
+def weeks_md():
+    """[(文件名, Markdown)]，每周一份，从有记录的第一周到这周。图片指向同级的「日记图片」文件夹。
+    备份的「每周/」和导出（export.full）的「日记/」都用它。"""
     first = store.q("""SELECT MIN(d) d FROM (SELECT MIN(date) d FROM diaries
                   UNION ALL SELECT MIN(date) FROM journal UNION ALL SELECT MIN(date) FROM checkins)""")[0]['d']
     if not first:
-        return 0
+        return []
     start = _date.fromisoformat(first)
-    monday, today, n = start - timedelta(days=start.weekday()), _date.fromisoformat(days.today()), 0
+    monday, today, out = start - timedelta(days=start.weekday()), _date.fromisoformat(days.today()), []
     while monday <= today:
         md = _week_md(monday)
         if md:
-            w.put(f'每周/{_week(monday)}.md', md)
-            n += 1
+            out.append((f'{_week(monday)}.md', md))
         monday += timedelta(days=7)
-    return n
+    return out
 
 
-def _copy_new(src, out):
+def _weeks_md(w):
+    weeks = weeks_md()
+    for name, md in weeks:
+        w.put(f'每周/{name}', md)
+    return len(weeks)
+
+
+def copy_new(src, out):
     """src 下的文件（含子目录）抄到 out：只增不删，已经在的（同路径同大小）跳过。返回抄了几个。"""
     if not os.path.isdir(src):
         return 0
@@ -276,8 +284,8 @@ def _copy_new(src, out):
 
 def _imports(root):
     """导入原件和手写日记里的图片。"""
-    return (_copy_new(os.path.join(HERE, 'imports'), os.path.join(root, '导入原件'))
-            + _copy_new(journal.FILES_DIR, os.path.join(root, '日记图片')))
+    return (copy_new(os.path.join(HERE, 'imports'), os.path.join(root, '导入原件'))
+            + copy_new(journal.FILES_DIR, os.path.join(root, '日记图片')))
 
 
 # ------------------------------------------------------------------ 跑
@@ -370,7 +378,7 @@ def restore(src, out):
     db.commit()
     db.close()
     # 日记里的图片放回新库旁边的 journal_files/
-    counts['日记图片'] = _copy_new(os.path.join(src, '日记图片'), os.path.join(os.path.dirname(os.path.abspath(out)), 'journal_files'))
+    counts['日记图片'] = copy_new(os.path.join(src, '日记图片'), os.path.join(os.path.dirname(os.path.abspath(out)), 'journal_files'))
     return counts
 
 

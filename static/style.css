@@ -10,7 +10,7 @@
        sb- 侧栏   cal- 日历   wl- 侧栏的窗口列表
        pagehead- 页头   day- diary- journal(j-) thread- msg- 某一天   pop- 跨天弹层   tl- win- 按窗口的时间轴
        modal- 浮层   pane- 浮层里各栏共用的骨架   reflect- chart- data- 回顾和数据   th- 主题   rv- 河流
-       cv- 窗口与导入   nt- Notion   fb- 回忆卡
+       cv- 窗口与导入   nt- Notion   set- 设置   fb- 回忆卡
    - 新加类之前先 grep 一下有没有重名。踩过两次：.k 撞了打卡页，.fb 让窗口列表每一行都变成全屏灰罩
    ============================================================ */
 :root {
@@ -299,8 +299,9 @@ button { font-family:inherit; }
 .data-split { display:flex; height:10px; border-radius:999px; overflow:hidden; margin-top:12px; }
 .data-split i { display:block; height:100%; }
 @media (max-width: 700px) {
-  .modal { grid-template-columns:1fr; height:100vh; border-radius:0; }
-  .modal-nav { flex-direction:row; border-right:0; border-bottom:1px solid var(--line); }
+  .modal { grid-template-columns:1fr; grid-template-rows:auto minmax(0,1fr); height:100vh; border-radius:0; }
+  .modal-nav { flex-direction:row; border-right:0; border-bottom:1px solid var(--line); overflow-x:auto; padding:10px; }
+  .modal-nav-item { flex:none; white-space:nowrap; }
   .reflect-topics, .pane-two { grid-template-columns:1fr; }
   .modal-overlay { padding:0; }
 }
@@ -391,6 +392,20 @@ button { font-family:inherit; }
 .tl-msgs.showai .msg.ai { display:flex; }
 
 /* claude.ai 自动同步的状态条 */
+/* 设置 → 导出 */
+.set-box { margin-top:10px; padding:4px 16px; background:var(--paper); border:1px solid var(--line); border-radius:var(--r-sm); }
+.set-row { display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; padding:14px 0; border-top:1px solid var(--line); }
+.set-row:first-child { border-top:none; }
+.set-text { flex:1 1 260px; min-width:0; font-size:12.5px; line-height:1.65; color:var(--ink-soft); }
+.set-text b { font-size:13.5px; font-weight:600; color:var(--ink); }
+.set-what { display:block; color:var(--muted); }
+.set-res { display:block; margin-top:2px; }
+.set-res a { cursor:pointer; color:var(--ink-soft); border-bottom:1px solid var(--line-2); }
+.set-res a:hover { color:var(--coral-deep); border-color:var(--coral); }
+.set-res.bad { color:var(--coral-deep); }
+.set-act { display:flex; align-items:center; gap:8px; margin-left:auto; flex:none; }
+.set-skip { width:170px; font:inherit; font-size:12px; padding:5px 8px; color:var(--ink); background:var(--card); border:1px solid var(--line); border-radius:var(--r-sm); }
+.set-note { padding:10px 0 12px; border-top:1px solid var(--line); font-size:11.5px; color:var(--muted); }
 .cv-sync { margin-top:18px; padding:11px 14px; background:var(--paper); border:1px solid var(--line); border-radius:var(--r-sm); }
 .cv-sync:empty { display:none; }
 .cv-sync-row { display:flex; align-items:center; gap:9px; font-size:12.5px; color:var(--ink-soft); }
@@ -400,14 +415,6 @@ button { font-family:inherit; }
 .cv-sync-row code { font-family:ui-monospace,Menlo,monospace; font-size:11.5px; background:var(--card); border:1px solid var(--line); border-radius:3px; padding:1px 4px; }
 .cv-sync-dot { width:7px; height:7px; border-radius:50%; flex:none; }
 .cv-sync-dot.ok { background:#5B8C5A; } .cv-sync-dot.bad { background:var(--coral); } .cv-sync-dot.off { background:var(--faint); }
-.cv-ex .cv-sync-row { flex-wrap:wrap; }
-.cv-ex .cv-sync-row + .cv-sync-row { margin-top:8px; }
-.cv-ex-text { flex:1 1 200px; min-width:0; }
-.cv-sync-row a.cv-ex-open { margin-left:0; }
-.cv-ex-bad { color:var(--coral-deep); }
-.cv-ex-skip { flex:none; width:150px; margin-left:auto; font:inherit; font-size:12px; padding:3px 7px; color:var(--ink); background:var(--card); border:1px solid var(--line); border-radius:var(--r-sm); }
-.cv-ex-skip + a { margin-left:4px; }
-.cv-ex-note { margin-top:9px; font-size:11.5px; color:var(--muted); }
 
 /* 主题账本：日记页的那一行 + 主题面板 */
 .diary-chips { display:flex; flex-wrap:wrap; gap:6px; margin:-4px 0 16px; }

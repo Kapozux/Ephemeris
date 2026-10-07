@@ -395,6 +395,14 @@ button { font-family:inherit; }
 .cv-sync-row code { font-family:ui-monospace,Menlo,monospace; font-size:11.5px; background:var(--card); border:1px solid var(--line); border-radius:3px; padding:1px 4px; }
 .cv-sync-dot { width:7px; height:7px; border-radius:50%; flex:none; }
 .cv-sync-dot.ok { background:#5B8C5A; } .cv-sync-dot.bad { background:var(--coral); } .cv-sync-dot.off { background:var(--faint); }
+.cv-ex .cv-sync-row { flex-wrap:wrap; }
+.cv-ex .cv-sync-row + .cv-sync-row { margin-top:8px; }
+.cv-ex-text { flex:1 1 200px; min-width:0; }
+.cv-sync-row a.cv-ex-open { margin-left:0; }
+.cv-ex-bad { color:var(--coral-deep); }
+.cv-ex-skip { flex:none; width:150px; margin-left:auto; font:inherit; font-size:12px; padding:3px 7px; color:var(--ink); background:var(--card); border:1px solid var(--line); border-radius:var(--r-sm); }
+.cv-ex-skip + a { margin-left:4px; }
+.cv-ex-note { margin-top:9px; font-size:11.5px; color:var(--muted); }
 
 /* 主题账本：日记页的那一行 + 主题面板 */
 .diary-chips { display:flex; flex-wrap:wrap; gap:6px; margin:-4px 0 16px; }

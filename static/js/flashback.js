@@ -1,6 +1,6 @@
 // 回忆卡：翻一张过去的某一天（随便一天 / 去年今天）。侧栏骰子或快捷键 R。
 import { $, esc, feelColor } from './util.js';
-import { navigate } from './nav.js';
+import { navigate, closeLayer } from './nav.js';
 
 let FB = null, FB_MODE = 'random';
 const FB_ZH = n => n >= 365 ? `${Math.floor(n / 365)} 年${n % 365 >= 30 ? ` ${Math.floor(n % 365 / 30)} 个月` : ''}前` : n >= 60 ? `${Math.floor(n / 30)} 个月前` : `${n} 天前`;
@@ -31,17 +31,12 @@ export async function openFlashback(mode) {
       <span class="fb-date">${c.date} 周${c.weekday}</span>${feel}</div>
     ${quote}${th}`;
 }
-function closeFlashback() { $('#fb').classList.add('hidden'); }
-$('#fbOpen').onclick = () => openFlashback('random');
-$('#fbClose').onclick = closeFlashback;
-$('#fbAgain').onclick = () => openFlashback('random');
-$('#fbGo').onclick = () => { if (FB?.card) { closeFlashback(); navigate('day/' + FB.card.date); } };
-document.querySelectorAll('.fb-seg button').forEach(b => b.onclick = () => openFlashback(b.dataset.m));
-$('#fb').addEventListener('click', e => { if (e.target.id === 'fb') closeFlashback(); });
-document.addEventListener('keydown', e => {
-  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.metaKey || e.ctrlKey || e.altKey) return;
-  const open = !$('#fb').classList.contains('hidden');
-  if (e.key === 'Escape' && open) { closeFlashback(); return; }
-  if (e.key === 'r' || e.key === 'R') { e.preventDefault(); openFlashback('random'); }
-  if (open && e.key === 'Enter') $('#fbGo').click();
-});
+// 开、关、换一张都走路由（#/flashback[/year]），地址和后退键跟着对得上
+export function closeFlashback() { $('#fb').classList.add('hidden'); }
+$('#fbOpen').onclick = () => navigate('flashback');
+$('#fbClose').onclick = closeLayer;
+$('#fbAgain').onclick = () => navigate('flashback');
+$('#fbGo').onclick = () => { if (FB?.card) navigate('day/' + FB.card.date); };
+document.querySelectorAll('.fb-seg button').forEach(b => b.onclick = () => navigate(b.dataset.m === 'year' ? 'flashback/year' : 'flashback'));
+$('#fb').addEventListener('click', e => { if (e.target.id === 'fb') closeLayer(); });
+// 键盘（R、Enter、Esc）在 main.js 统一处理

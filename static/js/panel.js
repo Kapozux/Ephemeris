@@ -1,6 +1,6 @@
 // 浮层：回顾 / 主题 / 河流 / 数据 / 窗口与导入 / Notion / 设置 七栏。开哪栏由路由（#/panel/...）决定。
 import { $ } from './util.js';
-import { navigate, mainRoute } from './nav.js';
+import { navigate, closeLayer } from './nav.js';
 import { ensureReflect, stopReflect } from './reflect.js';
 import { loadThemes } from './themes.js';
 import { loadRiver } from './river.js';
@@ -23,8 +23,8 @@ $('#reflectOpen').onclick = () => navigate('panel/reflect');
 $('#convsOpen').onclick = () => navigate('panel/convs');
 $('#notionOpen').onclick = () => navigate('panel/notion');
 $('#settingsOpen').onclick = () => navigate('panel/settings');
-$('#modalClose').onclick = () => navigate(mainRoute());
-$('#overlay').addEventListener('click', e => { if (e.target.id === 'overlay') navigate(mainRoute()); });
+$('#modalClose').onclick = closeLayer;
+$('#overlay').addEventListener('click', e => { if (e.target.id === 'overlay') closeLayer(); });
 // 面板切换本身只管样式；进哪个面板由路由决定（下面 .modal-nav-item 的 onclick 走 navigate）
 function showPane(pane) {
   document.querySelectorAll('.modal-nav-item[data-pane]').forEach(x =>
@@ -33,4 +33,4 @@ function showPane(pane) {
 }
 document.querySelectorAll('.modal-nav-item[data-pane]').forEach(b =>
   b.onclick = () => navigate('panel/' + b.dataset.pane));
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#overlay').classList.contains('hidden')) navigate(mainRoute()); });
+// Esc 在 main.js 统一处理（只关最上面那一层）

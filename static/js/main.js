@@ -3,16 +3,16 @@
 //   calendar 侧栏日历 · batch 补全日记 · day 某一天 · search 搜索 · flashback 回忆卡 · windows 按窗口回顾
 //   panel 浮层（reflect 回顾/数据 · themes 主题 · river 河流 · convs 窗口与导入 · notion）
 // 共用的状态在 state.js（S），路由约定在 nav.js 开头。
-import { $ } from './util.js';
+import { $, typing, topLayer } from './util.js';
 import { S, setDays, daysChanged } from './state.js';
-import { navigate, setRouter } from './nav.js';
+import { navigate, setRouter, closeLayer } from './nav.js';
 import { buildCalendar } from './calendar.js';
 import { refreshBatchButton, watchBatch } from './batch.js';
-import { openDay } from './day.js';
-import './search.js';
+import { openDay, stepDay } from './day.js';
+import { closeResults } from './search.js';
 import { openModal, closeModal } from './panel.js';
 import { invalidateReflect } from './reflect.js';
-import { openFlashback } from './flashback.js';
+import { openFlashback, closeFlashback } from './flashback.js';
 import { openWindow, ensureWindows } from './windows.js';
 
 let LATEST = null;      // 冷启动落在哪天：最近一篇写好的日记
@@ -77,6 +77,7 @@ function applyRoute() {
   const head = parts[0];
 
   if (head === 'flashback') {                          // 回忆卡：#/flashback 或 #/flashback/year
+    closeModal();
     if (!S.sel && LATEST) openDay(LATEST);
     openFlashback(parts[1] === 'year' ? 'year' : 'random');
     return;
@@ -85,6 +86,7 @@ function applyRoute() {
     location.href = '/checkin' + (parts[2] ? '?date=' + parts[2] : '');
     return;
   }
+  closeFlashback();                   // 不是回忆卡的路由：回忆卡关着
   if (head === 'panel') {
     openModal(parts[1] || 'reflect', parts[2]);
     return;
@@ -116,6 +118,37 @@ function applyRoute() {
 
   if (LATEST) navigate('day/' + LATEST, { replace: true });
 }
+
+// ---------------------------------------------------------------- 键盘（全应用只有这一处）
+// 以前 day.js / flashback.js / panel.js / search.js 各挂一个，互相不知道：
+// 浮层开着按 ← 会翻天并把浮层关掉，回忆卡里按 Enter 会同时「打开这天」又「再翻一张」。
+
+function onEscape(e) {
+  const t = e.target;
+  if (topLayer() === 'fb') return closeLayer();
+  if (!$('#results').classList.contains('hidden')) return closeResults();      // 搜索结果：第一下收起
+  if (!$('#pop').classList.contains('hidden')) return $('#pop').classList.add('hidden');
+  if (t.tagName === 'INPUT' && t.value) {                                        // 框里有字：先清空，不关浮层
+    e.preventDefault();
+    t.value = ''; t.dispatchEvent(new Event('input', { bubbles: true }));
+    return;
+  }
+  if (topLayer() === 'overlay') closeLayer();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') return onEscape(e);
+  if (typing(e)) return;
+  const layer = topLayer(), k = e.key;
+  if (layer === 'fb') {
+    if (k === 'r' || k === 'R') { e.preventDefault(); navigate('flashback'); }
+    if (k === 'Enter' && !e.target.closest?.('button, a')) $('#fbGo').click();     // 焦点在按钮上：让按钮自己处理
+    return;
+  }
+  if (layer) return;                                                              // 浮层开着：←/→/R 都不管
+  if (k === 'r' || k === 'R') { e.preventDefault(); navigate('flashback'); return; }
+  if (S.mode === 'day' && (k === 'ArrowLeft' || k === 'ArrowRight')) { e.preventDefault(); stepDay(k === 'ArrowLeft' ? -1 : 1); }
+});
 
 // ---------------------------------------------------------------- 启动
 

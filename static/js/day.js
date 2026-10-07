@@ -1,12 +1,12 @@
 // 某一天：两个指标、手写日记、AI 日记、当天的窗口和消息。
-import { $, esc, rel, feelColor } from './util.js';
+import { $, esc, rel, feelColor, toContent, scrollWithin, markHits } from './util.js';
 import { S } from './state.js';
 import { navigate } from './nav.js';
 import { markDiary } from './calendar.js';
 import { refreshBatchButton } from './batch.js';
 import { journalHtml, imageCount } from './md.js';
 
-const CLIP = 300;   // 长消息先折到这么多字
+const CLIP = 300, CLIP_LINES = 8;   // 长消息先折到这么多字 / 这么多行（空行多的消息按字数折了还有一屏高）
 let NAV = { prev: null, next: null }, POLL = null;
 
 // 两个指标：过得怎么样（手写）、卡得多狠（聊天）。分开放，不合成一个数 —— 它们量的是一天里不同的部分
@@ -108,13 +108,19 @@ function poll(date) {
 
 // ---------------------------------------------------------------- 窗口列表
 
-// 一条消息（按窗口回顾的时间轴也用）
-export function msgHtml(m, target) {
-  const long = m.text.length > CLIP;
-  const body = long
-    ? `${esc(m.text.slice(0, CLIP))}<span class="msg-clip">…</span><a class="msg-more" data-full="1">展开 ${m.text.length} 字</a><span class="msg-full hidden">${esc(m.text.slice(CLIP))}</span>`
-    : esc(m.text);
-  return `<div class="msg ${m.role === 'human' ? '' : 'ai'} ${m.id === target ? 'target' : ''}" id="msg-${m.id}">
+// 一条消息（按窗口回顾的时间轴也用）。从搜索跳过来的那条（target）不折，搜的词标出来
+export function msgHtml(m, target, q) {
+  const text = m.text || '';
+  if (m.id && m.id === target) {
+    return `<div class="msg ${m.role === 'human' ? '' : 'ai'} target" id="msg-${m.id}">
+            <span class="msg-time">${m.hhmm}</span><span class="msg-text">${markHits(esc(text), q)}</span></div>`;
+  }
+  let cut = CLIP;
+  for (let i = 0, n = 0; i < Math.min(text.length, CLIP); i++) if (text[i] === '\n' && ++n === CLIP_LINES) { cut = i; break; }
+  const body = text.length > cut
+    ? `${esc(text.slice(0, cut))}<span class="msg-clip">…</span><a class="msg-more" data-full="1">展开 ${text.length} 字</a><span class="msg-full hidden">${esc(text.slice(cut))}</span>`
+    : esc(text);
+  return `<div class="msg ${m.role === 'human' ? '' : 'ai'}" id="msg-${m.id}">
             <span class="msg-time">${m.hhmm}</span><span class="msg-text">${body}</span></div>`;
 }
 
@@ -132,8 +138,9 @@ function renderThreads(threads, focus) {
       </div>
       <div class="thread-body ${open ? '' : 'hidden'}" id="tb${i}">
         <div class="thread-bar"><label><input type="checkbox" class="thread-aitog"> 显示 AI 回复</label>
-          <a class="thread-export" href="/api/conversation/${t.conv_id}/export.md" download title="整个窗口（所有天、我和 AI 的）存成一个 Markdown 文件">导出整个窗口 .md</a></div>
-        ${t.messages.map(m => msgHtml(m, focus?.msg)).join('')}
+          ${t.multi_day ? `<a class="thread-link" href="#/win/${t.conv_id}" title="这个窗口每天聊了什么（按窗口看）">按窗口看全程 →</a>` : ''}
+          <a class="thread-link" href="/api/conversation/${t.conv_id}/export.md" download title="整个窗口（所有天、我和 AI 的）存成一个 Markdown 文件">导出整个窗口 .md</a></div>
+        ${t.messages.map(m => msgHtml(m, focus?.msg, focus?.q)).join('')}
       </div></div>`;
   }).join('');
 
@@ -158,7 +165,10 @@ function renderThreads(threads, focus) {
       const body = el.closest('.thread-body');
       body.classList.add('showai'); body.querySelector('.thread-aitog').checked = true;
     }
-    if (el) setTimeout(() => el.scrollIntoView({ block: 'center', behavior: 'smooth' }), 60);
+    // 有搜的词：滚到那个词（长消息里它可能在很后面）；没有：消息比半屏还长就对齐开头，不然居中
+    const mk = el?.querySelector('mark');
+    if (el) setTimeout(() => (mk || el).scrollIntoView({
+      block: mk || el.offsetHeight < innerHeight / 2 ? 'center' : 'start', behavior: 'smooth' }), 60);
   }
 }
 
@@ -171,12 +181,14 @@ async function showSpan(convId, anchor) {
     <h6>${esc(c.title)}</h6>
     <div class="pop-sub">${c.first_ts.slice(0, 10)} → ${c.last_ts.slice(0, 10)} · 活跃 ${r.days.length} 天 · ${c.n_msgs} 条</div>
     <div class="pop-days">${r.days.map(d =>
-      `<a data-d="${d.date}" class="${d.date === S.sel ? 'cur' : ''}" title="${d.msgs} 条 · ${d.chars.toLocaleString()} 字">${d.date.slice(5)}</a>`).join('')}</div>`;
+      `<a data-d="${d.date}" class="${d.date === S.sel ? 'cur' : ''}" title="${d.msgs} 条 · ${d.chars.toLocaleString()} 字">${d.date.slice(5)}</a>`).join('')}</div>
+    <a class="pop-win" href="#/win/${convId}">按窗口看全程 →</a>`;
   const b = anchor.getBoundingClientRect();
   pop.style.left = Math.min(b.left, window.innerWidth - 360) + 'px';
   pop.style.top = (b.bottom + 6) + 'px';
   pop.classList.remove('hidden');
   pop.onclick = e => {
+    if (e.target.closest('.pop-win')) { pop.classList.add('hidden'); return; }    // 链接自己去 #/win/…
     const a = e.target.closest('a[data-d]');
     if (a) { pop.classList.add('hidden'); navigate(`day/${a.dataset.d}/conv/${convId}`); }
   };
@@ -190,10 +202,11 @@ window.addEventListener('scroll', e => { if (!e.target.closest?.('#pop')) $('#po
 // ---------------------------------------------------------------- 一天
 
 export async function openDay(date, focus) {
+  const first = !S.sel, moved = date !== S.sel;     // 数据变了重开同一天：别把人滚走
   S.sel = date;
   document.querySelectorAll('.cal-day.sel').forEach(c => c.classList.remove('sel'));
   const c = document.querySelector(`.cal-day[data-d="${date}"]`);
-  if (c) { c.classList.add('sel'); c.scrollIntoView({ block: 'nearest' }); }
+  if (c) { c.classList.add('sel'); scrollWithin($('#cal'), c, first); }      // 刚打开：选中的那天摆在日历中间
 
   const r = await fetch(`/api/day/${date}`).then(r => r.json());
   if (S.sel !== date) return;            // 用户已经点了别的
@@ -220,7 +233,7 @@ export async function openDay(date, focus) {
     const card = document.querySelector('.threads-card');
     if (card) card.style.setProperty('--list-top', card.getBoundingClientRect().top + 'px');
   });
-  if (!focus) $('#main').scrollTop = 0;
+  if (!focus && moved && !first) toContent($('#day'));
   if (r.generating) poll(date);
 }
 

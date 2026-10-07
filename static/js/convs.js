@@ -25,7 +25,7 @@ function renderConvs() {
   const none = kw && !rows.length ? `<div class="cv-none">标题和聊天里都没有「${esc(kw)}」</div>` : '';
   $('#convList').innerHTML = none + list + (rows.length > CONV_SHOWN ? `<a class="cv-more" id="convMore">还有 ${rows.length - CONV_SHOWN} 个，再显示 200</a>` : '');
   $('#convList').querySelectorAll('.cv-row').forEach(r => r.onclick = () =>
-    navigate(`day/${r.dataset.d}/conv/${r.dataset.c}${r.dataset.m ? '/msg/' + r.dataset.m : ''}`));
+    navigate(`day/${r.dataset.d}/conv/${r.dataset.c}${r.dataset.m ? `/msg/${r.dataset.m}/q/${encodeURIComponent(HITS_Q)}` : ''}`));
   const m = $('#convMore'); if (m) m.onclick = () => { CONV_SHOWN += 200; renderConvs(); };
 }
 

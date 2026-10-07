@@ -24,3 +24,26 @@ export const typing = e => e.metaKey || e.ctrlKey || e.altKey || e.target.isCont
 // 现在最上面盖着哪一层：回忆卡 > 浮层；都没有就是 null
 export const topLayer = () => !$('#fb').classList.contains('hidden') ? 'fb'
   : !$('#overlay').classList.contains('hidden') ? 'overlay' : null;
+
+// 换天 / 换窗口后回到内容开头。宽屏是整页在滚（不是 #main），回顶；
+// 1080 以下侧栏叠在上面，回顶就看到一屏日历，所以滚到内容那块的开头
+export function toContent(el) {
+  if (innerWidth < 1080 && el) el.scrollIntoView({ block: 'start' });
+  else document.scrollingElement.scrollTo(0, 0);
+}
+
+// 只滚某个容器（日历、窗口列表），不带着整页一起动（scrollIntoView 会连整页都滚）
+export function scrollWithin(box, el, center) {
+  if (!box || !el || box.scrollHeight <= box.clientHeight) return;
+  const b = box.getBoundingClientRect(), r = el.getBoundingClientRect(), top = r.top - b.top + box.scrollTop;
+  if (center) box.scrollTop = top - (box.clientHeight - r.height) / 2;
+  else if (r.top < b.top) box.scrollTop = top;
+  else if (r.bottom > b.bottom) box.scrollTop = top - box.clientHeight + r.height;
+}
+
+// 把搜索词标出来：text 是已经转义过的 HTML，q 是原样的词（不分大小写）
+export function markHits(html, q) {
+  if (!q) return html;
+  const re = new RegExp(esc(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  return html.replace(re, m => `<mark>${m}</mark>`);
+}

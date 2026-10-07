@@ -19,7 +19,11 @@ let LATEST = null;      // 冷启动落在哪天：最近一篇写好的日记
 
 // ---------------------------------------------------------------- 模式切换
 
+// 两种模式各记各的滚动位置：从某天后退回按窗口（或反过来）时回到原来看的地方
+const SCROLL = {};
 function setMode(mode) {
+  const back = S.mode && S.mode !== mode;
+  if (back) SCROLL[S.mode] = document.scrollingElement.scrollTop;
   S.mode = mode;
   document.querySelectorAll('.sb-mode').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
   const win = mode === 'win';
@@ -30,6 +34,7 @@ function setMode(mode) {
   $('#day').classList.toggle('hidden', win || !S.sel);
   $('#win').classList.toggle('hidden', !win || !S.wsel);
   if (win) ensureWindows();
+  if (back) document.scrollingElement.scrollTop = SCROLL[mode] || 0;
 }
 document.querySelectorAll('.sb-mode').forEach(b => b.onclick = () =>
   navigate(b.dataset.mode === 'win' ? (S.wsel ? 'win/' + S.wsel : 'win') : (S.sel ? 'day/' + S.sel : 'day')));
@@ -109,6 +114,7 @@ function applyRoute() {
     for (let i = 2; i < parts.length; i += 2) {
       if (parts[i] === 'conv') focus.conv = parts[i + 1];
       if (parts[i] === 'msg') focus.msg = parts[i + 1];
+      if (parts[i] === 'q') focus.q = parts[i + 1];          // 搜的词：落地那条消息里标出来
     }
     const hasFocus = focus.conv || focus.msg || focus.journal;
     if (date === S.sel && !hasFocus) return;      // 已经在看这天了（比如刚关掉浮层），别重拉

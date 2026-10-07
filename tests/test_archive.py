@@ -144,6 +144,16 @@ class BackupNeverShrinks(unittest.TestCase):
         self.assertEqual(old[0]['row'], {'id': 1, 'word': '开心'})
         self.assertEqual(w.versions, 1)
 
+    def test_conversation_stats_changing_is_not_an_old_version(self):
+        w = backup._Writer(self.root)
+        w.put_rows('数据/conversations.jsonl', [{'id': 'c', 'n_msgs': 3}], 'id', 'conversations')
+        w.commit()
+        w = backup._Writer(self.root)
+        w.put_rows('数据/conversations.jsonl', [{'id': 'c', 'n_msgs': 5}], 'id', 'conversations')
+        w.commit()
+        self.assertEqual(w.versions, 0)
+        self.assertFalse(os.path.exists(os.path.join(self.root, '旧版本', 'conversations.jsonl')))
+
     def test_unreadable_backup_is_not_overwritten(self):
         self.write([{'id': 1, 'word': '开心'}, {'id': 2, 'word': '低落'}])
         with open(os.path.join(self.root, self.REL), 'w', encoding='utf-8') as f:

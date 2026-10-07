@@ -6,7 +6,7 @@ const WK = '日一二三四五六';
 // 颜色只编码好坏：暖 = 好（越好越亮），冷 = 糟（越糟越深），灰 = 平。「说不上来」单独一个深灰。
 // 是哪种情绪永远配文字，不靠颜色区分（焦虑、烦躁同分同色）。
 function vcol(v, word) {
-  if (word === '说不上来') return '#6E7280';
+  if (word === '说不上来') return '#6E7280';     // 一天几条时传的是 words（「兴奋→平稳→说不上来」），按平均分上色
   if (v >= 1.75) return '#F5A45D';
   if (v >= 1.25) return '#EDBB72';
   if (v >= 0.25) return '#D8C690';
@@ -19,7 +19,7 @@ function vcol(v, word) {
 const WV = {};   // 词 → 分
 
 const S = { view: 'now', date: null, today: null, words: [], items: [], word: null, editing: null,
-            month: null, M: null, selDay: null };
+            month: null, M: null, selDay: null, oracleId: null };
 
 // ---------------------------------------------------------------- 路由（?date= & v=month）
 function syncUrl() {
@@ -27,6 +27,8 @@ function syncUrl() {
   if (S.date && S.date !== S.today) p.set('date', S.date);
   if (S.view === 'month') { p.set('v', 'month'); if (S.month) p.set('m', S.month); }
   history.replaceState(null, '', '/checkin' + (p.toString() ? '?' + p : ''));
+  const d = S.view === 'month' ? S.selDay : S.date;           // 左上角回主页：回到正在看的这一天
+  $('.ck-back').href = d ? '/#/day/' + d : '/';
 }
 
 function setView(v) {
@@ -49,6 +51,10 @@ function dateLabel(d) {
 
 async function loadNow(date) {
   const r = await fetch('/api/checkin/home' + (date ? '?date=' + date : '')).then(r => r.json());
+  // 换了一天：正在改的那条是原来那天的，退出编辑（以前不退，按「改好了」改的还是原来那天那条）。
+  // 选的词和写了一半的备注留着，按钮上写清楚会记到哪天
+  if (r.date !== S.date && S.editing) { S.editing = null; S.word = null; $('#note').value = ''; }
+  if (r.date !== S.date) S.oracleId = null;
   Object.assign(S, { date: r.date, today: r.today, words: r.words, items: r.items });
   r.words.forEach(w => WV[w.word] = w.v);
   renderProgress(r.progress);
@@ -72,7 +78,8 @@ function renderNow() {
     `<button class="ck-tag${S.word === w.word ? ' on' : ''}" data-w="${w.word}" style="color:${vcol(w.v, w.word)}">${w.word}</button>`).join('');
   $('#tags').querySelectorAll('.ck-tag').forEach(b => b.onclick = () => { S.word = S.word === b.dataset.w ? null : b.dataset.w; renderNow(); });
   $('#record').disabled = !S.word;
-  $('#record').textContent = S.editing ? '改好了 →' : '记下 →';
+  const dt = new Date(S.date + 'T12:00:00');
+  $('#record').textContent = S.editing ? '改好了 →' : isToday ? '记下 →' : `记到 ${dt.getMonth() + 1} 月 ${dt.getDate()} 日 →`;
   $('#cancelEdit').classList.toggle('hidden', !S.editing);
 
   $('#todayList').innerHTML = S.items.length
@@ -82,7 +89,7 @@ function renderNow() {
         <span class="ck-item-w" style="color:${vcol(x.valence, x.word)}">${esc(x.word)}</span>
         <span class="ck-item-n">${esc(x.note || '')}</span>
         <span class="ck-item-ops"><a data-e="${x.id}">改</a><a data-d="${x.id}">删</a></span>
-        ${x.reply ? `<div class="ck-item-r">${esc(x.reply)}</div>` : ''}
+        ${x.reply && x.id !== S.oracleId ? `<div class="ck-item-r">${esc(x.reply)}</div>` : ''}
       </div>`).join('')
     : '';
   $('#todayList').querySelectorAll('[data-e]').forEach(a => a.onclick = () => {
@@ -102,20 +109,39 @@ $('#record').onclick = async () => {
   if (!S.word) return;
   const body = JSON.stringify({ date: S.date, word: S.word, note: $('#note').value });
   const opt = { headers: { 'Content-Type': 'application/json' }, body };
-  let id = S.editing;
-  if (id) await fetch('/api/checkin/' + id, { method: 'PUT', ...opt });
-  else id = (await fetch('/api/checkin', { method: 'POST', ...opt }).then(r => r.json())).id;
+  const editing = S.editing, o = $('#oracle');
+  let id = editing;
+  $('#record').disabled = true;
+  try {
+    const r = editing ? await fetch('/api/checkin/' + id, { method: 'PUT', ...opt })
+                      : await fetch('/api/checkin', { method: 'POST', ...opt });
+    if (!r.ok) throw new Error(r.status);
+    if (!editing) id = (await r.json()).id;
+  } catch (e) {                                   // 没记上：选的词和备注都留着，说一句
+    o.classList.remove('hidden', 'thinking'); $('#oText').textContent = '没记上（连不上 Ephemeris？），词和备注都还在，再按一次试试。';
+    renderNow();
+    return;
+  }
   S.word = null; S.editing = null; $('#note').value = '';
+  if (editing) { o.classList.add('hidden'); S.oracleId = null; loadNow(S.date); return; }   // 改的：原来的「它说」留着
+  S.oracleId = id;
   await loadNow(S.date);
   // 它说：记完才去要，记下这个动作本身不等模型
-  const o = $('#oracle');
   o.classList.remove('hidden'); o.classList.add('thinking'); $('#oText').textContent = '在想';
-  const r = await fetch(`/api/checkin/${id}/reply`, { method: 'POST' }).then(r => r.json());
+  const r = await fetch(`/api/checkin/${id}/reply`, { method: 'POST' }).then(r => r.json()).catch(() => ({}));
   o.classList.remove('thinking'); $('#oText').textContent = r.reply || '（这次没想出来说什么）';
   loadNow(S.date);
 };
 $('#note').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) $('#record').click(); });
 $('#cancelEdit').onclick = () => { S.editing = null; S.word = null; $('#note').value = ''; renderNow(); };
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && S.editing) { $('#cancelEdit').click(); return; }
+  if (e.metaKey || e.ctrlKey || e.altKey || ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  const back = e.key === 'ArrowLeft';
+  if (S.view === 'month') { if (back) $('#mPrev').click(); else $('#mNext').click(); }
+  else if (back) $('#dPrev').click(); else $('#dNext').click();
+});
 const shiftDay = n => { const d = new Date(S.date + 'T12:00:00'); d.setDate(d.getDate() + n);
   $('#oracle').classList.add('hidden'); loadNow(d.toISOString().slice(0, 10)); };
 $('#dPrev').onclick = () => shiftDay(-1);
@@ -178,17 +204,18 @@ function renderMonth() {
     const date = `${S.month}-${String(d).padStart(2, '0')}`, s = by[date];
     const future = date > S.today;
     cells += `<div class="ck-cell${date === S.today ? ' today' : ''}${date === S.selDay ? ' sel' : ''}${future ? ' future' : ''}" data-d="${date}">
-      <span class="ck-cell-num">${d}</span>${s ? star4(vcol(s.v, s.word), s.src !== 'checkin') : '<svg viewBox="0 0 24 24"></svg>'}</div>`;
+      <span class="ck-cell-num">${d}</span>${s ? star4(vcol(s.v, s.words || s.word), s.src !== 'checkin') : '<svg viewBox="0 0 24 24"></svg>'}</div>`;
   }
   $('#cal').innerHTML = cells;
   $('#cal').querySelectorAll('.ck-cell[data-d]').forEach(el => {
     const s = by[el.dataset.d];
-    if (s) tipOn(el, () => `<b>${s.date.slice(5)}　${esc(s.word)}</b>${s.note ? esc(s.note.slice(0, 120)) : ''}<em>${s.src === 'checkin' ? (s.n > 1 ? `打卡 ${s.n} 条` : '自己打卡') : '从手写日记读出来的'}</em>`);
+    if (s) tipOn(el, () => `<b>${s.date.slice(5)}　${esc(s.words || s.word)}</b>${s.note ? esc(s.note.slice(0, 120)) : ''}<em>${s.src === 'checkin' ? (s.n > 1 ? `打卡 ${s.n} 条` : '自己打卡') : '从手写日记读出来的'}</em>`);
     el.onclick = () => { if (el.classList.contains('future')) return; S.selDay = el.dataset.d; renderMonth(); };
   });
 
   renderDayBig(by[S.selDay]);
   renderStars();
+  syncUrl();                                   // 选中的那天变了：左上角回主页跟着变
 }
 
 function renderDayBig(s) {
@@ -197,8 +224,8 @@ function renderDayBig(s) {
   const dt = new Date(S.selDay + 'T12:00:00');
   box.innerHTML = `<div class="ck-big-d">${dt.getDate()}</div>
     <div class="ck-big-meta"><div class="ck-big-wk">周${WK[dt.getDay()]}</div>
-      <div class="ck-big-wd">${s ? `<span style="color:${vcol(s.v, s.word)};font-weight:600">${esc(s.word)}</span>${s.note ? ' · ' + esc(s.note.slice(0, 40)) : ''}` : '还没记'}</div></div>
-    <a class="ck-big-go">${s && s.src === 'checkin' ? '看 / 改这天 →' : '给这天补一个 →'}</a>`;
+      <div class="ck-big-wd">${s ? `<span style="color:${vcol(s.v, s.words || s.word)};font-weight:600">${esc(s.words || s.word)}</span>${s.note ? ' · ' + esc(s.note.slice(0, 40)) : ''}` : '还没记'}</div></div>
+    <a class="ck-big-go">${s && s.src === 'checkin' ? '看 / 改这天 →' : S.selDay === S.today ? '记今天 →' : '给这天补一个 →'}</a>`;
   box.querySelector('.ck-big-go').onclick = () => { setView('now'); loadNow(S.selDay); };
 }
 
@@ -215,9 +242,9 @@ function renderStars() {
   const lines = pts.slice(1).map((p, i) => p.d - pts[i].d === 1
     ? `<line x1="${pts[i].cx}" y1="${pts[i].cy}" x2="${p.cx}" y2="${p.cy}" stroke="#fff" stroke-opacity=".3"/>` : '').join('');
   const els = pts.map((p, i) => {
-    const c = vcol(p.v, p.word), r = 3.2 + Math.abs(p.v) * 1.2 + Math.min(p.n - 1, 3) * .6;
+    const c = vcol(p.v, p.words || p.word), r = 3.2 + Math.abs(p.v) * 1.2 + Math.min(p.n - 1, 3) * .6;
     const sel = p.date === S.selDay ? `<circle cx="${p.cx}" cy="${p.cy}" r="${r + 5}" fill="none" stroke="${c}" stroke-opacity=".7"/>` : '';
-    return `<g class="ck-star" data-i="${i}" style="cursor:pointer"><circle cx="${p.cx}" cy="${p.cy}" r="${r * 3.2}" fill="${c}" opacity=".16"/>${sel}` +
+    return `<g class="ck-star" data-i="${i}" style="cursor:pointer"><circle cx="${p.cx}" cy="${p.cy}" r="${r * 3.2}" fill="${c}" opacity=".16" pointer-events="none"/>${sel}` +
       (p.src === 'checkin' ? `<circle cx="${p.cx}" cy="${p.cy}" r="${r}" fill="${c}"/>` : `<circle cx="${p.cx}" cy="${p.cy}" r="${r}" fill="none" stroke="${c}" stroke-width="1.4"/>`) +
       `<circle cx="${p.cx}" cy="${p.cy}" r="12" fill="transparent"/></g>`;
   }).join('');
@@ -229,7 +256,7 @@ function renderStars() {
     ${stars.length ? '' : `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="#fff" fill-opacity=".45" font-size="12.5">这个月还没有星星</text>`}</svg>`;
   box.querySelectorAll('.ck-star').forEach(g => {
     const p = pts[+g.dataset.i];
-    tipOn(g, () => `<b>${p.date.slice(5)}　${esc(p.word)}</b>${p.note ? esc(p.note.slice(0, 120)) : ''}<em>${p.src === 'checkin' ? '自己打卡' : '从手写日记读出来的'}</em>`);
+    tipOn(g, () => `<b>${p.date.slice(5)}　${esc(p.words || p.word)}</b>${p.note ? esc(p.note.slice(0, 120)) : ''}<em>${p.src === 'checkin' ? '自己打卡' : '从手写日记读出来的'}</em>`);
     g.onclick = () => { S.selDay = p.date; renderMonth(); };
   });
 }

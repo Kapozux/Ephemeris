@@ -8,7 +8,7 @@
                           主题.md     主题账本：每条线哪天做到哪
     handoff(dir, skip)  给新账号的交接包：请 Claude Opus 4.6（llm.ask_strong）读一年的日记和主题账本，一次写出
                           关于我.md / 过去一年.md / 正在进行的事.md，再附 怎么用.md。约 $1，按实际收，结果里记着花了多少。
-                        skip：要跳过的话题（比如「感情」）—— 标题带它的日记、名字带它的主题不给模型，也叫模型别写
+                        skip：要跳过的话题（比如「感情」）—— 标题或正文提到它的日记、提到它的主题整篇不发给模型，也叫模型别写
 
 为什么不直接把聊天全倒进新账号：全部约 7500 万字，任何 AI 一个窗口只读得下几十万字；
 新账号也不「记得」旧聊天，只知道塞给它的东西。能带过去的是浓缩过的：日记 + 主题账本。
@@ -184,19 +184,26 @@ def _hit(text, skip):
     return any(k and k in (text or '') for k in skip)
 
 
+def _pick(skip=()):
+    """要发给模型的日记和主题。跳过的话题按全文过滤：标题或正文里提到它的日记、名字或最近进展里提到它的主题，
+    整篇不发（2026-10-07 走查：以前只看标题，正文里顺带提到的照样发出去了，只在提示词里叫模型别写）。"""
+    skip = [k.strip() for k in skip if k and k.strip()]
+    since = (datetime.fromisoformat(days.today()) - timedelta(days=60)).date().isoformat()
+    diaries = store.q('SELECT date, headline, narrative FROM diaries ORDER BY date')
+    keep_d = [d for d in diaries if not _hit((d['headline'] or '') + (d['narrative'] or ''), skip)]
+    themes = [t for t in ledger.all_themes() if t['n_days'] >= 3 or t['last'] >= since][:200]
+    keep_t = [t for t in themes
+              if not _hit(t['name'] + ''.join(x['note'] or '' for x in t['days'][-3:]), skip)]
+    return skip, keep_d, keep_t, {'diaries': len(keep_d), 'themes': len(keep_t),
+                                  'dropped_diaries': len(diaries) - len(keep_d), 'dropped_themes': len(themes) - len(keep_t)}
+
+
 def material(skip=()):
     """给模型的整段提示词。中文一个字大约一个 token，估价就按字数算。"""
-    skip = [k.strip() for k in skip if k and k.strip()]
+    skip, diaries, themes, _ = _pick(skip)
     recent = (datetime.fromisoformat(days.today()) - timedelta(days=FULL_DAYS)).date().isoformat()
-    since = (datetime.fromisoformat(days.today()) - timedelta(days=60)).date().isoformat()
-    lines = []
-    for d in store.q('SELECT date, headline, narrative FROM diaries ORDER BY date'):
-        if _hit(d['headline'], skip):
-            continue
-        body = (d['narrative'] or '') if d['date'] >= recent else (d['narrative'] or '')[:OLD_CHARS]
-        lines.append(f"{d['date']}　{d['headline']}\n{body}")
-    themes = [t for t in ledger.all_themes()
-              if (t['n_days'] >= 3 or t['last'] >= since) and not _hit(t['name'], skip)][:200]
+    lines = [f"{d['date']}　{d['headline']}\n" + ((d['narrative'] or '') if d['date'] >= recent else (d['narrative'] or '')[:OLD_CHARS])
+             for d in diaries]
     th = [f"- {t['name']}：{t['first']} → {t['last']}，{t['n_days']} 天。最近："
           + '；'.join(f"{x['date'][5:]} {x['note']}" for x in t['days'][-3:] if x['note']) for t in themes]
     return HANDOFF_PROMPT.format(
@@ -253,8 +260,9 @@ def start(kind, skip=()):
 
 
 def status(skip=()):
+    """两种导出的状态；交接包按现在填的「跳过」算：发几篇日记几个主题、去掉了几个、估多少钱。"""
     return {**{k: jobs.get(f'export-{k}', **IDLE) for k in KINDS},
-            'model': llm.strong_model(), 'estimate': estimate(skip)}
+            'model': llm.strong_model(), 'estimate': estimate(skip), 'sends': _pick(skip)[3]}
 
 
 def reveal(kind):

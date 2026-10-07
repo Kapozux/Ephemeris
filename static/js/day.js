@@ -1,5 +1,5 @@
 // 某一天：两个指标、手写日记、AI 日记、当天的窗口和消息。
-import { $, esc, rel, feelColor, toContent, scrollWithin, markHits } from './util.js';
+import { $, esc, rel, feelColor, toContent, scrollWithin, markHits, usd, ask } from './util.js';
 import { S } from './state.js';
 import { navigate } from './nav.js';
 import { markDiary } from './calendar.js';
@@ -55,11 +55,15 @@ function renderDiary(r) {
     box.innerHTML = `<span class="pulse"></span>正在读这天的 ${r.threads.length} 个窗口，写日记…`;
     return;
   }
-  const d = r.diary;
+  const d = r.diary, w = r.write || {}, chars = (S.byDate[S.sel]?.chars || 0).toLocaleString();
   if (!d) {
     box.classList.add('empty');
-    box.innerHTML = `<p>这天还没有日记。${r.threads.length} 个窗口、${(S.byDate[S.sel]?.chars || 0).toLocaleString()} 字，压成 300 字大概要 20 秒。</p>
-                     <button class="btn-primary" id="genBtn">生成这天的日记</button>`;
+    if (w.worth === false) box.classList.add('thin');
+    // 字太少的天（侧栏补全也跳过它们）：不放大按钮，只留一个小链接
+    box.innerHTML = w.worth === false
+      ? `<p class="dim">这天只聊了 ${chars} 字，不到 ${w.min_chars} 字的天一般不写日记。<a id="genBtn">仍然写一篇（${usd(w.cost)}）</a></p>`
+      : `<p>这天还没有日记。${r.threads.length} 个窗口、${chars} 字，压成 300 字大概要 20 秒。</p>
+         <button class="btn-primary" id="genBtn">生成这天的日记（${usd(w.cost)}）</button>`;
     $('#genBtn').onclick = generateCurrent;
     return;
   }
@@ -79,11 +83,12 @@ function renderDiary(r) {
       <span class="diary-topics">${(d.topics || []).map(esc).join(' · ')}</span>
       ${d.mood ? `<span>${esc(d.mood)}</span>` : ''}
       <span class="sp"></span>
-      <span title="${esc(d.generated_at || '')}">${rel(d.generated_at)}</span>
+      <span title="${esc(d.generated_at || '')}">${r.date === w.today && d.generated_at
+        ? `写于 ${d.generated_at.slice(11, 16)} · 之后再聊的，明早同步后会重写` : rel(d.generated_at)}</span>
       ${d.added_later ? `<span title="导入旧聊天时，不会自动改写当时写好的日记">写好之后又补进了 ${d.added_later} 条消息</span>` : ''}
       <a id="genBtn">重新生成</a>
     </div>`;
-  $('#genBtn').onclick = generateCurrent;
+  $('#genBtn').onclick = () => ask($('#genBtn'), `会替换这篇，当时那版就没了（${usd(w.cost)}）`, generateCurrent);
   box.querySelectorAll('[data-theme]').forEach(a => a.onclick = () => navigate('panel/themes/' + a.dataset.theme));
 }
 

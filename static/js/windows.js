@@ -1,6 +1,6 @@
 // 按窗口回顾（侧栏切到「按窗口」）：和日记是转置关系 —— 日记把一天里所有窗口合成一篇；
 // 这里挑一个窗口，看它自己的时间轴。只有跨天的窗口才值得看（1657 个里 165 个跨天），列表默认只给这些。
-import { $, esc, rel, toContent, scrollWithin } from './util.js';
+import { $, esc, rel, toContent, scrollWithin, usd, ask } from './util.js';
 import { S } from './state.js';
 import { navigate } from './nav.js';
 import { msgHtml } from './day.js';
@@ -63,13 +63,17 @@ function renderWin(r) {
     `${days.reduce((s, d) => s + (d.chars || 0), 0).toLocaleString()} 字 · ` +
     `${days[0]?.date} → ${days[days.length - 1]?.date} · ${c.source}`;
 
-  const missing = r.pending || 0;
+  const missing = r.pending || 0, pNow = r.price?.now || {}, pAll = r.price?.all || {};
+  const price = p => `${p.calls} 次调用，${usd(p.cost)}`;
   $('#winArc').innerHTML = j.running
     ? `<div class="win-status"><span class="pulse"></span>在读这个窗口… ${j.done}/${j.total}${j.current && j.current !== 'arc' ? ` · ${j.current}` : ''}</div>`
     : r.arc
-      ? `<p>${esc(r.arc)}</p><div class="diary-foot">${days.length} 天的小结汇总而成${r.generated_at ? ` · ${rel(r.generated_at)}` : ''}${missing ? ` · 后来又聊了 ${missing} 天，每周补一次 · <a id="winNow">现在就补</a>` : ''}</div>`
+      ? `<p>${esc(r.arc)}</p><div class="diary-foot">${days.length} 天的小结汇总而成${r.generated_at ? ` · ${rel(r.generated_at)}` : ''}${missing ? ` · 后来又聊了 ${missing} 天，每周补一次 · <a id="winNow">现在就补（${price(pNow)}）</a>` : ''}</div>`
       : `<p class="dim">还没给这个窗口生成回顾。会为它活跃的 ${days.length} 天各写一句小结，再汇总成一段。</p>
-         <button id="winGen" class="btn-primary" style="margin-top:14px">生成回顾</button>`;
+         <button id="winGen" class="btn-primary" style="margin-top:14px">生成回顾（${price(pNow)}）</button>`;
+  // 「全部重写」：只有已经有回顾时才有意义；会把现有的小结和汇总都替换掉，先问一句
+  $('#winRegen').classList.toggle('hidden', !r.arc || !!j.running);
+  $('#winRegen').onclick = e => ask(e.currentTarget, `把 ${days.length} 天的小结和汇总全部重写（${price(pAll)}）`, () => startWinGen(true));
 
   $('#winTl').innerHTML = days.map(tlRow).join('');
 
@@ -113,7 +117,6 @@ export async function openWindow(id, quiet) {
   renderWin(r);
 }
 
-$('#winRegen').onclick = () => { if (confirm('把这个窗口的小结全部删掉重写？\n（平时不用：新聊的天每周自动补一次，旧的不会动）')) startWinGen(true); };
 $('#winFilter').addEventListener('input', () => { WIN_SHOWN = 80; renderWinList(); });
 $('#winlist').addEventListener('click', e => {
   const a = e.target.closest('.wl-row');

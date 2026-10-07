@@ -4,6 +4,7 @@ import io
 from flask import Blueprint, jsonify, render_template, request, send_file, send_from_directory
 
 import checkin
+import days
 import diary
 import export
 import flashback
@@ -109,6 +110,9 @@ def api_day(date):
                     'journal': journal.for_date(date),
                     'signals': mood.day_signals(date),
                     'generating': diary.writing(date),
+                    # 写日记按钮要的：这天聊的字够不够（不够的天一般不写）、一篇多少钱、今天是哪天
+                    'write': {'worth': sum(t['chars'] for t in out) >= diary.MIN_CHARS, 'min_chars': diary.MIN_CHARS,
+                              'cost': diary.COST_PER_DAY, 'today': days.today()},
                     'prev': nav['prev'], 'next': nav['next']})
 
 

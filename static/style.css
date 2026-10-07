@@ -5,6 +5,7 @@
 
    类名约定（2026-10-02 起）：
    - 通用的只有这些：hidden dim tnum serif pulse sp btn-primary btn-secondary btn-small card-shell src(.claude/.gemini)
+     ask（util.ask：花钱 / 会覆盖的按钮原地问一句）
    - 状态修饰（sel on active open hl ai empty …）只跟在本体类后面写，比如 .cal-day.sel，不单独出现
    - 其余一律带所在区域的前缀：
        sb- 侧栏   cal- 日历   wl- 侧栏的窗口列表
@@ -49,6 +50,9 @@ body { font-family:var(--sans); font-size:13.5px; line-height:1.6; color:var(--i
 .serif { font-family:var(--serif); }
 a { color:var(--coral-deep); text-decoration:none; }
 mark { background:var(--mark); color:inherit; padding:0 2px; border-radius:2px; }
+.ask { display:inline-flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:12px; color:var(--ink-soft); }
+.ask a { cursor:pointer; color:var(--muted); border-bottom:1px solid var(--line-2); }
+.ask a.ask-yes { color:var(--coral-deep); font-weight:600; border-color:var(--coral); }
 button { font-family:inherit; }
 
 .btn-primary { display:inline-block; min-height:40px; padding:10px 22px; background:var(--coral-deep); color:#fff;
@@ -148,6 +152,10 @@ button { font-family:inherit; }
 .diary .diary-foot a:hover { color:var(--coral-deep); }
 .diary.empty { border:1px dashed var(--line-2); box-shadow:none; background:transparent; padding:38px 24px; text-align:center; }
 .diary.empty p { color:var(--muted); font-size:14px; margin-bottom:16px; }
+.diary.empty.thin { padding:16px 24px; }
+.diary.empty.thin p { margin-bottom:0; font-size:13px; }
+.diary.empty p a { cursor:pointer; margin-left:10px; color:var(--ink-soft); border-bottom:1px solid var(--line-2); }
+.diary.empty p a:hover { color:var(--coral-deep); border-color:var(--coral); }
 .diary.gen { border:1px dashed var(--line-2); box-shadow:none; background:transparent; padding:38px; text-align:center; color:var(--muted); font-size:14px; }
 .pulse { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--coral); margin-right:9px; vertical-align:1px; animation:pulse 1.1s infinite; }
 @keyframes pulse { 0%,100%{opacity:.2} 50%{opacity:1} }

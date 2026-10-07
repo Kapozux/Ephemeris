@@ -62,7 +62,10 @@ def api_window(conv_id):
         d['note'] = n['days'].get(d['date'])
         d['stale'] = d['date'] in todo and d['note'] is not None     # 有小结，但这天后来又聊了
         d['has_diary'] = bool(store.one('SELECT 1 FROM diaries WHERE date=?', d['date']))
-    return jsonify({**w, 'arc': n['arc'], 'generated_at': n['at'], 'pending': len(todo),
+    # 标价：现在点「生成 / 现在就补」、和「全部重写」各要调几次模型、多少钱
+    price = {k: {'calls': c, 'cost': round(c * conv_review.COST_PER_CALL, 3)}
+             for k, c in (('now', conv_review.calls(conv_id, w)), ('all', conv_review.calls(conv_id, w, refresh=True)))}
+    return jsonify({**w, 'arc': n['arc'], 'generated_at': n['at'], 'pending': len(todo), 'price': price,
                     'job': conv_review.job(conv_id)})
 
 

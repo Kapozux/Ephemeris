@@ -1,5 +1,5 @@
 // 浮层里的「回顾」和「数据」两栏：同一个时间范围（/api/reflect），一个有模型写的叙事，一个纯统计。
-import { $, esc, fmtW } from './util.js';
+import { $, esc, fmtW, ask } from './util.js';
 import { S } from './state.js';
 import { navigate } from './nav.js';
 
@@ -160,4 +160,4 @@ export const invalidateReflect = () => { RDATA = null; };       // 数据变了�
 export const stopReflect = () => clearTimeout(RPOLL);            // 浮层关了就别再轮询
 
 $('#reflectRange').onchange = () => { RDATA = null; loadReflect(false); };
-$('#reflectRefresh').onclick = () => loadReflect(true);
+$('#reflectRefresh').onclick = e => ask(e.currentTarget, '现在就重写这段话？调一次模型（不到 $0.01），旧的那段会被替换', () => loadReflect(true));

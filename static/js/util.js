@@ -47,3 +47,20 @@ export function markHits(html, q) {
   const re = new RegExp(esc(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
   return html.replace(re, m => `<mark>${m}</mark>`);
 }
+
+// 钱：不到一分写「不到 $0.01」
+export const usd = v => !v || v < 0.01 ? '不到 $0.01' : `约 $${v.toFixed(2)}`;
+
+// 花钱或会覆盖旧东西的按钮：先在原地问一句，点「确定」才做（全应用一个写法，不用浏览器的 confirm 弹窗）。
+// text 是写死的 HTML，别把用户数据直接拼进来
+export function ask(btn, text, yes) {
+  if (btn.nextElementSibling?.classList.contains('ask')) return;
+  const box = document.createElement('span');
+  box.className = 'ask';
+  box.innerHTML = `${text}<a class="ask-yes">确定</a><a class="ask-no">算了</a>`;
+  btn.classList.add('hidden');
+  btn.after(box);
+  const done = () => { box.remove(); btn.classList.remove('hidden'); };
+  box.querySelector('.ask-no').onclick = e => { e.stopPropagation(); done(); };
+  box.querySelector('.ask-yes').onclick = e => { e.stopPropagation(); done(); yes(); };
+}

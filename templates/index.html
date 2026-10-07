@@ -92,7 +92,7 @@
       </div>
       <div class="pagehead-r">
         <a class="btn-secondary btn-small" id="winExport" download title="整个窗口（所有天、我和 AI 的）存成一个 Markdown 文件">导出 .md</a>
-        <button class="btn-secondary btn-small" id="winRegen" title="全部重写（平时不用，新聊的天每周自动补一次）">↻</button>
+        <button class="btn-secondary btn-small hidden" id="winRegen" title="平时不用：新聊的天每周自动补一次，旧的不会动">全部重写</button>
       </div>
     </header>
     <div id="winArc" class="card-shell diary"></div>
@@ -139,7 +139,7 @@
               <option value="1w">最近 7 天</option><option value="1m" selected>最近 30 天</option>
               <option value="3m">最近 90 天</option><option value="all">全部</option>
             </select>
-            <button id="reflectRefresh" class="btn-secondary btn-small" title="现在就重写这段话（平时有新东西才写，每周最多一次）">↻</button>
+            <button id="reflectRefresh" class="btn-secondary btn-small" title="平时有新东西才写，每周最多一次">重写这段</button>
           </div>
         </div>
         <div id="reflectBody" class="pane-body"><div class="pane-loading">在读你的日记…</div></div>
@@ -196,7 +196,7 @@
       <section class="modal-pane" data-pane="notion">
         <div class="pane-top">
           <div><div class="pane-title">Notion 同步</div><div class="pane-sub" id="ntSub">在看连接…</div></div>
-          <div class="pane-ctl"><button id="ntRefresh" class="btn-secondary btn-small" title="重新核对">↻</button></div>
+          <div class="pane-ctl"><button id="ntRefresh" class="btn-secondary btn-small">重新核对</button></div>
         </div>
         <div id="ntBody" class="pane-body"></div>
       </section>

@@ -93,6 +93,15 @@ class Export(unittest.TestCase):
         self.assertIn('不要写任何跟这些有关的内容：感情', p)
         self.assertIn('跳过了：感情', self.read(out, '怎么用.md'))
 
+    def test_skip_filters_body_too(self):
+        store.run("INSERT INTO diaries(date, headline, narrative) VALUES (?, '普通的一天', '写完作业，晚上又想到感情的事。')", day(5))
+        p = export.material(['感情'])
+        self.assertNotIn('普通的一天', p)                                     # 标题没提，正文提了：也不发
+        self.assertIn('改经济 IA 第二稿', p)
+        n = export.status(['感情'])['sends']
+        self.assertEqual((n['dropped_diaries'], n['dropped_themes']), (2, 1))
+        self.assertEqual(export.status()['sends']['dropped_diaries'], 0)
+
     def test_handoff_bad_format_keeps_raw_text(self):
         llm.use(lambda p: '我没按格式写')
         with self.assertRaises(RuntimeError):

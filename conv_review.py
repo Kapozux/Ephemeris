@@ -23,6 +23,7 @@ import llm  # noqa: E402
 
 PER_DAY_CHARS = 9000      # 单日喂进去的上限，长消息按比例截
 MAX_DAYS = 40             # 超过这么多活跃日就抽样（目前最多 27 天，留余量）
+COST_PER_CALL = 0.001     # flash-lite：一天最多 9000 字进去，一次约 $0.001（界面上标价用）
 
 NOTE_PROMPT = """下面是 __NAME__ 在**同一个对话窗口**里、{date} 这一天发给 AI 的消息。
 这个窗口从 {since} 开始，到今天为止一共聊了 {n_days} 天。
@@ -197,6 +198,15 @@ def pending(conv_id, w=None):
     days = _pick(w['days'])
     return [d['date'] for d in days
             if d['date'] not in have['days'] or (have['fps'].get(d['date']) not in (None, _fp(d)))]
+
+
+def calls(conv_id, w=None, refresh=False):
+    """生成一次要调几次模型：要写的天各一次，加汇总一次（全部重写就是每天都写）。"""
+    w = w or window(conv_id)
+    if not w:
+        return 0
+    todo = len(_pick(w['days'])) if refresh else len(pending(conv_id, w))
+    return todo + 1 if (todo or refresh or not notes_for(conv_id)['arc']) else 0
 
 
 def _pick(days):

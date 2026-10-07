@@ -1,8 +1,11 @@
 """主页：日历、某一天、搜索、闪回卡，以及写日记（单篇重写、补全缺的）、手写日记（图片、从 Notion 刷新）。"""
-from flask import Blueprint, jsonify, render_template, request, send_from_directory
+import io
+
+from flask import Blueprint, jsonify, render_template, request, send_file, send_from_directory
 
 import checkin
 import diary
+import export
 import flashback
 import journal
 import ledger
@@ -107,6 +110,16 @@ def api_day(date):
                     'signals': mood.day_signals(date),
                     'generating': diary.writing(date),
                     'prev': nav['prev'], 'next': nav['next']})
+
+
+@bp.route('/api/conversation/<conv_id>/export.md')
+def api_conversation_md(conv_id):
+    """一个窗口整个导出成 Markdown 下载（所有天、我和 AI 的都在）。"""
+    r = export.one(conv_id)
+    if not r:
+        return jsonify({'error': '没有这个窗口'}), 404
+    name, text = r
+    return send_file(io.BytesIO(text.encode('utf-8')), mimetype='text/markdown', as_attachment=True, download_name=name)
 
 
 @bp.route('/api/conversation/<conv_id>')

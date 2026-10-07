@@ -49,10 +49,31 @@ def _fresh(root, name):
     return path
 
 
+def conv_md(c, msgs=None):
+    """一个窗口 → (文件名, Markdown)。c 至少有 id / source / title；msgs 不给就从库里读。
+    这里是唯一的格式：单个窗口的「导出 md」和整份原文归档都用它。"""
+    msgs = msgs if msgs is not None else store.q(
+        'SELECT date, hhmm, role, text FROM messages WHERE conv_id=? ORDER BY ts, id', c['id'])
+    src = NAMES.get(c['source'], c['source'] or '其他')
+    first = f"{msgs[0]['date']} {msgs[0]['hhmm']}" if msgs else ''
+    last = f"{msgs[-1]['date']} {msgs[-1]['hhmm']}" if msgs else ''
+    out = [f"# {c['title'] or '无标题'}", '', f"{src} · {first} → {last} · {len(msgs)} 条 · id {c['id']}", '']
+    for m in msgs:
+        who = '我' if m['role'] == 'human' else src
+        out += [f"**{who}**　{m['date']} {m['hhmm']}", '', m['text'] or '', '', '---', '']
+    return f"{first[:10]}_{_safe(c['title'])}_{c['id'][:8]}.md", '\n'.join(out)
+
+
+def one(conv_id):
+    """单个窗口的导出：(文件名, Markdown)，没有这个窗口 → None。"""
+    c = store.one('SELECT id, source, title FROM conversations WHERE id=?', conv_id)
+    return conv_md(c) if c else None
+
+
 def archive(job, root):
     """每个对话一个 .md：标题、来源、时间跨度，然后按时间一条条（我 / AI）。"""
     root = _fresh(root, '原文')
-    convs = store.q("""SELECT c.id, c.source, c.title, MIN(m.ts) first, MAX(m.ts) last, COUNT(*) n
+    convs = store.q("""SELECT c.id, c.source, c.title, MIN(m.ts) first, COUNT(*) n
                          FROM conversations c JOIN messages m ON m.conv_id = c.id
                         GROUP BY c.id ORDER BY first""")
     job['total'], job['done'] = len(convs), 0
@@ -60,19 +81,13 @@ def archive(job, root):
     for c in convs:
         src = NAMES.get(c['source'], c['source'] or '其他')
         month = (c['first'] or '')[:7] or '未知'
-        name = f"{(c['first'] or '')[:10]}_{_safe(c['title'])}_{c['id'][:8]}.md"
+        name, text = conv_md(c)
         rel = os.path.join(src, month, name)
         path = os.path.join(root, rel)
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        msgs = store.q('SELECT date, hhmm, role, text FROM messages WHERE conv_id=? ORDER BY ts, id', c['id'])
-        out = [f"# {c['title'] or '无标题'}", '',
-               f"{src} · {msgs[0]['date']} {msgs[0]['hhmm']} → {msgs[-1]['date']} {msgs[-1]['hhmm']} · {len(msgs)} 条 · id {c['id']}", '']
-        for m in msgs:
-            who = '我' if m['role'] == 'human' else src
-            out += [f"**{who}**　{m['date']} {m['hhmm']}", '', m['text'] or '', '', '---', '']
         with open(path, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(out))
-        index[(src, month)].append((c['first'][:10], c['title'] or '无标题', rel, len(msgs)))
+            f.write(text)
+        index[(src, month)].append((c['first'][:10], c['title'] or '无标题', rel, c['n']))
         job['done'] += 1
     lines = ['# 全部聊天', '', f'{len(convs)} 个对话，导出于 {datetime.now():%Y-%m-%d %H:%M}。每个对话一个文件；'
              '要接着某段旧对话聊，把那个文件拖给 AI 就行。', '']

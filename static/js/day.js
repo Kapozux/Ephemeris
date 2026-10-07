@@ -131,7 +131,8 @@ function renderThreads(threads, focus) {
         <span class="thread-right">${t.multi_day ? `<span class="thread-span" data-conv="${t.conv_id}" title="这个窗口横跨了 ${t.span_from} → ${t.span_to}">${t.span_from.slice(5)} → ${t.span_to.slice(5)}</span>` : ''}<span class="thread-count">${t.n_msgs} 条 · ${(t.chars || 0).toLocaleString()} 字</span></span>
       </div>
       <div class="thread-body ${open ? '' : 'hidden'}" id="tb${i}">
-        <div class="thread-bar"><label><input type="checkbox" class="thread-aitog"> 显示 AI 回复</label></div>
+        <div class="thread-bar"><label><input type="checkbox" class="thread-aitog"> 显示 AI 回复</label>
+          <a class="thread-export" href="/api/conversation/${t.conv_id}/export.md" download title="整个窗口（所有天、我和 AI 的）存成一个 Markdown 文件">导出整个窗口 .md</a></div>
         ${t.messages.map(m => msgHtml(m, focus?.msg)).join('')}
       </div></div>`;
   }).join('');

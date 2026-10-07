@@ -4,22 +4,28 @@ import { daysChanged } from './state.js';
 import { navigate } from './nav.js';
 
 let CONVS = [], CONV_SHOWN = 120;
+// 搜索框：两个字以上去后端搜标题和全文（search.py，跟侧栏同一套索引）；一个字只在本地筛标题
+let HITS = null, HITS_Q = '', STMR = null;
 
 function renderConvs() {
   const kw = ($('#convFilter').value || '').trim().toLowerCase();
-  const rows = CONVS.filter(c => !kw || (c.title || '').toLowerCase().includes(kw) || (c.preview || '').toLowerCase().includes(kw));
+  const rows = HITS && HITS_Q === kw ? CONVS.filter(c => HITS[c.id])
+    : CONVS.filter(c => !kw || (c.title || '').toLowerCase().includes(kw) || (c.preview || '').toLowerCase().includes(kw));
   const list = rows.slice(0, CONV_SHOWN).map(c => {
-    const multi = (c.n_days || 0) > 1;
+    const multi = (c.n_days || 0) > 1, h = HITS && HITS_Q === kw ? HITS[c.id] : null;
     const title = c.title_fallback ? esc((c.preview || c.title || '').replace(/\s+/g, ' ').slice(0, 60)) : esc(c.title);
-    return `<div class="cv-row" data-d="${c.last_date}" data-c="${c.id}">
+    return `<div class="cv-row" data-d="${h?.date || c.last_date}" data-c="${c.id}"${h?.msg_id ? ` data-m="${h.msg_id}"` : ''}>
       <span class="src ${c.source}"></span>
       <span class="cv-title ${c.title_fallback ? 'cv-untitled' : ''}">${title}${multi ? `<span class="cv-span">${c.n_days} 天</span>` : ''}${c.last_import && c.first_import !== c.last_import ? '<small>已合并</small>' : ''}</span>
       <span class="cv-meta">${multi ? c.first_date.slice(5) + ' → ' : ''}${c.last_date}</span>
       <span class="cv-meta">${c.n_msgs} 条</span>
-      <span class="cv-meta">${fmtW(c.chars || 0)} 字</span></div>`;
+      <span class="cv-meta">${fmtW(c.chars || 0)} 字</span>
+      ${h?.hits ? `<span class="cv-snip"><b>${h.hits} 处</b>${h.snip}</span>` : ''}</div>`;
   }).join('');
-  $('#convList').innerHTML = list + (rows.length > CONV_SHOWN ? `<a class="cv-more" id="convMore">还有 ${rows.length - CONV_SHOWN} 个，再显示 200</a>` : '');
-  $('#convList').querySelectorAll('.cv-row').forEach(r => r.onclick = () => navigate(`day/${r.dataset.d}/conv/${r.dataset.c}`));
+  const none = kw && !rows.length ? `<div class="cv-none">标题和聊天里都没有「${esc(kw)}」</div>` : '';
+  $('#convList').innerHTML = none + list + (rows.length > CONV_SHOWN ? `<a class="cv-more" id="convMore">还有 ${rows.length - CONV_SHOWN} 个，再显示 200</a>` : '');
+  $('#convList').querySelectorAll('.cv-row').forEach(r => r.onclick = () =>
+    navigate(`day/${r.dataset.d}/conv/${r.dataset.c}${r.dataset.m ? '/msg/' + r.dataset.m : ''}`));
   const m = $('#convMore'); if (m) m.onclick = () => { CONV_SHOWN += 200; renderConvs(); };
 }
 
@@ -42,7 +48,17 @@ async function loadConvs() {
       <span class="pane-row-meta">${x.n_convs} 窗口 / 新 ${x.n_convs_new} · ${x.n_msgs.toLocaleString()} 条 / 新 ${x.n_msgs_new.toLocaleString()}${x.diaries_invalidated ? ` · 作废日记 ${x.diaries_invalidated}` : ''}</span>
     </div>`).join('') || '<div class="pane-sub">还没有导入记录</div>';
 }
-$('#convFilter').addEventListener('input', () => { CONV_SHOWN = 120; renderConvs(); });
+$('#convFilter').addEventListener('input', () => {
+  CONV_SHOWN = 120;
+  const kw = $('#convFilter').value.trim().toLowerCase();
+  clearTimeout(STMR);
+  if (kw.length < 2) { HITS = null; renderConvs(); return; }
+  STMR = setTimeout(async () => {
+    const r = await fetch('/api/conversations/search?q=' + encodeURIComponent(kw)).then(r => r.json()).catch(() => null);
+    if (!r || $('#convFilter').value.trim().toLowerCase() !== kw) return;     // 打字快：只认最后一次
+    HITS = r.hits; HITS_Q = kw; renderConvs();
+  }, 250);
+});
 
 async function doImport(files) {
   if (!files.length) return;

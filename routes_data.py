@@ -10,6 +10,7 @@ import backup
 import daily
 import export
 import index as idx
+import search
 import store
 import to_notion
 
@@ -36,6 +37,13 @@ def api_conversations():
                     'multi_day': sum(1 for r in rows if (r['n_days'] or 0) > 1)})
 
 
+@bp.route('/api/conversations/search')
+def api_conversations_search():
+    """「窗口」栏的搜索框：标题和全文（我和 AI 说的都算）。"""
+    kw = (request.args.get('q') or '').strip()
+    return jsonify({'q': kw, 'hits': search.conversations(kw) if kw else {}})
+
+
 @bp.route('/api/imports')
 def api_imports():
     return jsonify({'imports': store.q('SELECT * FROM imports ORDER BY id DESC LIMIT 100')})
@@ -57,7 +65,6 @@ def api_import():
         try:
             with store.LOCK:                 # 整个导入期间别人别插进来写
                 r = idx.ingest(store.connect(), dst, label=name)
-                idx.rebuild_fts(store.connect())
             r['ok'] = True
         except Exception as e:  # noqa: BLE001
             r = {'file': name, 'ok': False, 'error': str(e)}

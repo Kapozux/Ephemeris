@@ -153,6 +153,10 @@ function renderThreads(threads, focus) {
 
   if (focus?.msg) {
     const el = document.getElementById('msg-' + focus.msg);
+    if (el?.classList.contains('ai')) {                // 搜到的是 AI 的话（「窗口」栏搜全文）：把 AI 回复打开，不然看不见
+      const body = el.closest('.thread-body');
+      body.classList.add('showai'); body.querySelector('.thread-aitog').checked = true;
+    }
     if (el) setTimeout(() => el.scrollIntoView({ block: 'center', behavior: 'smooth' }), 60);
   }
 }

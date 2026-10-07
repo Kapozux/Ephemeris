@@ -20,7 +20,7 @@ NO_DIARY = '2026-03-04'      # 聊够了字数、还没有日记：批量补全�
 
 def seed():
     with store.tx() as db:
-        for t in ('conversations', 'messages', 'msg_fts', 'diaries', 'checkins', 'journal', 'mood_scores',
+        for t in ('conversations', 'messages', 'diaries', 'checkins', 'journal', 'mood_scores',
                   'conv_notes', 'themes', 'theme_days'):
             db.execute(f'DELETE FROM {t}')
         db.execute("INSERT INTO conversations(id, source, title, first_ts, last_ts, n_msgs, chars, n_days) "
@@ -30,7 +30,6 @@ def seed():
                                               (NO_DIARY, 'human', '定稿' * 450)]):
             db.execute('INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?)',
                        (f'm{i}', CONV, 'claude', f'{d}T10:0{i}', d, f'10:0{i}', role, text, len(text)))
-        db.execute("INSERT INTO msg_fts VALUES ('改稿改稿', '经济论文', ?, 'm1')", (DAY,))
         db.execute("INSERT INTO diaries(date, headline, narrative, topics, artifacts, open_loops, mood) "
                    "VALUES (?, '改经济论文', '一整天在改稿。', '[\"经济论文\"]', '[]', '[]', '平稳')", (DAY,))
         db.execute("INSERT INTO journal(page_id, date, title, text, chars) VALUES ('p1', ?, '日记', '今天还行', 4)", (DAY,))

@@ -360,12 +360,6 @@ def dates():
             store.q('SELECT date, SUM(chars) c FROM journal WHERE chars > 0 GROUP BY date')}
 
 
-def search(kw, limit=50):
-    safe = '"' + kw.replace('"', '""') + '"'
-    return store.q("""SELECT date, page_id, snippet(journal_fts, 0, '<mark>', '</mark>', '…', 20) snip
-                   FROM journal_fts WHERE journal_fts MATCH ? ORDER BY date DESC LIMIT ?""", safe, limit)
-
-
 if __name__ == '__main__':
     import sys
     r = sync(full='--full' in sys.argv, say=lambda m: print(m, flush=True))

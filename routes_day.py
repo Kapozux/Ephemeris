@@ -7,6 +7,7 @@ import flashback
 import journal
 import ledger
 import mood
+import search
 import store
 
 bp = Blueprint('day', __name__)
@@ -127,15 +128,10 @@ def api_search():
     kw = (request.args.get('q') or '').strip()
     if len(kw) < 2:
         return jsonify({'hits': []})
-    safe = '"' + kw.replace('"', '""') + '"'
-    hits = store.q("""SELECT f.date, f.conv_title, f.msg_id, m.conv_id, m.hhmm,
-                       snippet(msg_fts, 0, '<mark>', '</mark>', '…', 20) snip
-                  FROM msg_fts f JOIN messages m ON m.id = f.msg_id
-                 WHERE msg_fts MATCH ?
-                 ORDER BY f.date DESC LIMIT 100""", safe)
+    hits = search.messages(kw)
     # 手写日记单独一路，排在前面：自己写的比聊天里的更值得先看
     jh = [{'date': h['date'], 'kind': 'journal', 'page_id': h['page_id'], 'snip': h['snip'],
-           'conv_title': '手写日记', 'hhmm': ''} for h in journal.search(kw)]
+           'conv_title': '手写日记', 'hhmm': ''} for h in search.journal(kw)]
     return jsonify({'hits': jh + hits, 'q': kw})
 
 

@@ -62,7 +62,7 @@ class Routes(unittest.TestCase):
                     '/api/checkin/month?month=2026-03', '/api/stars?month=2026-03', '/api/backup',
                     '/api/flashback', '/api/river', '/api/themes', '/api/conversations', '/api/imports',
                     '/api/windows', '/api/windows?all=1', f'/api/window/{CONV}', f'/api/window/{CONV}/day/{DAY}',
-                    '/api/reflect?range=1m', '/api/claude/sync']:
+                    '/api/reflect?range=1m', '/api/claude/sync', '/api/export']:
             with self.subTest(url=url):
                 r = self.c.get(url)
                 self.assertEqual(r.status_code, 200, r.get_data(as_text=True)[-300:])

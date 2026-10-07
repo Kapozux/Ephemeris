@@ -1,6 +1,6 @@
 // 按窗口回顾（侧栏切到「按窗口」）：和日记是转置关系 —— 日记把一天里所有窗口合成一篇；
 // 这里挑一个窗口，看它自己的时间轴。只有跨天的窗口才值得看（1657 个里 165 个跨天），列表默认只给这些。
-import { $, esc, rel } from './util.js';
+import { $, esc, rel, toContent, scrollWithin } from './util.js';
 import { S } from './state.js';
 import { navigate } from './nav.js';
 import { msgHtml } from './day.js';
@@ -32,7 +32,10 @@ function renderWinList() {
 async function loadWindows() {
   const r = await fetch('/api/windows').then(r => r.json());
   WINS = r.windows;
+  const i = WINS.findIndex(w => w.id === S.wsel);              // 直接打开 #/win/<id>：列表放长到它
+  if (i >= WIN_SHOWN) WIN_SHOWN = i + 1;
   renderWinList();
+  scrollWithin($('#winlist'), document.querySelector('.wl-row.sel'), true);
 }
 export const ensureWindows = () => { if (!WINS.length) loadWindows(); };
 
@@ -90,10 +93,20 @@ async function startWinGen(refresh) {
 export async function openWindow(id, quiet) {
   S.wsel = id;
   if (!quiet) {
+    // 选中的那个不在列表里（排在后面，或者被筛选框里留着的字筛掉了；比如从某天的「按窗口看全程」过来）：
+    // 清掉筛选、列表放长到它，再把它滚进视野
+    const i = WINS.findIndex(w => w.id === id);
+    if (i >= 0 && !document.querySelector(`.wl-row[data-w="${id}"]`)) {
+      $('#winFilter').value = '';
+      WIN_SHOWN = Math.max(80, i + 1);
+      renderWinList();
+    }
     document.querySelectorAll('.wl-row.sel').forEach(x => x.classList.remove('sel'));
-    document.querySelector(`.wl-row[data-w="${id}"]`)?.classList.add('sel');
+    const row = document.querySelector(`.wl-row[data-w="${id}"]`);
+    row?.classList.add('sel');
+    scrollWithin($('#winlist'), row, true);
     $('#win').classList.remove('hidden');
-    $('#main').scrollTop = 0;
+    toContent($('#win'));
   }
   const r = await fetch(`/api/window/${id}`).then(r => r.json());
   if (S.wsel !== id || r.error) return;
@@ -110,7 +123,7 @@ $('#winlist').addEventListener('click', e => {
 // 展开某一天在这个窗口里的原文
 $('#winTl').addEventListener('click', async e => {
   const day = e.target.closest('.tl-diary');
-  if (day) { navigate('day/' + day.dataset.day); return; }
+  if (day) { navigate(`day/${day.dataset.day}/conv/${S.wsel}`); return; }      // 到那天，并把这个窗口展开
   const more = e.target.closest('.msg-more');
   if (more) {
     const x = more.parentElement;

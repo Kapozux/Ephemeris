@@ -23,7 +23,7 @@ $('#q').addEventListener('input', e => {
       if (ev.target.id === 'rclose') { closeResults(); return; }
       const el = ev.target.closest('.sb-hit');
       if (el?.dataset.j) { closeResults(); navigate(`day/${el.dataset.d}/journal`); return; }
-      if (el?.dataset.d) { closeResults(); navigate(`day/${el.dataset.d}/conv/${el.dataset.c}/msg/${el.dataset.m}`); }
+      if (el?.dataset.d) { closeResults(); navigate(`day/${el.dataset.d}/conv/${el.dataset.c}/msg/${el.dataset.m}/q/${encodeURIComponent(r.q)}`); }
     };
   }, 240);
 });

@@ -30,7 +30,9 @@ function renderJournal(list, open) {
   box.className = 'journal card-shell';
   box.innerHTML = `<div class="j-head"><span class="j-tag">我当天写的</span>
       <span class="dim tnum">${pages.reduce((a, j) => a + j.chars, 0).toLocaleString()} 字</span>
-      <span class="sp"></span>${pages.map(j => `<a href="${j.url}" target="_blank" rel="noopener">在 Notion 打开</a>`).join(' · ')}</div>` +
+      <span class="sp"></span>${pages.map(j => j.gone_at
+        ? `<span class="dim" title="Notion 里这页已经删了；Ephemeris 是备份，这里照样留着">Notion 里已删 · 这里留着</span>`
+        : `<a href="${j.url}" target="_blank" rel="noopener">在 Notion 打开</a>`).join(' · ')}</div>` +
     pages.map((j, i) => {
       const long = (j.chars > J_FOLD || imageCount(j.text) > 1) && !open;
       return `<div class="j-body${long ? ' folded' : ''}" data-i="${i}">${journalHtml(j.text)}</div>` +
@@ -78,6 +80,7 @@ function renderDiary(r) {
       ${d.mood ? `<span>${esc(d.mood)}</span>` : ''}
       <span class="sp"></span>
       <span title="${esc(d.generated_at || '')}">${rel(d.generated_at)}</span>
+      ${d.added_later ? `<span title="导入旧聊天时，不会自动改写当时写好的日记">写好之后又补进了 ${d.added_later} 条消息</span>` : ''}
       <a id="genBtn">重新生成</a>
     </div>`;
   $('#genBtn').onclick = generateCurrent;

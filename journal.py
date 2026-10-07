@@ -37,6 +37,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 FILES_DIR = os.path.join(HERE, 'journal_files')     # 日记里的图片（白名单 .gitignore 挡着，不进仓库；备份里有）
 FILES_URL = '/journal-files/'
 MAX_IMAGE = 30 * 1024 * 1024
+GONE_ALARM = 5           # Notion 里一次少了超过这么多页（而且超过两成）：当它是出故障，不当真
 
 
 # ------------------------------------------------------------------ Notion → 文本
@@ -249,7 +250,7 @@ def _store(p, text, n):
                       VALUES (?,?,?,?,?,?,?,?)
                       ON CONFLICT(page_id) DO UPDATE SET date=excluded.date, title=excluded.title, text=excluded.text,
                         chars=excluded.chars, stripped=excluded.stripped, last_edited=excluded.last_edited,
-                        fetched_at=excluded.fetched_at""",
+                        fetched_at=excluded.fetched_at, gone_at=NULL""",
                    (p['page_id'], p['date'], p['title'], text, len(flat), n, p['last_edited'], now))
         db.execute('DELETE FROM journal_fts WHERE page_id=?', (p['page_id'],))
         if flat:
@@ -257,16 +258,22 @@ def _store(p, text, n):
 
 
 def sync(full=False, say=print):
-    """拉新的和改过的，删掉 Notion 里已经没了的。
-    返回 {'pages', 'fetched', 'removed', 'failed', 'dates', 'gone'}：dates 这次拉过的、gone 在 Notion 里删掉了的日期。
+    """拉新的和改过的。**本地一页都不删**（2026-10-07：Ephemeris 是备份，Notion 那边少了不能跟着丢）：
+    Notion 里没了的页，正文留着，只记 gone_at；一下少了一大片（像权限 / 连接出了问题）连标记都不做，只报警。
+    返回 {'pages', 'fetched', 'gone', 'failed', 'dates', 'warning'}。
     要不要重新记进账本看 dirty_dates()（正文变没变），不看这里。"""
     pages = list_pages()
-    have = {r['page_id']: r['last_edited'] for r in store.q('SELECT page_id, last_edited FROM journal')}
+    rows = store.q('SELECT page_id, last_edited, gone_at FROM journal')
+    have = {r['page_id']: r['last_edited'] for r in rows}
     todo = [p for p in pages if full or have.get(p['page_id']) != p['last_edited']]
-    gone = set(have) - {p['page_id'] for p in pages}
-    gone_dates = {r['date'] for r in store.q('SELECT page_id, date FROM journal') if r['page_id'] in gone}
+    gone = {r['page_id'] for r in rows if not r['gone_at']} - {p['page_id'] for p in pages}
+    warning = None
+    if len(gone) > GONE_ALARM and len(gone) > len(have) * 0.2:
+        warning = f'Notion 一下少了 {len(gone)} 页（本地 {len(have)} 页），像是权限或连接出了问题：没动本地，先查一下'
+        say(warning)
+        gone = set()
     changed = set()
-    say(f'手写日记：Notion 里 {len(pages)} 页，要拉 {len(todo)} 页，要删 {len(gone)} 页')
+    say(f'手写日记：Notion 里 {len(pages)} 页，要拉 {len(todo)} 页，Notion 里没了 {len(gone)} 页（本地留着）')
 
     failed = []
     for i, p in enumerate(todo, 1):
@@ -283,14 +290,11 @@ def sync(full=False, say=print):
         time.sleep(0.2)                                      # Notion 限流约 3 次/秒
 
     if gone:
-        with store.LOCK:
-            db = store.connect()
-            for pid in gone:
-                db.execute('DELETE FROM journal WHERE page_id=?', (pid,))
-                db.execute('DELETE FROM journal_fts WHERE page_id=?', (pid,))
-            db.commit()
-    return {'pages': len(pages), 'fetched': len(todo) - len(failed),
-            'removed': len(gone), 'failed': failed, 'dates': sorted(changed), 'gone': sorted(gone_dates)}
+        now = datetime.now().isoformat(timespec='seconds')
+        with store.tx() as db:
+            db.executemany('UPDATE journal SET gone_at=? WHERE page_id=?', [(now, pid) for pid in gone])
+    return {'pages': len(pages), 'fetched': len(todo) - len(failed), 'gone': len(gone),
+            'failed': failed, 'dates': sorted(changed), 'warning': warning}
 
 
 _recent = {'at': 0.0}
@@ -344,7 +348,7 @@ def text_for(date, limit=None):
 
 def for_date(date):
     """那天的几页：text 是 Markdown（日记页上显示用），chars 是纯文字的字数。"""
-    rows = store.q('SELECT page_id, title, text, chars, stripped FROM journal WHERE date=? ORDER BY title', date)
+    rows = store.q('SELECT page_id, title, text, chars, stripped, gone_at FROM journal WHERE date=? ORDER BY title', date)
     for r in rows:
         r['url'] = 'https://www.notion.so/' + r['page_id'].replace('-', '')
     return rows

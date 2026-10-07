@@ -15,8 +15,10 @@
 反过来说，「每次都是整个对话」恰恰是它比 Gemini Takeout 强的地方 ——
 「按窗口」的时间轴和日记里的「前情」，都得有完整的线才成立。
 """
+import gzip
 import json
 import os
+import shutil
 import socket
 import tempfile
 import time
@@ -180,13 +182,26 @@ def _flush(convs, since, totals, say):
         with store.LOCK:                  # 共享连接：整个导入期间别人别插进来写
             r = idx.ingest(store.connect(), tmp, kind='claude_json', source='claude',
                            label=f'claude-sync {datetime.now():%Y-%m-%d}')
+        _archive(tmp)
     finally:
-        os.unlink(tmp)
+        if os.path.exists(tmp):
+            os.unlink(tmp)
     _remember([(x['uuid'], x['updated_at']) for x in convs])
     totals['convs'] += len(convs)
     totals['msgs'] += r['n_msgs_new']
     totals['days'].update(r['days_touched'])
     totals['inval'] += r['diaries_invalidated']
+
+
+def _archive(path):
+    """这批原始数据压缩后永久留在 imports/claude-sync/（备份「导入原件」会抄走，只增不删）。
+    以前导完就删：同步来的对话只活在库里，库出事就没有原件可找（2026-10-07 起留着）。"""
+    folder = os.path.join(idx.IMPORT_DIR, 'claude-sync')
+    os.makedirs(folder, exist_ok=True)
+    dst = os.path.join(folder, f'{datetime.now():%Y-%m-%d_%H%M%S_%f}.json.gz')
+    with open(path, 'rb') as src, gzip.open(dst + '.part', 'wb') as out:
+        shutil.copyfileobj(src, out)
+    os.replace(dst + '.part', dst)
 
 
 # ------------------------------------------------------------------ 主流程

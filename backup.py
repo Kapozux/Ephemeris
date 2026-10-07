@@ -8,6 +8,10 @@
   导入原件/                           imports/ 里导入过的原始文件。
 **内容没变的文件一律不写** —— 不写就不会被 Drive 重传。按表自动导出，以后新加的表不用记得来这里登记。
 **只增不删**：备份目录里的东西从不删除（包括以前那份整库快照）。
+**也不减**（2026-10-07）：核心数据（聊天、窗口、手写、打卡、日记、导入记录、手动打分）按行合并 ——
+  本地少了的行（bug、误删、上游把东西删了）在备份里原样留着；某行改了，旧版本挪进「旧版本/<表>.jsonl」。
+  备份里每个文件有哪些行记在本地 backup_keys 表，只有真的少了 / 改了才去读 Drive 上的旧文件。
+  能重算的（主题、回顾、小结、心情分……）照常覆盖。
 不备：.env（key 和 cookie）、.chrome/（登录态）、全文索引（*_fts*，能从消息重建）。
 
 `restore(src, out)` 能从备份目录把库原样拼回来 —— 拼不回来的不叫备份，改了这里要重新跑一遍还原核对。
@@ -31,7 +35,10 @@ import journal
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 EVERY_DAYS = 1
-SKIP_TABLES = ('sqlite_sequence', 'backups', 'backup_files')   # 再加上名字里带 _fts 的（全文索引，能重建）；备份自己的记账不备
+SKIP_TABLES = ('sqlite_sequence', 'backups', 'backup_files', 'backup_keys')
+# 只增不减的核心表 → 主键列
+CORE = {'messages': 'id', 'conversations': 'id', 'journal': 'page_id', 'checkins': 'id',
+        'diaries': 'date', 'imports': 'id', 'mood_ratings': 'date'}   # 再加上名字里带 _fts 的（全文索引，能重建）；备份自己的记账不备
 
 
 
@@ -78,7 +85,48 @@ class _Writer:
         self.root = root
         self.known = {r['path']: r['sha1'] for r in store.q('SELECT path, sha1 FROM backup_files')}
         self.written, self.total, self.bytes = 0, 0, 0
-        self._rows = []
+        self.kept, self.versions, self.warnings = 0, 0, []
+        self._rows, self._keys, self._old = [], {}, defaultdict(list)
+
+    def put_rows(self, rel, rows, key, table):
+        """核心数据：按行合并，只增不减。rows 是本地现在的；本地没了的行从备份旧文件里捡回来留着。"""
+        cur = {str(r[key]): json.dumps(r, ensure_ascii=False, separators=(',', ':')) for r in rows}
+        h = {k: hashlib.sha1(v.encode()).hexdigest()[:16] for k, v in cur.items()}
+        prev = {r['key']: r['h'] for r in store.q('SELECT key, h FROM backup_keys WHERE path=?', rel)}
+        lost = [k for k in prev if k not in cur]
+        changed = [k for k in prev if k in cur and prev[k] != h[k]]
+        if lost or changed:
+            old = self._read(rel, key)
+            if old is None and lost:
+                self.warnings.append(f'{rel}：本地少了 {len(lost)} 行，又读不到备份里的旧文件，这个文件这次没覆盖')
+                self.total += 1
+                return False
+            old = old or {}
+            for k in changed:
+                if k in old:
+                    self._old[table].append(old[k])
+            for k in lost:
+                if k in old:
+                    cur[k], h[k] = old[k], prev[k]
+                    self.kept += 1
+        if h != prev:
+            self._keys[rel] = h
+        return self.put(rel, ''.join(v + '\n' for v in cur.values()))
+
+    def _read(self, rel, key):
+        """备份里现有的那份：{键: 那一行}。没有这个文件 → {}；读不了 → None。"""
+        path = os.path.join(self.root, rel)
+        if not os.path.exists(path):
+            return {}
+        try:
+            out = {}
+            with open(path, encoding='utf-8') as f:
+                for line in f:
+                    if line.strip():
+                        out[str(json.loads(line)[key])] = line.rstrip('\n')
+            return out
+        except Exception:                                    # noqa: BLE001
+            return None
 
     def put(self, rel, data):
         if isinstance(data, str):
@@ -98,11 +146,20 @@ class _Writer:
         return True
 
     def commit(self):
-        with store.LOCK:
-            db = store.connect()
+        now = datetime.now().isoformat(timespec='seconds')
+        for table, lines in self._old.items():               # 被改掉的旧版本：只往后追加
+            path = os.path.join(self.root, '旧版本', f'{table}.jsonl')
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'a', encoding='utf-8') as f:
+                for line in lines:
+                    f.write(f'{{"replaced_at":"{now}","row":{line}}}\n')
+                    self.versions += 1
+        with store.tx() as db:
             db.executemany('INSERT OR REPLACE INTO backup_files VALUES (?,?,?,?)', self._rows)
-            db.commit()
-        self._rows = []
+            for rel, h in self._keys.items():
+                db.execute('DELETE FROM backup_keys WHERE path=?', (rel,))
+                db.executemany('INSERT INTO backup_keys VALUES (?,?,?)', [(rel, k, v) for k, v in h.items()])
+        self._rows, self._keys, self._old = [], {}, defaultdict(list)
 
 
 def _jsonl(rows):
@@ -135,12 +192,17 @@ def _export(w):
         name = t['name']
         if name == 'messages':
             continue
-        w.put(f'数据/{name}.jsonl', _jsonl(store.q(f'SELECT * FROM "{name}" ORDER BY rowid')))
+        rows = store.q(f'SELECT * FROM "{name}" ORDER BY rowid')
+        if name in CORE:
+            w.put_rows(f'数据/{name}.jsonl', rows, CORE[name], name)
+        else:
+            w.put(f'数据/{name}.jsonl', _jsonl(rows))
     by_day = defaultdict(list)
     for r in store.q('SELECT * FROM messages ORDER BY date, ts, id'):
         by_day[r['date']].append(r)
     for d, rows in by_day.items():
-        w.put(f'聊天记录/{d[:7]}/{d}.jsonl', _jsonl(rows))
+        w.put_rows(f'聊天记录/{d[:7]}/{d}.jsonl', rows, 'id', 'messages')
+    # 本地整天都没了的（以前备份过）：文件不动，照样在备份里
     return len(by_day)
 
 
@@ -243,15 +305,15 @@ def _run(job):
         w.commit()
         job['stage'] = '同步导入原件和日记图片'
         nimp = _imports(root)
-        with store.LOCK:
-            db = store.connect()
-            db.execute("""INSERT INTO backups(started_at, finished_at, ok, week, dest, weeks_md, imports_new,
-                                              files_written, files_total, bytes_written, note)
-                          VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                       (started, datetime.now().isoformat(timespec='seconds'), 1, week, root, nmd, nimp,
-                        w.written, w.total, w.bytes, f'聊天 {ndays} 天'))
-            db.commit()
-        print(f'[backup] 共 {w.total} 个文件，这次写了 {w.written} 个（{w.bytes // 1024} KB），新抄过去的原件和图片 {nimp}', flush=True)
+        note = f'聊天 {ndays} 天' + (f' · 本地没了、备份里留着 {w.kept} 行' if w.kept else '') \
+            + (f' · 存了 {w.versions} 个旧版本' if w.versions else '')
+        store.run("""INSERT INTO backups(started_at, finished_at, ok, week, dest, weeks_md, imports_new,
+                                         files_written, files_total, bytes_written, note, warning)
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  started, datetime.now().isoformat(timespec='seconds'), 1, week, root, nmd, nimp,
+                  w.written, w.total, w.bytes, note, '；'.join(w.warnings) or None)
+        print(f'[backup] 共 {w.total} 个文件，这次写了 {w.written} 个（{w.bytes // 1024} KB），新抄过去的原件和图片 {nimp}'
+              + (f'；{note}' if w.kept or w.versions else '') + (f'；警告：{w.warnings}' if w.warnings else ''), flush=True)
         return last_ok()
     except Exception as e:                                   # noqa: BLE001
         job['error'] = f'{type(e).__name__}: {e}'[:300]

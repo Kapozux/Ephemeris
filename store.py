@@ -54,10 +54,11 @@ CREATE TABLE IF NOT EXISTS sync_runs (
 );
 
 -- ---------------------------------------------------------------- AI 写的
+-- added_later：这篇写好之后，又导入了这天的几条我的消息（导入旧聊天时不重写旧日记，只记数）
 CREATE TABLE IF NOT EXISTS diaries (
   date TEXT PRIMARY KEY, headline TEXT, narrative TEXT,
   topics TEXT, artifacts TEXT, open_loops TEXT, mood TEXT,
-  model TEXT, generated_at TEXT
+  model TEXT, generated_at TEXT, added_later INTEGER DEFAULT 0
 );
 -- 按窗口的小结（conv_review.py）。date='' 是整个窗口的走向。
 -- fp：写这条时这个窗口这一天我发了几条、多少字；之后又聊了对不上 → 只重写这一天
@@ -86,10 +87,11 @@ CREATE TABLE IF NOT EXISTS theme_cats (theme_id INTEGER PRIMARY KEY, cat TEXT NO
 
 -- ---------------------------------------------------------------- 我自己说的
 -- Notion 手写日记（journal.py）。text 是 Markdown（图片指向 journal_files/），chars 按纯文字数；
--- stripped：去掉了几段 Ephemeris 追加进去的内容；digested：上次记进主题账本时正文的指纹（journal.digest）
+-- stripped：去掉了几段 Ephemeris 追加进去的内容；digested：上次记进主题账本时正文的指纹（journal.digest）；
+-- gone_at：Notion 里这页没了的时间（本地照样留着，这里是备份）
 CREATE TABLE IF NOT EXISTS journal (
   page_id TEXT PRIMARY KEY, date TEXT NOT NULL, title TEXT, text TEXT, chars INTEGER,
-  stripped INTEGER DEFAULT 0, last_edited TEXT, fetched_at TEXT, digested TEXT
+  stripped INTEGER DEFAULT 0, last_edited TEXT, fetched_at TEXT, digested TEXT, gone_at TEXT
 );
 CREATE INDEX IF NOT EXISTS journal_date ON journal(date);
 CREATE VIRTUAL TABLE IF NOT EXISTS journal_fts USING fts5(
@@ -130,20 +132,23 @@ CREATE TABLE IF NOT EXISTS daily_runs (
 CREATE TABLE IF NOT EXISTS backups (
   id INTEGER PRIMARY KEY AUTOINCREMENT, started_at TEXT, finished_at TEXT, ok INTEGER,
   week TEXT, dest TEXT, snapshot TEXT, size INTEGER, weeks_md INTEGER, imports_new INTEGER, note TEXT,
-  files_written INTEGER, files_total INTEGER, bytes_written INTEGER
+  files_written INTEGER, files_total INTEGER, bytes_written INTEGER, warning TEXT
 );
 -- 每个备份文件上次写进去的内容指纹：没变就不写（也就不重传）。
 -- 记在本地而不是去读 Drive 里的文件 —— Drive 的「仅在线」文件一读就会触发下载。
 CREATE TABLE IF NOT EXISTS backup_files (path TEXT PRIMARY KEY, sha1 TEXT, size INTEGER, written_at TEXT);
+-- 备份里每个核心数据文件现在有哪些行（键 + 内容指纹）：本地少了 / 改了哪行，不用去读 Drive 就知道（backup.py）
+CREATE TABLE IF NOT EXISTS backup_keys (path TEXT NOT NULL, key TEXT NOT NULL, h TEXT, PRIMARY KEY (path, key));
 """
 
 # 老库补列：(表, 列, 类型)。新库的 SCHEMA 里已经有了，这里只对老库起作用。
 _ADD_COLUMNS = [
     ('conversations', 'title_fallback', 'INTEGER DEFAULT 0'), ('conversations', 'n_days', 'INTEGER'),
     ('conversations', 'first_import', 'TEXT'), ('conversations', 'last_import', 'TEXT'),
-    ('themes', 'desc', 'TEXT'), ('checkins', 'reply', 'TEXT'),
+    ('themes', 'desc', 'TEXT'), ('checkins', 'reply', 'TEXT'), ('diaries', 'added_later', 'INTEGER DEFAULT 0'),
+    ('journal', 'gone_at', 'TEXT'),
     ('backups', 'files_written', 'INTEGER'), ('backups', 'files_total', 'INTEGER'),
-    ('backups', 'bytes_written', 'INTEGER'),
+    ('backups', 'bytes_written', 'INTEGER'), ('backups', 'warning', 'TEXT'),
 ]
 
 

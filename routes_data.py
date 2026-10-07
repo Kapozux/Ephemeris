@@ -28,7 +28,9 @@ def api_conversations():
     by_src = {}
     for r in rows:
         by_src[r['source']] = by_src.get(r['source'], 0) + 1
-    return jsonify({'conversations': rows, 'total': len(rows), 'by_source': by_src,
+    # 每个来源最新的一条我的消息是哪天：备份新到哪天就看它（Gemini 没有自动同步，要靠 Takeout）
+    latest = {r['source']: r['d'] for r in store.q("SELECT source, MAX(date) d FROM messages WHERE role='human' GROUP BY source")}
+    return jsonify({'conversations': rows, 'total': len(rows), 'by_source': by_src, 'latest': latest,
                     'multi_day': sum(1 for r in rows if (r['n_days'] or 0) > 1)})
 
 

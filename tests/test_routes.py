@@ -67,6 +67,16 @@ class Routes(unittest.TestCase):
                 self.assertEqual(r.status_code, 200, r.get_data(as_text=True)[-300:])
                 self.assertIsNotNone(r.get_json())
 
+    def test_conversation_export_md(self):
+        r = self.c.get(f'/api/conversation/{CONV}/export.md')
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('attachment', r.headers['Content-Disposition'])
+        text = r.get_data(as_text=True)
+        self.assertTrue(text.startswith('# 经济论文'))
+        self.assertEqual(text.count('**我**'), 3)
+        self.assertEqual(text.count('**Claude**'), 1)
+        self.assertEqual(self.c.get('/api/conversation/nope/export.md').status_code, 404)
+
     def test_batch_records_failures(self):
         # 模型被换成返回空 → 那天写不出来：批量跑完应该是 failed=1，并且记下原因
         import threading

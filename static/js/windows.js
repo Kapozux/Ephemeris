@@ -54,6 +54,7 @@ function renderWin(r) {
   const title = (c.title || c.title_fallback || '').trim() || '(无标题)';
   const days = r.days;
   $('#winTitle').textContent = title;
+  $('#winExport').href = `/api/conversation/${c.id}/export.md`;
   $('#winMeta').textContent =
     `${days.length} 天 · ${days.reduce((s, d) => s + d.msgs, 0)} 条 · ` +
     `${days.reduce((s, d) => s + (d.chars || 0), 0).toLocaleString()} 字 · ` +

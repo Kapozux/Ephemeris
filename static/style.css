@@ -324,6 +324,10 @@ button { font-family:inherit; }
 .cv-import-hint b { display:block; font-size:13.5px; margin-bottom:3px; }
 .cv-import-hint span { font-size:12.5px; color:var(--muted); line-height:1.6; }
 .cv-import-hint a { cursor:pointer; }
+.cv-import-gemini { margin-top:12px; padding-top:12px; border-top:1px dashed var(--line-2); font-size:12.5px; color:var(--muted); line-height:1.7; }
+.cv-import-gemini b { display:block; color:var(--ink); font-weight:600; font-size:13px; }
+.cv-import-gemini a { cursor:pointer; color:var(--coral-deep); border-bottom:1px solid var(--coral-line); text-decoration:none; }
+.cv-import-gemini em { font-style:normal; color:#5B8C5A; }
 .cv-import-result { margin-top:12px; padding-top:12px; border-top:1px solid var(--line); font-size:13px; }
 .cv-import-result .cv-import-row { display:flex; gap:10px; align-items:baseline; padding:4px 0; }
 .cv-import-result .cv-import-row b { font-weight:600; }

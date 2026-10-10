@@ -12,6 +12,7 @@
   claude_md    浏览器脚本导出的 markdown（批量合并的，或单个 "# Conversation with Claude"）
   claude_json  export_claude.js 导出的 JSON
   gemini_md    gemini_split/sess_*.md（**我** (2025-11-29 11:25):）
+  gemini_web   export_gemini.js 在 gemini.google.com 控制台导出的 JSON（"exporter": "ephemeris-gemini"）
 """
 import hashlib
 import json
@@ -284,8 +285,34 @@ def parse_gemini_takeout(path):
                'title_fallback': True, 'msgs': msgs}
 
 
+def parse_gemini_web(path):
+    """export_gemini.js 导出的（gemini.google.com 控制台里跑）：每个对话一串轮次，每轮 [秒, 纳秒] 的时间 + 我说的 + 回复。
+
+    时间截到毫秒，回复记成同一时刻 +1 毫秒 —— 跟 parse_gemini_takeout 一个口径，
+    这样同一轮从 Takeout 进来过的，ts 一模一样，ingest 能认出来跳过（GEMINI_WEB_DEDUPE）。
+    """
+    with open(path, encoding='utf-8') as f:
+        data = json.load(f)
+    for c in data.get('conversations') or []:
+        msgs = []
+        for t in c.get('turns') or []:
+            sec, ns = (t.get('ts') or [0, 0]) + [0, 0][len(t.get('ts') or []):]
+            if not sec:
+                continue
+            dt = datetime.fromtimestamp(int(sec), tz=timezone.utc).replace(microsecond=(int(ns or 0) // 1_000_000) * 1000)
+            if (t.get('user') or '').strip():
+                msgs.append((dt, 'human', t['user'].strip()))
+            if (t.get('reply') or '').strip():
+                msgs.append((dt + timedelta(milliseconds=1), 'assistant', t['reply'].strip()))
+        if msgs:
+            first = next((m[2] for m in msgs if m[1] == 'human'), '')
+            title = (c.get('title') or '').strip()
+            yield {'uid': 'gemini:' + c['id'] if c.get('id') else None,
+                   'title': title or first[:38].replace('\n', ' ') or 'Gemini', 'title_fallback': not title, 'msgs': msgs}
+
+
 PARSERS = {'claude_md': parse_claude_md, 'claude_json': parse_claude_json, 'gemini_md': parse_gemini_md,
-           'gemini_takeout': parse_gemini_takeout}
+           'gemini_takeout': parse_gemini_takeout, 'gemini_web': parse_gemini_web}
 
 
 def sniff(path):
@@ -294,6 +321,8 @@ def sniff(path):
         return 'claude_json', 'claude'                # claude.ai 官方导出的 zip
     with open(path, 'rb') as f:
         head = f.read(4000).decode('utf-8', errors='replace')
+    if '"exporter":"ephemeris-gemini"' in head.replace(' ', ''):
+        return 'gemini_web', 'gemini'                 # export_gemini.js
     if head.lstrip().startswith('{') or head.lstrip().startswith('['):
         # Google Takeout 的 MyActivity 也是 JSON，但顶层是活动数组，跟 Claude 导出完全两回事
         if '"header"' in head and '"time"' in head and ('Gemini Apps' in head or 'Bard' in head):
@@ -313,6 +342,24 @@ def sniff(path):
 
 
 # ------------------------------------------------------------------ ingest
+
+def _skip_seen_gemini_turns(conn, cid, rows):
+    """export_gemini.js 跟以前导进来的 Takeout 会重叠（Takeout 的窗口 id 是指纹，对不上 gemini 的 c_ id）。
+    同一轮在两边的时间一模一样（都到毫秒），文字却不一定（Takeout 会在后面拼「[附件：…]」），
+    所以按时间认：别的窗口里已经有同一时刻的 Gemini 消息，这一轮（提问 + 回复）就不再进。"""
+    seen = set()
+    stamps = [r[3] for r in rows]
+    for i in range(0, len(stamps), 900):
+        chunk = stamps[i:i + 900]
+        seen.update(x[0] for x in conn.execute(
+            f"SELECT ts FROM messages WHERE source='gemini' AND conv_id <> ? AND ts IN ({','.join('?' * len(chunk))})",
+            [cid, *chunk]))
+    if not seen:
+        return rows
+    # 回复的 ts 是提问 +1 毫秒（parse_gemini_web）：提问被认出来了，回复跟着跳过
+    turn = lambda r: r[3] if r[6] == 'human' else (datetime.fromisoformat(r[3]) - timedelta(milliseconds=1)).isoformat()
+    return [r for r in rows if r[3] not in seen and turn(r) not in seen]
+
 
 def ingest(conn, path, kind=None, source=None, label=None, invalidate=True):
     """把一个文件的窗口喂进库。返回摘要。幂等：重复导入不会产生重复消息。"""
@@ -343,6 +390,10 @@ def ingest(conn, path, kind=None, source=None, label=None, invalidate=True):
             chunk = new_ids[i:i + 900]
             have.update(r[0] for r in conn.execute(
                 f'SELECT id FROM messages WHERE id IN ({",".join("?" * len(chunk))})', chunk))
+        if kind == 'gemini_web':
+            rows = _skip_seen_gemini_turns(conn, cid, rows)
+            if not rows:
+                continue
         fresh = [r for r in rows if r[0] not in have]
         fresh_all += fresh
         touched.update(r[4] for r in fresh if r[6] == 'human')

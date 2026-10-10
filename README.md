@@ -62,7 +62,7 @@ Importing the same data twice is safe. Messages are de-duplicated, and only days
 
 ## Setup
 
-Requirements: a Mac, Python 3.9+ (the first `python3` on a Mac offers to install the developer tools; accept), and Google Chrome (for the claude.ai sync).
+Requirements: a Mac, Python 3.9+ (the first `python3` on a Mac offers to install the developer tools; accept), and Chrome or Edge (for the claude.ai sync; either works).
 
 ```bash
 git clone https://github.com/Kapozux/Ephemeris.git

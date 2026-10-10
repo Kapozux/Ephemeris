@@ -62,7 +62,7 @@ claude.ai（每日同步）─┐
 
 ## 安装
 
-需要：一台 Mac、Python 3.9+（Mac 上第一次敲 `python3` 会提示装开发者工具，点安装就行）、Google Chrome（claude.ai 同步用）。
+需要：一台 Mac、Python 3.9+（Mac 上第一次敲 `python3` 会提示装开发者工具，点安装就行）、Chrome 或 Edge（claude.ai 同步用，有一个就行）。
 
 ```bash
 git clone https://github.com/Kapozux/Ephemeris.git

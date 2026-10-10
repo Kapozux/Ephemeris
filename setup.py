@@ -21,6 +21,7 @@ FIELDS = ('GEMINI_API_KEY', 'CLAUDE_SESSION_KEY', 'DIARY_NAME')
 
 
 def _chrome():
+    """自动下载要起一个真浏览器：Chrome、Edge、Brave 都行（chrome.CHROME_CANDIDATES）。"""
     try:
         chrome.find_chrome()
         return True

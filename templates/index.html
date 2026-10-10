@@ -53,6 +53,8 @@
 </aside>
 
 <main class="main" id="main">
+  <!-- 第一次用（新装的电脑）：setup.js。配好 key、有了第一批聊天就不再出现 -->
+  <article id="setup" class="hidden"></article>
   <article id="day" class="hidden">
     <header class="pagehead">
       <div class="pagehead-l">
@@ -153,10 +155,10 @@
         <div class="cv-sync" id="backupBox"></div>
 
         <div class="cv-import" id="importBox">
-          <input type="file" id="importFile" multiple accept=".md,.json,.txt" hidden>
+          <input type="file" id="importFile" multiple accept=".md,.json,.txt,.zip" hidden>
           <div class="cv-import-hint">
             <b>导入新的聊天记录</b>
-            <span>拖文件到这里，或 <a id="importPick">选文件</a>。支持：范围式批量导出（.md / .json）、incognito 单个窗口的 transcript、Gemini 的 sess_*.md、Google Takeout 的 MyActivity JSON（Gemini Apps）。
+            <span>拖文件到这里，或 <a id="importPick">选文件</a>。支持：claude.ai 设置里「导出数据」下载的 .zip、范围式批量导出（.md / .json）、incognito 单个窗口的 transcript、Gemini 的 sess_*.md、Google Takeout 的 MyActivity JSON（Gemini Apps）。
             已有的消息不会重复，只加新的；被改动的那几天日记会作废，等你再补全。</span>
           </div>
           <div id="importResult" class="cv-import-result hidden"></div>

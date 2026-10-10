@@ -18,6 +18,7 @@ import json
 import os
 import re
 import shutil
+import zipfile
 from datetime import datetime, timedelta, timezone
 from html import unescape
 
@@ -124,14 +125,35 @@ def parse_claude_md(path):
             yield {'title': title, 'title_fallback': fallback, 'msgs': msgs}
 
 
-def parse_claude_json(path):
+def _msg_text(m):
+    """一条消息的正文。官方导出里 text 有时是空的，正文在 content 的 text 块里。"""
+    text = (m.get('text') or '').strip()
+    if not text and isinstance(m.get('content'), list):
+        text = '\n\n'.join((b.get('text') or '').strip() for b in m['content']
+                             if isinstance(b, dict) and b.get('type') == 'text' and b.get('text')).strip()
+    return text
+
+
+def _load_claude_json(path):
+    """claude.ai 官方「导出数据」下载的是 zip，里面的 conversations.json 才是对话；直接拖 zip 进来也认。"""
+    if zipfile.is_zipfile(path):
+        with zipfile.ZipFile(path) as z:
+            name = next((n for n in z.namelist() if n.endswith('conversations.json')), None)
+            if not name:
+                raise ValueError('这个 zip 里没有 conversations.json（是不是 claude.ai 导出的那个？）')
+            return json.loads(z.read(name).decode('utf-8'))
     with open(path, encoding='utf-8') as f:
-        data = json.load(f)
+        return json.load(f)
+
+
+def parse_claude_json(path):
+    """两种 JSON：export_claude.js / 每日同步出来的（messages + role），和 claude.ai 官方导出的（chat_messages + sender）。"""
+    data = _load_claude_json(path)
     convs = data.get('conversations', data) if isinstance(data, dict) else data
     for c in convs:
         msgs = []
-        for m in c.get('messages', []):
-            ts, text = m.get('created_at'), (m.get('text') or '').strip()
+        for m in c.get('messages') or c.get('chat_messages') or []:
+            ts, text = m.get('created_at'), _msg_text(m)
             if not (ts and text):
                 continue
             try:
@@ -140,7 +162,7 @@ def parse_claude_json(path):
                 continue
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
-            msgs.append((dt, m.get('role', 'human'), text))
+            msgs.append((dt, m.get('role') or m.get('sender') or 'human', text))
         if msgs:
             # uuid 带出来当窗口身份 —— 指纹是给「没有稳定 id 的导出」用的兜底，
             # 有 uuid 还用指纹的话，同一个对话从 md 和 json 两条路进来会算出两个窗口
@@ -268,6 +290,8 @@ PARSERS = {'claude_md': parse_claude_md, 'claude_json': parse_claude_json, 'gemi
 
 def sniff(path):
     """按内容判断格式和来源。"""
+    if zipfile.is_zipfile(path):
+        return 'claude_json', 'claude'                # claude.ai 官方导出的 zip
     with open(path, 'rb') as f:
         head = f.read(4000).decode('utf-8', errors='replace')
     if head.lstrip().startswith('{') or head.lstrip().startswith('['):

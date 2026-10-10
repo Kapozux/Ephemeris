@@ -11,7 +11,7 @@
        sb- 侧栏   cal- 日历   wl- 侧栏的窗口列表
        pagehead- 页头   day- diary- journal(j-) thread- msg- 某一天   pop- 跨天弹层   tl- win- 按窗口的时间轴
        modal- 浮层   pane- 浮层里各栏共用的骨架   reflect- chart- data- 回顾和数据   th- 主题   rv- 河流
-       cv- 窗口与导入   nt- Notion   set- 设置   fb- 回忆卡
+       cv- 窗口与导入   nt- Notion   set- 设置   su- 开始用（新装时的引导页）   fb- 回忆卡
    - 新加类之前先 grep 一下有没有重名。踩过两次：.k 撞了打卡页，.fb 让窗口列表每一行都变成全屏灰罩
    ============================================================ */
 :root {
@@ -580,3 +580,23 @@ button { font-family:inherit; }
 .fb-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:22px; }
 .fb-loading { padding:40px 0; text-align:center; color:var(--muted); }
 .fb-actions .btn-secondary, .fb-actions .btn-primary { min-height:38px; padding:8px 18px; }
+
+/* ================= 开始用（setup.js）：新装时才有 ================= */
+#setup { max-width:760px; padding-bottom:60px; }
+.su-steps { display:flex; flex-direction:column; gap:14px; margin-top:8px; }
+.su-step { display:flex; gap:16px; padding:20px 22px; background:var(--card); border:1px solid var(--line); border-radius:var(--r-lg); }
+.su-step.done { background:var(--paper); }
+.su-num { flex:none; width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  font-size:13px; font-weight:600; color:var(--coral-deep); background:var(--coral-soft); border:1px solid var(--coral-line); }
+.su-step.done .su-num { color:#fff; background:#5B8C5A; border-color:#5B8C5A; }
+.su-main { flex:1; min-width:0; font-size:13.5px; line-height:1.75; color:var(--ink-soft); }
+.su-main h3 { font-size:15px; font-weight:600; color:var(--ink); margin-bottom:6px; }
+.su-main ol { padding-left:20px; margin:4px 0 8px; }
+.su-main a { color:var(--coral-deep); border-bottom:1px solid var(--coral-line); text-decoration:none; }
+.su-main b { color:var(--ink); }
+.su-note { font-size:12.5px; color:var(--muted); margin:4px 0; }
+.su-field { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:10px; }
+.su-field input { flex:1 1 240px; min-width:0; font:inherit; font-size:13px; padding:7px 10px; color:var(--ink);
+  background:var(--card); border:1px solid var(--line-2); border-radius:var(--r-sm); }
+.su-msg { font-size:12.5px; color:var(--muted); }
+.su-bad { color:var(--coral-deep); }

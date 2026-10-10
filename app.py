@@ -15,7 +15,9 @@
 import os
 import threading
 
-from flask import Flask
+from urllib.parse import urlsplit
+
+from flask import Flask, abort, request
 
 import daily
 import llm
@@ -33,6 +35,26 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0   # 本地工具，改完就要看�
 app.config['TEMPLATES_AUTO_RELOAD'] = True   # 上面那条只管 static；模板不加这条要重启才生效
 for _bp in (routes_day.bp, routes_review.bp, routes_checkin.bp, routes_data.bp):
     app.register_blueprint(_bp)
+
+
+LOCAL_HOSTS = ('localhost', '127.0.0.1', '[::1]')
+
+
+@app.before_request
+def _same_origin_only():
+    """只认本机这个页面发来的请求（2026-10-10）。不加的话，浏览器里随便哪个网页都能偷偷给 localhost:5055 发请求：
+    触发同步、写日记花你的钱、改 .env 里的 key。Host 不是本机的一律拒（防 DNS rebinding）；
+    会改东西的请求（POST / PUT / DELETE）再看 Origin / Sec-Fetch-Site，别的网站来的拒。"""
+    host = (request.host or '').rsplit(':', 1)[0] if not (request.host or '').startswith('[') else request.host.split(']')[0] + ']'
+    if host not in LOCAL_HOSTS:
+        abort(403)
+    if request.method in ('GET', 'HEAD', 'OPTIONS'):
+        return
+    if request.headers.get('Sec-Fetch-Site') == 'cross-site':
+        abort(403)
+    origin = request.headers.get('Origin')
+    if origin and urlsplit(origin).hostname not in ('localhost', '127.0.0.1', '::1'):     # 'null'（沙箱 iframe）也拒
+        abort(403)
 
 
 @app.context_processor

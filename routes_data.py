@@ -3,7 +3,7 @@ import os
 import re
 from datetime import datetime
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, send_from_directory
 from werkzeug.utils import secure_filename
 
 import backup
@@ -43,6 +43,12 @@ def api_conversations_search():
     """「窗口」栏的搜索框：标题和全文（我和 AI 说的都算）。"""
     kw = (request.args.get('q') or '').strip()
     return jsonify({'q': kw, 'hits': search.conversations(kw) if kw else {}})
+
+
+@bp.route('/tools/export_gemini.js')
+def tool_export_gemini():
+    """「窗口与导入」里「复制导出脚本」拿的就是这个文件（在 gemini.google.com 的控制台里跑）。"""
+    return send_from_directory(idx.HERE, 'export_gemini.js', mimetype='text/javascript')
 
 
 @bp.route('/api/imports')

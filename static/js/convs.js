@@ -33,7 +33,7 @@ async function loadConvs() {
   const d = await fetch('/api/conversations').then(r => r.json());
   CONVS = d.conversations;
   // 每个来源新到哪天。太久没新数据的提醒一句怎么补（账号要是没了就导不出来了）
-  const HOW = { gemini: '去 Google Takeout 选「我的活动 → Gemini Apps」导一份拖进来', claude: '看看上面的 claude.ai 同步是不是坏了' };
+  const HOW = { gemini: '用下面「复制导出脚本」在 gemini.google.com 导一份拖进来', claude: '看看上面的 claude.ai 同步是不是坏了' };
   const src = Object.entries(d.by_source).map(([k, v]) => {
     const last = (d.latest || {})[k], ago = last ? Math.round((Date.now() - new Date(last + 'T12:00:00')) / 864e5) : null;
     const name = k === 'claude' ? 'Claude' : k === 'gemini' ? 'Gemini' : k;
@@ -74,6 +74,15 @@ async function doImport(files) {
   loadConvs();
 }
 $('#importPick').onclick = () => $('#importFile').click();
+// Gemini 导出脚本（export_gemini.js）：复制到剪贴板，用户自己去 gemini.google.com 的控制台粘贴
+$('#geminiCopy').onclick = async () => {
+  const say = t => { $('#geminiCopied').textContent = t; };
+  try {
+    const code = await fetch('/tools/export_gemini.js').then(r => { if (!r.ok) throw new Error(r.status); return r.text(); });
+    await navigator.clipboard.writeText(code);
+    say('　已复制，去 Gemini 页面粘贴吧');
+  } catch (e) { say('　没复制上（' + e.message + '）：直接打开 Ephemeris 文件夹里的 export_gemini.js 复制'); }
+};
 $('#importFile').onchange = e => { doImport(e.target.files); e.target.value = ''; };
 const ib = $('#importBox');
 ib.addEventListener('dragover', e => { e.preventDefault(); ib.classList.add('over'); });

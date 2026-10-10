@@ -11,6 +11,7 @@
 !/requirements.txt
 !/*.command
 !/export_claude.js
+!/export_gemini.js
 !/static/
 !/templates/
 !/tests/

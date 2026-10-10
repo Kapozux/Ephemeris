@@ -161,6 +161,10 @@
             <span>拖文件到这里，或 <a id="importPick">选文件</a>。支持：claude.ai 设置里「导出数据」下载的 .zip、范围式批量导出（.md / .json）、incognito 单个窗口的 transcript、Gemini 的 sess_*.md、Google Takeout 的 MyActivity JSON（Gemini Apps）。
             已有的消息不会重复，只加新的；被改动的那几天日记会作废，等你再补全。</span>
           </div>
+          <div class="cv-import-gemini"><b>Gemini 不用等 Takeout</b>
+            <span><a id="geminiCopy">复制导出脚本</a> → 打开 <a href="https://gemini.google.com/app" target="_blank" rel="noopener">gemini.google.com</a>
+            → 按 ⌥⌘J 打开控制台（Windows：Ctrl+Shift+J）→ 粘贴、回车（第一次要先打一行 allow pasting）。几分钟后会下载一个 gemini_export_日期.json，拖到这里。
+            第二次起只拉变过的；以前 Takeout 导进来过的那几轮会自动跳过。<em id="geminiCopied"></em></span></div>
           <div id="importResult" class="cv-import-result hidden"></div>
         </div>
         <div id="convList" class="cv-list"></div>

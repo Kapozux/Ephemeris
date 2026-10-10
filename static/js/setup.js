@@ -35,10 +35,10 @@ function render(s) {
       <p class="su-note">写一天的日记大约 1 美分，Google 按用量收。${s.gemini ? '已经填好了；想换一个就再贴一次。' : ''}</p>
       ${field('suGemini', 'GEMINI_API_KEY', 'AIza 开头的一串')}`)}
     ${STEP(2, s.claude, 'claude.ai 的登录（自动下载以前的聊天）', `
-      ${s.chrome ? '' : '<p class="su-bad">这台电脑上没找到 Google Chrome。先装一个：<a href="https://www.google.com/chrome/" target="_blank" rel="noopener">google.com/chrome</a>，装好再回来。</p>'}
-      <ol><li>用 Chrome 打开 <a href="https://claude.ai" target="_blank" rel="noopener">claude.ai</a>，确认已经登录了。</li>
+      ${s.chrome ? '' : '<p class="su-bad">这台电脑上没找到 Chrome 或 Edge（自动下载要用其中一个）。装一个再回来：<a href="https://www.google.com/chrome/" target="_blank" rel="noopener">Chrome</a> 或 <a href="https://www.microsoft.com/edge" target="_blank" rel="noopener">Edge</a>。</p>'}
+      <ol><li>用 Chrome 或 Edge 打开 <a href="https://claude.ai" target="_blank" rel="noopener">claude.ai</a>，确认已经登录了。</li>
         <li>在页面空白处点右键 →「检查」。</li>
-        <li>在弹出来的那一栏，上面一排找「Application」（中文叫「应用」），点它。</li>
+        <li>在弹出来的那一栏，上面一排找「Application」（中文叫「应用」或「应用程序」），点它。一排里没有的话，点那一排最右边的「»」或「+」找。</li>
         <li>左边找「Cookies」→「https://claude.ai」。</li>
         <li>右边列表里找名字叫 <b>sessionKey</b> 的那一行，双击它的值（sk-ant- 开头），全选、复制，贴到下面。</li></ol>
       <p class="su-note">这一串等于你的登录，别发给别人。它过一段时间会失效，到时候再来贴一次新的。${s.claude ? '已经填好了。' : ''}</p>

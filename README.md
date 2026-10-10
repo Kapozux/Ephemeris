@@ -62,25 +62,34 @@ Importing the same data twice is safe. Messages are de-duplicated, and only days
 
 ## Setup
 
-Requirements: Python 3.9+, Google Chrome (for the claude.ai sync), and a Gemini API key.
-
-> All model calls go through `llm.py`. By default they use Gemini (`gemini-3.5-flash-lite`, falling back to `gemini-2.5-flash`) with `GEMINI_API_KEY` from `.env`. The Gemini client setup is still borrowed from [Verbatim](https://github.com/Kapozux/_Verbatim_), so its `getAudio/` folder must sit next to this one. Set `EPHEMERIS_LLM=verbatim` to use Verbatim's own model routing instead.
+Requirements: a Mac, Python 3.9+ (the first `python3` on a Mac offers to install the developer tools; accept), and Google Chrome (for the claude.ai sync).
 
 ```bash
-pip install flask websocket-client
-cp .env.example .env        # then fill it in
-python app.py               # http://localhost:5055
+git clone https://github.com/Kapozux/Ephemeris.git
+cd Ephemeris
+./run.sh                    # first run installs what it needs (a minute or two), then opens http://localhost:5055
 ```
 
-`.env` keys (all optional except what you use):
+No terminal: double-click `启动 Ephemeris.command` in Finder (keep that window open; closing it stops Ephemeris).
+
+The first launch shows a "Get started" page with three steps: paste a Gemini key, paste your claude.ai sessionKey, press "Start download". What you paste is written only to the local `.env`. Once that's done the page never shows again.
+Rather not hand over the sessionKey? Drop the .zip from claude.ai's "Export data" into "Windows & import".
+
+`.env` keys (anything set on that page is already there; skip what you don't use):
 
 | Key | For |
 | --- | --- |
-| `CLAUDE_SESSION_KEY`, `CLAUDE_ORG_ID` | daily claude.ai sync (your browser cookie) |
-| `NOTION_TOKEN`, `NOTION_DIARY_DS` | Notion sync (internal integration secret + the database's data_source_id) |
-| `GEMINI_API_KEY` | model calls (falls back to the key saved in Verbatim's settings) |
-| `EPHEMERIS_LLM` | `gemini` (default) or `verbatim` |
+| `GEMINI_API_KEY` | diaries and reviews (required) |
+| `CLAUDE_SESSION_KEY` | daily claude.ai sync (your browser cookie); `CLAUDE_ORG_ID` is looked up if empty |
 | `DIARY_NAME` | what the diary prompts call you |
+| `NOTION_TOKEN`, `NOTION_DIARY_DS` | Notion sync (internal integration secret + the database's data_source_id) |
+| `OPENROUTER_API_KEY` | only for Settings → handoff pack |
+| `EPHEMERIS_LLM` | `gemini` (default) or `verbatim` (Verbatim's model routing; needs Verbatim next to this folder) |
+
+> All model calls go through `llm.py`, which uses `google-genai` directly (`gemini-3.5-flash-lite`, falling back to `gemini-2.5-flash`).
+> If [Verbatim](https://github.com/Kapozux/_Verbatim_)'s `getAudio/` sits next to this folder, missing keys are read from it and spend is logged to its ledger; without it everything still works.
+
+Only requests from this page itself are accepted: requests from other websites or other host names are refused, so a web page can't quietly make it sync, write diaries or change keys.
 
 ## Privacy
 

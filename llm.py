@@ -14,8 +14,11 @@
 - 调用失败只返回 None，上层不报错：哪天借的函数改名了，日记会一篇都写不出来却没人知道。
 
 后端（.env 的 EPHEMERIS_LLM 选）：
-  gemini   默认。Gemini flash-lite，不行退一档 2.5-flash。key 用 .env 的 GEMINI_API_KEY，没有就借 Verbatim 的。
-  verbatim 跟着 Verbatim 的 reflect._call_model 走（含它的省钱分流）。
+  gemini   默认。Gemini flash-lite，不行退一档 2.5-flash。直接用 google-genai，key 是 .env 的 GEMINI_API_KEY。
+  verbatim 跟着 Verbatim 的 reflect._call_model 走（含它的省钱分流）。旁边要有 Verbatim 的 getAudio/。
+
+单独装的 Ephemeris（2026-10-10 起）不需要 Verbatim。旁边放着 Verbatim 的话（作者自己的电脑），
+key 没填会去读它存的（只读它的 .env / settings.local.json，不 import 它的代码），花费也顺带记进它的账本。
 测试可以 `use(假函数)` 换掉后端。
 """
 import json
@@ -40,18 +43,58 @@ def _getaudio():
         sys.path.append(GETAUDIO)        # 放在最后：别让 getAudio 的同名模块（app.py）盖掉自己的
 
 
+def _borrowed(env_name, setting):
+    """旁边 Verbatim 存的值：先看它的 .env，再看网页设置 settings.local.json。没有 Verbatim 就是空串。"""
+    try:
+        with open(os.path.join(GETAUDIO, '.env'), encoding='utf-8') as f:
+            for line in f:
+                if line.startswith(env_name + '='):
+                    v = line.split('=', 1)[1].strip().strip('"').strip("'")
+                    if v:
+                        return v
+    except OSError:
+        pass
+    try:
+        with open(os.path.join(GETAUDIO, 'settings.local.json'), encoding='utf-8') as f:
+            return (json.load(f).get(setting) or '').strip()
+    except (OSError, ValueError):
+        return ''
+
+
+def key(env_name, setting):
+    """一个凭证：Ephemeris 自己的（环境变量 / ephemeris/.env）优先，没有再借 Verbatim 的。"""
+    return idx.env(env_name) or _borrowed(env_name, setting)
+
+
+def _record(fn_name, *a):
+    """旁边有 Verbatim：这一笔花费记进它的账本（usage.db）。没有就算了，记账失败也不影响结果。"""
+    if not os.path.isdir(GETAUDIO):
+        return
+    try:
+        _getaudio()
+        import usage
+        getattr(usage, fn_name)(*a)
+    except Exception:                                        # noqa: BLE001
+        pass
+
+
 def backend():
     return (idx.env('EPHEMERIS_LLM') or 'gemini').strip().lower()
 
 
+def _client(api_key=None):
+    """api_key 不给就用存着的（「开始用」页验证新 key 时才传）。"""
+    from google import genai
+    from google.genai import types
+    k = api_key or key('GEMINI_API_KEY', 'gemini_key')
+    if not k:
+        raise RuntimeError('没有 Gemini key：在 ephemeris/.env 里填 GEMINI_API_KEY（打开 Ephemeris 的「开始用」页有步骤）')
+    base = key('GEMINI_BASE_URL', 'gemini_base_url') or None          # 要走代理的才填
+    return genai.Client(api_key=k, http_options=types.HttpOptions(timeout=600_000, base_url=base))
+
+
 def _gemini(prompt, model=None):
-    _getaudio()
-    import config                       # getAudio/config.py：建 client 的办法和 key 的存放处
-    import usage
-    key = idx.env('GEMINI_API_KEY') or config.gemini_key()
-    if not key:
-        raise RuntimeError('没有 Gemini key：在 ephemeris/.env 设 GEMINI_API_KEY，或在 Verbatim 的设置里填')
-    client = config.make_gemini_client(key)
+    client = _client()
     err = None
     for m in ((model,) if model else MODELS):
         try:
@@ -59,10 +102,7 @@ def _gemini(prompt, model=None):
         except Exception as e:                               # noqa: BLE001
             err = e
             continue
-        try:
-            usage.record_gemini(resp, m, 'ephemeris')
-        except Exception:                                    # noqa: BLE001  记账失败不影响结果
-            pass
+        _record('record_gemini', resp, m, 'ephemeris')
         text = (resp.text or '').strip()
         if text:
             return text
@@ -99,14 +139,7 @@ def strong_model():
 
 
 def openrouter_key():
-    key = (idx.env('OPENROUTER_API_KEY') or os.environ.get('OPENROUTER_API_KEY') or '').strip()
-    if key:
-        return key
-    try:                                    # Verbatim 网页设置里填的 key 存在这里（不进仓库）
-        with open(os.path.join(GETAUDIO, 'settings.local.json'), encoding='utf-8') as f:
-            return (json.load(f).get('openrouter_key') or '').strip()
-    except (OSError, ValueError):
-        return ''
+    return key('OPENROUTER_API_KEY', 'openrouter_key')
 
 
 def ask_strong(prompt, max_tokens=16000):
@@ -116,7 +149,7 @@ def ask_strong(prompt, max_tokens=16000):
     import requests
     key = openrouter_key()
     if not key:
-        raise RuntimeError('没有 OpenRouter key：在 Verbatim 的设置 → OpenRouter 里填，或在 ephemeris/.env 设 OPENROUTER_API_KEY')
+        raise RuntimeError('没有 OpenRouter key：在 ephemeris/.env 里填 OPENROUTER_API_KEY（只有交接包要用）')
     model = strong_model()
     r = requests.post(OPENROUTER, timeout=900, headers={'Authorization': f'Bearer {key}'},
                       json={'model': model, 'max_tokens': max_tokens, 'usage': {'include': True},
@@ -124,12 +157,7 @@ def ask_strong(prompt, max_tokens=16000):
     if r.status_code != 200:
         raise RuntimeError(f'{model} 返回 {r.status_code}：{r.text[:200]}')
     body = r.json()
-    try:
-        _getaudio()
-        import usage
-        usage.record_openai(body, 'openrouter', model, 'ephemeris')
-    except Exception:                                        # noqa: BLE001  记账失败不影响结果
-        pass
+    _record('record_openai', body, 'openrouter', model, 'ephemeris')
     text = ((body.get('choices') or [{}])[0].get('message') or {}).get('content') or ''
     if not text.strip():
         raise RuntimeError(f'{model} 返回空')
@@ -225,14 +253,11 @@ def status():
 def check():
     """启动时调一下：后端能不能建起来（不真的调模型）。返回错误说明或 None。"""
     try:
-        _getaudio()
         if backend() == 'verbatim':
+            _getaudio()
             from reflect import _call_model      # noqa: F401
         else:
-            import config
-            if not (idx.env('GEMINI_API_KEY') or config.gemini_key()):
-                return '没有 Gemini key'
-            config.make_gemini_client                     # noqa: B018  属性还在就行
+            _client()
     except Exception as e:                                   # noqa: BLE001
         return f'{type(e).__name__}: {e}'
     return None

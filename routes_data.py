@@ -11,6 +11,7 @@ import daily
 import export
 import index as idx
 import search
+import setup
 import store
 import to_notion
 
@@ -120,6 +121,19 @@ def api_export_run(kind):
 @bp.route('/api/export/<kind>/open', methods=['POST'])
 def api_export_open(kind):
     return jsonify({'ok': export.reveal(kind)})
+
+
+# ------------------------------------------------------------------ 第一次用（setup.py）
+
+@bp.route('/api/setup')
+def api_setup():
+    return jsonify(setup.status())
+
+
+@bp.route('/api/setup', methods=['POST'])
+def api_setup_save():
+    """「开始用」页填的 key 写进 .env。只回填了没有，不回值。"""
+    return jsonify(setup.save(request.get_json(silent=True) or {}))
 
 
 # ------------------------------------------------------------------ Notion（to_notion.py）

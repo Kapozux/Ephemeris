@@ -8,6 +8,8 @@
 !/README.zh-CN.md
 !/*.py
 !/run.sh
+!/requirements.txt
+!/*.command
 !/export_claude.js
 !/static/
 !/templates/

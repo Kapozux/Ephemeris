@@ -14,6 +14,7 @@ import { openModal, closeModal } from './panel.js';
 import { invalidateReflect } from './reflect.js';
 import { openFlashback, closeFlashback } from './flashback.js';
 import { openWindow, ensureWindows } from './windows.js';
+import { maybeSetup } from './setup.js';
 
 let LATEST = null;      // 冷启动落在哪天：最近一篇写好的日记
 
@@ -167,6 +168,7 @@ document.addEventListener('keydown', e => {
   await watchBatch();
   // 冷启动交给路由：hash 里有什么就恢复什么，没有就落到最近一天
   LATEST = d.latest;
+  await maybeSetup();                  // 新装的：先出「开始用」页（配好就不再出现）
   setRouter(applyRoute);
   // 刚打开页面时，地址里如果是浮层（面板 / 回忆卡），不要直接弹出来：
   // 那是上次关页面时停在那儿留下的（浏览器恢复标签页也会带着），打开应用第一眼应该是日记。

@@ -62,25 +62,35 @@ claude.ai（每日同步）─┐
 
 ## 安装
 
-需要：Python 3.9+、Google Chrome（claude.ai 同步用）、Gemini API key。
-
-> 所有模型调用都走 `llm.py`。默认用 Gemini（`gemini-3.5-flash-lite`，不行退到 `gemini-2.5-flash`），key 读 `.env` 的 `GEMINI_API_KEY`。建 Gemini 客户端的代码仍借自 [Verbatim](https://github.com/Kapozux/_Verbatim_)，所以它的 `getAudio/` 文件夹要放在旁边。设 `EPHEMERIS_LLM=verbatim` 可以改走 Verbatim 自己的模型分流。
+需要：一台 Mac、Python 3.9+（Mac 上第一次敲 `python3` 会提示装开发者工具，点安装就行）、Google Chrome（claude.ai 同步用）。
 
 ```bash
-pip install flask websocket-client
-cp .env.example .env        # 然后填上
-python app.py               # http://localhost:5055
+git clone https://github.com/Kapozux/Ephemeris.git
+cd Ephemeris
+./run.sh                    # 第一次会自己装需要的东西（一两分钟），然后打开 http://localhost:5055
 ```
 
-`.env` 里的字段（用不到的可以不填）：
+不想开终端：在 Finder 里双击 `启动 Ephemeris.command`（那个窗口别关，关了 Ephemeris 就停了）。
+
+第一次打开会出「开始用」页，照着做三件事：贴 Gemini key、贴 claude.ai 的 sessionKey、点「开始下载」。
+填的东西只写进本机的 `.env`。弄好之后这一页就不再出现。
+也可以不给 sessionKey：claude.ai 设置里「导出数据」下载的 .zip，直接拖进「窗口与导入」。
+
+`.env` 里的字段（页面上填过的不用再管；用不到的可以不填）：
 
 | 字段 | 用途 |
 | --- | --- |
-| `CLAUDE_SESSION_KEY`、`CLAUDE_ORG_ID` | 每日 claude.ai 同步（浏览器里的 cookie） |
-| `NOTION_TOKEN`、`NOTION_DIARY_DS` | Notion 同步（internal integration secret + 数据库的 data_source_id） |
-| `GEMINI_API_KEY` | 调模型（没填就用 Verbatim 设置里存的 key） |
-| `EPHEMERIS_LLM` | `gemini`（默认）或 `verbatim` |
+| `GEMINI_API_KEY` | 写日记、回顾（必须） |
+| `CLAUDE_SESSION_KEY` | 每日 claude.ai 同步（浏览器里的 cookie）；`CLAUDE_ORG_ID` 可以不填 |
 | `DIARY_NAME` | 日记 prompt 里怎么称呼你 |
+| `NOTION_TOKEN`、`NOTION_DIARY_DS` | Notion 同步（internal integration secret + 数据库的 data_source_id） |
+| `OPENROUTER_API_KEY` | 只有「设置 → 交接包」用 |
+| `EPHEMERIS_LLM` | `gemini`（默认）或 `verbatim`（跟着 Verbatim 的模型分流，要把 Verbatim 放在旁边） |
+
+> 所有模型调用都走 `llm.py`，直接用 `google-genai`（`gemini-3.5-flash-lite`，不行退到 `gemini-2.5-flash`）。
+> 旁边放着 [Verbatim](https://github.com/Kapozux/_Verbatim_) 的 `getAudio/` 的话，key 没填会借它存的，花费也会记进它的账本；没有也完全能用。
+
+只接受本机这个页面发来的请求：别的网站、别的域名指过来的请求一律拒，免得网页偷偷让它同步、写日记、改 key。
 
 ## 隐私
 

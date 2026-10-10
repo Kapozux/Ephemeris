@@ -64,6 +64,33 @@ class ImportKeepsOldDiaries(unittest.TestCase):
         self.assertEqual(store.one('SELECT COUNT(*) n FROM messages')['n'], 1)
 
 
+class OfficialClaudeExport(unittest.TestCase):
+    """claude.ai 设置里「导出数据」下载的 zip：conversations.json 里是 chat_messages + sender，正文有时只在 content 里。"""
+    def setUp(self):
+        with store.tx() as db:
+            for t in ('messages', 'conversations'):
+                db.execute(f'DELETE FROM {t}')
+        self.tmp = tempfile.mkdtemp(prefix='ephemeris-zip-')
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_zip_from_claude_settings(self):
+        import zipfile
+        convs = [{'uuid': 'u-1', 'name': '学做菜', 'chat_messages': [
+            {'sender': 'human', 'text': '红烧肉怎么做', 'created_at': '2026-03-03T04:00:00Z'},
+            {'sender': 'assistant', 'text': '', 'content': [{'type': 'text', 'text': '先焯水'}], 'created_at': '2026-03-03T04:01:00Z'}]}]
+        p = os.path.join(self.tmp, 'data-2026-03-04.zip')
+        with zipfile.ZipFile(p, 'w') as z:
+            z.writestr('conversations.json', json.dumps(convs, ensure_ascii=False))
+            z.writestr('users.json', '[]')
+        self.assertEqual(idx.sniff(p), ('claude_json', 'claude'))
+        r = idx.ingest(store.connect(), p)
+        self.assertEqual((r['n_convs'], r['n_msgs']), (1, 2))
+        rows = store.q('SELECT role, text FROM messages ORDER BY ts')
+        self.assertEqual([(x['role'], x['text']) for x in rows], [('human', '红烧肉怎么做'), ('assistant', '先焯水')])
+
+
 class NotionNeverDeletes(unittest.TestCase):
     def setUp(self):
         with store.tx() as db:

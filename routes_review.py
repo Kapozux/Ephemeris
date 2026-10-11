@@ -1,8 +1,10 @@
 """回顾：一段时间在聊什么（回顾面板、话题河流、主题账本），和按窗口回顾。"""
 from flask import Blueprint, jsonify, request
 
+import cards
 import conv_review
 import ledger
+import qa
 import reflect_chat
 import river
 import store
@@ -84,3 +86,42 @@ def api_window_day(conv_id, date):
                  WHERE conv_id=? AND date=? ORDER BY ts""", conv_id, date)
     return jsonify({'date': date, 'messages': rows,
                     'human': sum(1 for r in rows if r['role'] == 'human')})
+
+
+# ---------------------------------------------------------------- 问（qa.py）+ 证据卡（cards.py）
+
+@bp.route('/api/qa')
+def api_qa():
+    """「问」那一栏：证据卡做到哪了（还差几天、估价、正在做的进度）+ 对话记录。"""
+    return jsonify({'cards': cards.status(), 'history': qa.history()})
+
+
+@bp.route('/api/qa/ask', methods=['POST'])
+def api_qa_ask():
+    q = ((request.get_json(silent=True) or {}).get('question') or '').strip()
+    if not q:
+        return jsonify({'error': '问题是空的'}), 400
+    try:
+        return jsonify(qa.answer(q))
+    except Exception as e:                                   # noqa: BLE001
+        return jsonify({'error': f'{type(e).__name__}: {e}'[:300]}), 500
+
+
+@bp.route('/api/qa/clear', methods=['POST'])
+def api_qa_clear():
+    qa.clear()
+    return jsonify({'ok': True})
+
+
+@bp.route('/api/qa/cards', methods=['POST'])
+def api_qa_cards():
+    """做卡：month=YYYY-MM 只做那个月，不给就把还差的天都做了。花钱的，前端先问过再调。"""
+    month = (request.get_json(silent=True) or {}).get('month') or ''
+    todo = [d for d in cards.due() if d.startswith(month)]
+    return jsonify(cards.start(todo))
+
+
+@bp.route('/api/qa/cards/stop', methods=['POST'])
+def api_qa_cards_stop():
+    cards.stop()
+    return jsonify(cards.status())

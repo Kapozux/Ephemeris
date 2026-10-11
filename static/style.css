@@ -11,7 +11,7 @@
        sb- 侧栏   cal- 日历   wl- 侧栏的窗口列表
        pagehead- 页头   day- diary- journal(j-) thread- msg- 某一天   pop- 跨天弹层   tl- win- 按窗口的时间轴
        modal- 浮层   pane- 浮层里各栏共用的骨架   reflect- chart- data- 回顾和数据   th- 主题   rv- 河流
-       cv- 窗口与导入   nt- Notion   set- 设置   su- 开始用（新装时的引导页）   fb- 回忆卡
+       cv- 窗口与导入   nt- Notion   set- 设置   qa- 问（证据卡问答）   su- 开始用（新装时的引导页）   fb- 回忆卡
    - 新加类之前先 grep 一下有没有重名。踩过两次：.k 撞了打卡页，.fb 让窗口列表每一行都变成全屏灰罩
    ============================================================ */
 :root {
@@ -604,3 +604,32 @@ button { font-family:inherit; }
   background:var(--card); border:1px solid var(--line-2); border-radius:var(--r-sm); }
 .su-msg { font-size:12.5px; color:var(--muted); }
 .su-bad { color:var(--coral-deep); }
+
+/* ================= 问（qa.js）：只凭证据卡回答的聊天窗口 ================= */
+.modal-pane[data-pane="qa"].active { display:flex; flex-direction:column; min-height:100%; }
+.qa-clear { cursor:pointer; font-size:12px; color:var(--muted); border-bottom:1px solid var(--line-2); }
+.qa-cards { margin-top:14px; padding:9px 12px; font-size:12.5px; color:var(--ink-soft); background:var(--paper); border:1px solid var(--line); border-radius:var(--r-sm); }
+.qa-cards a { cursor:pointer; color:var(--coral-deep); border-bottom:1px solid var(--coral-line); }
+.qa-bad { color:var(--coral-deep); }
+.qa-log { flex:1; display:flex; flex-direction:column; gap:14px; margin-top:18px; padding-bottom:14px; }
+.qa-empty { color:var(--muted); font-size:13px; padding:24px 0; }
+.qa-q { align-self:flex-end; max-width:80%; padding:9px 13px; background:var(--coral-soft); border:1px solid var(--coral-line); border-radius:var(--r-lg) var(--r-lg) var(--r-xs) var(--r-lg); font-size:14px; line-height:1.6; white-space:pre-wrap; }
+.qa-a { max-width:92%; font-size:14px; line-height:1.8; color:var(--ink); }
+.qa-a p { margin:0 0 8px; }
+.qa-a ul { margin:0 0 8px; padding-left:20px; }
+.qa-a.qa-wait { color:var(--muted); font-size:13px; }
+.qa-cite { cursor:pointer; font-size:10.5px; font-weight:600; color:var(--coral-deep); padding:0 2px; text-decoration:none; }
+.qa-cite:hover { text-decoration:underline; }
+.qa-src { margin-top:6px; font-size:12.5px; }
+.qa-src summary { cursor:pointer; color:var(--muted); }
+.qa-src-row { display:flex; gap:10px; align-items:baseline; padding:8px 6px; border-top:1px solid var(--line); border-radius:var(--r-xs); }
+.qa-src-row.hl { background:var(--mark); }
+.qa-src-n { flex:none; width:16px; color:var(--coral-deep); font-weight:600; text-align:right; }
+.qa-src-main { flex:1; min-width:0; color:var(--ink-soft); line-height:1.6; }
+.qa-src-meta { display:block; font-size:11.5px; color:var(--muted); }
+.qa-src-q { display:block; color:var(--muted); }
+.qa-go { flex:none; cursor:pointer; font-size:12px; color:var(--muted); border-bottom:1px solid var(--line-2); white-space:nowrap; }
+.qa-go:hover { color:var(--coral-deep); border-color:var(--coral); }
+.qa-form { position:sticky; bottom:-40px; margin-bottom:-40px; display:flex; gap:8px; align-items:flex-end; padding:12px 0 40px; background:var(--card); border-top:1px solid var(--line); }   /* 盖住浮层底下 40px 的留白，滚上去的内容不从下面透出来 */
+.qa-form textarea { flex:1; min-width:0; resize:none; font:inherit; font-size:14px; line-height:1.5; padding:9px 11px; color:var(--ink); background:var(--card); border:1px solid var(--line-2); border-radius:var(--r-sm); }
+.qa-form textarea:focus { outline:none; border-color:var(--coral); }

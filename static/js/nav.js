@@ -10,7 +10,7 @@
 //   #/flashback[/year]                      回忆卡（随便一天 / 去年今天），快捷键 R
 //   #/win                                   窗口模式，还没选
 //   #/win/<conv_id>                         某个窗口的时间轴
-//   #/panel/reflect|themes|river|data|convs|notion|settings  浮层里的面板
+//   #/panel/reflect|qa|themes|river|data|convs|notion|settings  浮层里的面板
 //   #/panel/themes/<id>                     展开某个主题
 //   /checkin[?date=]                         打卡：单独的全屏页（旧的 #/panel/checkin 会跳过去）
 import { S } from './state.js';

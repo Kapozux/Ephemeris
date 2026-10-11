@@ -38,7 +38,7 @@ EVERY_DAYS = 1
 SKIP_TABLES = ('sqlite_sequence', 'backups', 'backup_files', 'backup_keys')
 # 只增不减的核心表 → 主键列
 CORE = {'messages': 'id', 'conversations': 'id', 'journal': 'page_id', 'checkins': 'id',
-        'diaries': 'date', 'imports': 'id', 'mood_ratings': 'date'}
+        'diaries': 'date', 'imports': 'id', 'mood_ratings': 'date', 'cards': 'id', 'card_days': 'date'}
 # 只增不减、但改了不存旧版本的：窗口那行全是统计数（条数、最后一条时间），每次同步都变，存下来只是噪音
 NO_VERSIONS = {'conversations'}   # 再加上名字里带 _fts 的（全文索引，能重建）；备份自己的记账不备
 

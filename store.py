@@ -119,6 +119,31 @@ CREATE TABLE IF NOT EXISTS checkins (
 CREATE INDEX IF NOT EXISTS checkins_date ON checkins(date);
 CREATE TABLE IF NOT EXISTS star_notes (month TEXT PRIMARY KEY, fingerprint TEXT, text TEXT, made_at TEXT);
 
+-- ---------------------------------------------------------------- 证据卡 + 问答（cards.py / qa.py，2026-10-11）
+-- 一张卡 = 某天某条消息里的一个要点，带逐字原话（quote 必须在那条消息里找得到，找不到的卡不收）。
+-- id = 「日期·序号」；who：me | ai。card_days 记每天做到哪、那天消息的指纹（变了才重做）、花了多少
+CREATE TABLE IF NOT EXISTS cards (
+  id TEXT PRIMARY KEY, date TEXT NOT NULL, conv_id TEXT, msg_id TEXT, who TEXT, kind TEXT,
+  text TEXT, quote TEXT, made_at TEXT
+);
+CREATE INDEX IF NOT EXISTS cards_date ON cards(date);
+CREATE VIRTUAL TABLE IF NOT EXISTS cards_fts USING fts5(
+  text, quote, content='cards', content_rowid='rowid', tokenize='trigram', detail=none
+);
+CREATE TRIGGER IF NOT EXISTS cards_fts_ai AFTER INSERT ON cards BEGIN
+  INSERT INTO cards_fts(rowid, text, quote) VALUES (new.rowid, new.text, new.quote);
+END;
+CREATE TRIGGER IF NOT EXISTS cards_fts_ad AFTER DELETE ON cards BEGIN
+  INSERT INTO cards_fts(cards_fts, rowid, text, quote) VALUES ('delete', old.rowid, old.text, old.quote);
+END;
+CREATE TABLE IF NOT EXISTS card_days (
+  date TEXT PRIMARY KEY, fp TEXT, n INTEGER, dropped INTEGER, cost REAL, made_at TEXT
+);
+-- 「问」那个聊天窗口的记录。cites：这条回答引用的卡（存一份快照，卡重做了旧回答照样看得懂）
+CREATE TABLE IF NOT EXISTS qa_chat (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, role TEXT, text TEXT, cites TEXT
+);
+
 -- ---------------------------------------------------------------- 心情分（mood.py）
 -- src：hand（手写日记读出的「过得怎么样」，-2..+2）| friction（聊天里「卡得多狠」，0..4）| 实验留下的 ai / both
 CREATE TABLE IF NOT EXISTS mood_scores (

@@ -30,7 +30,7 @@ class Route(unittest.TestCase):
         saved = requests.post
         requests.post = lambda *a, **k: (self.sent.append('deepseek'), R())[1]
         self.addCleanup(setattr, requests, 'post', saved)
-        llm._cheap_routes = lambda: [('fake', 'http://x', 'k', 'm', {})]
+        llm._cheap_routes = lambda all_routes=False: [('fake', 'http://x', 'k', 'm', {})]
 
     def test_ordinary_goes_to_deepseek(self):
         self.fake_route()
@@ -55,6 +55,41 @@ class Route(unittest.TestCase):
         self.fake_route(ok=False)
         self.assertEqual(llm.ask('帮我看看这道题'), 'G')
         self.assertEqual(self.sent, ['deepseek', 'gemini'])
+
+    def test_no_fallback_means_failure_not_gemini(self):
+        """证据卡大批量：DeepSeek 限流就算失败，不悄悄回 Gemini（贵 3～5 倍）。涉政的照样走 Gemini。"""
+        self.fake_route(ok=False)
+        self.assertIsNone(llm.ask('帮我看看这道题', fallback=False))
+        self.assertEqual(self.sent, ['deepseek'])
+        self.assertEqual(llm.ask('聊聊共产党和文革那段历史', fallback=False), 'G')
+
+    def test_moderation_block_goes_to_gemini_even_without_fallback(self):
+        import requests
+
+        class R:
+            status_code = 400
+            text = '{"error":{"code":"data_inspection_failed"}}'
+        saved = requests.post
+        requests.post = lambda *a, **k: (self.sent.append('deepseek'), R())[1]
+        self.addCleanup(setattr, requests, 'post', saved)
+        llm._cheap_routes = lambda all_routes=False: [('fake', 'http://x', 'k', 'm', {})]
+        self.assertEqual(llm.ask('词表里没有、审核却拦的话', fallback=False), 'G')
+        self.assertEqual(self.sent, ['deepseek', 'gemini'])
+
+    def test_all_routes_paused_is_failure_not_gemini(self):
+        """10-12 的坑：两条路都被停了，以前当成「没有 DeepSeek」直接退到 Gemini。现在 fallback=False 就是失败。"""
+        llm._cheap_routes = lambda all_routes=False: [('fake', 'http://x', 'k', 'm', {})] if all_routes else []
+        self.assertIsNone(llm.ask('帮我看看这道题', fallback=False))
+        self.assertEqual(self.sent, [])
+
+    def test_network_glitch_does_not_pause(self):
+        llm._paused.clear()
+        llm._pause('x', "HTTPSConnectionPool: SSLError(SSLEOFError(8, 'EOF occurred'))")
+        llm._pause('x', 'Expecting value: line 443 column 1')
+        self.assertNotIn('x', llm._paused)
+        llm._pause('x', '400: Access denied, please make sure your account is in good standing')
+        self.assertIn('x', llm._paused)
+        llm._paused.clear()
 
     def test_prompt_templates_have_no_political_words(self):
         """模板里要是有词表里的词，每次调用都会被判成涉政（Verbatim 吃过这个亏）。"""

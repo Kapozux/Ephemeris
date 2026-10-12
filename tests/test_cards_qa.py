@@ -40,11 +40,13 @@ class Cards(unittest.TestCase):
             {'m': 1, 'k': '决定', 't': '我决定 ED 交 CMU', 'q': 'ED 交 CMU，UIUC 放 EA'},
             {'m': 2, 'k': '建议', 't': 'AI 建议收窄主文书论点', 'q': '先把主文书第二段的论点收窄'},
             {'m': 1, 'k': '决定', 't': '编的', 'q': '我决定不申请了'},           # 原话里没有 → 丢
-            {'m': 9, 'k': '事实', 't': '编号不对', 'q': 'CMU'}])               # 没有第 9 条 → 丢
+            {'m': 9, 'k': '事实', 't': '编号不对', 'q': 'CMU'},                # 没有第 9 条 → 丢
+            {'m': 1, 'k': '建议', 't': 'AI 说先改文书', 'q': '主文书第二段'}])      # 编号写错，原话只在第 2 条 → 改指第 2 条
         r = cards.build_day(DAY)
-        self.assertEqual((r['n'], r['dropped']), (2, 2))
+        self.assertEqual((r['n'], r['dropped']), (3, 2))
         rows = store.q('SELECT id, who, kind, msg_id FROM cards ORDER BY id')
-        self.assertEqual([(x['id'], x['who'], x['msg_id']) for x in rows], [(f'{DAY}·1', 'me', 'm1'), (f'{DAY}·2', 'ai', 'm2')])
+        self.assertEqual([(x['id'], x['who'], x['msg_id']) for x in rows],
+                         [(f'{DAY}·1', 'me', 'm1'), (f'{DAY}·2', 'ai', 'm2'), (f'{DAY}·3', 'ai', 'm2')])
         self.assertNotIn('很长的文章', self.prompts[0])                      # 粘贴的长文不送
         self.assertEqual(cards.due([DAY]), [])
 

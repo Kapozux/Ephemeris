@@ -26,6 +26,7 @@ import os
 import re
 import sys
 import threading
+import time
 
 import index as idx
 
@@ -116,6 +117,107 @@ def _verbatim(prompt, model=None):
     return _call_model(prompt)
 
 
+# ------------------------------------------------------------------ 省钱路由：不涉政的都给 DeepSeek V4 Flash
+# 2026-10-12 用户：「证据卡给 Gemini 贵死了，除非涉政，都给 deepseek v4 flash」。照 Verbatim 的 llmroute.py：
+# DeepSeek V4 Flash 每百万 token 约 $0.14 进 / $0.28 出，Gemini 3.1-flash-lite 是 $0.25 / $1.50、3.5-flash-lite $0.30 / $2.50。
+#   · 时政词（繁简 + 英文，抄自 Verbatim）在整段提示词里出现 GUARD_MIN 次以上 → 只走 Gemini，不给国内服务商
+#     （泛中国词「中国 / 上海 / 高考」不算：聊天里天天有，Verbatim 10-04 吃过这个亏）。
+#     **提示词模板里别写词表里的词**，不然每次都被判成涉政（tests/test_cheap_route 会扫一遍）。
+#     博主名（立党、马督工、夸克说、王局、王志安、睡前消息）和「体制内」不算：用户聊 Verbatim 开发、升学时天天提这几个名字，
+#     9 月一个月「立党」出现 272 次，算进去的话几乎每块都被判涉政（10-12 实测 09-15 六块全走了 Gemini）。Verbatim 的 deepseek_guard 也是这么剔的。
+#   · 路线按顺序：阿里云百炼 → DeepSeek 官方（.env 填了 DEEPSEEK_API_KEY 才有）→ OpenRouter 上的 DeepSeek；
+#     一条报错就试下一条，全不行才回 Gemini。欠费 / key 错这种会连着失败的，那条停 30 分钟。
+#   · 关掉：.env 里 EPHEMERIS_CHEAP=off。交接包（ask_strong）不归这里管。
+GUARD_MIN = 2
+PAUSE_S = 30 * 60
+_POL_ZH = """中共 共产党 共產黨 习近平 習近平 习主席 習主席 总书记 總書記 毛泽东 毛澤東 邓小平 鄧小平 江泽民 江澤民
+胡锦涛 胡錦濤 温家宝 溫家寶 李克强 李克強 王沪宁 王滬寧 党中央 黨中央 政治局 中南海 六四 天安门 天安門 八九民运
+法轮功 法輪功 新疆 维吾尔 維吾爾 西藏 达赖 達賴 台独 台獨 臺獨 港独 港獨 反送中 民主化 极权 極權 独裁 獨裁 专制 專制
+维权 維權 上访 上訪 言论审查 言論審查 内容审查 內容審查 网络审查 網絡審查 審查制度 审查制度 电影审查 電影審查 新闻审查 新聞審查
+防火墙 防火牆 翻墙 翻牆 敏感词 敏感詞 文革 文化大革命 大跃进 大躍進 大饥荒 大饑荒
+刘晓波 劉曉波 艾未未 李文亮 白纸运动 白紙運動 清零 封控 人权 人權 言论自由 言論自由 政权 政權 颠覆国家 顛覆國家 颠覆政权 顛覆政權 维稳 維穩
+国安 國安 统战 統戰 两岸 兩岸 解放军 解放軍 武统 武統 台海 臺海 战狼 戰狼 小粉红 小粉紅 五毛 润学 潤學 党媒 黨媒
+官媒 新闻联播 新聞聯播 人民日报 人民日報 环球时报 環球時報 胡锡进 胡錫進 司马南 司馬南
+墙国 牆國 赵家人 趙家人 中宣部 网信办 網信辦 宣传部 宣傳部
+共匪 中华人民共和国 中華人民共和國 国务院 國務院 政协 政協""".split()
+_POL_EN = [r'CCP', r'CPC', r'Chinese Communist', r'Communist Party', r'Xi Jinping', r'Tiananmen', r'Uy?gh?urs?',
+           r'Xinjiang', r'Tibet(?:an)?', r'Dalai Lama', r'Falun Gong', r'Taiwan independence', r'Hong Kong protests?',
+           r'Great Firewall', r'PRC', r'Chinese government', r'Beijing regime']
+_POLITICAL = re.compile('|'.join(map(re.escape, _POL_ZH)) + r'|\b(?:' + '|'.join(_POL_EN) + r')\b')
+_cheap_state = {'calls': 0, 'guarded': 0, 'fallback': 0, 'last_error': None}
+_paused = {}                                     # 路线名 → 停到什么时候
+
+
+def political(text):
+    """命中的时政词（列表）。出现 GUARD_MIN 次以上就不给国内模型。"""
+    return _POLITICAL.findall(text or '')
+
+
+def cheap_on():
+    return (idx.env('EPHEMERIS_CHEAP') or 'on').strip().lower() not in ('off', '0', 'false', 'no') and bool(_cheap_routes())
+
+
+def _cheap_routes():
+    now = time.time()
+    out = []
+    ds = key('DASHSCOPE_API_KEY', 'dashscope_key')
+    if ds:
+        out.append(('aliyun', 'https://dashscope.aliyuncs.com/compatible-mode/v1', ds,
+                    idx.env('EPHEMERIS_CHEAP_MODEL') or 'deepseek-v4-flash-0731', {'enable_thinking': False}))
+    dk = key('DEEPSEEK_API_KEY', 'deepseek_key')
+    if dk:
+        out.append(('deepseek', 'https://api.deepseek.com/v1', dk, 'deepseek-v4-flash', {}))
+    ok = openrouter_key()
+    if ok:
+        out.append(('openrouter', 'https://openrouter.ai/api/v1', ok, 'deepseek/deepseek-v4-flash',
+                    {'reasoning': {'enabled': False}, 'usage': {'include': True}}))
+    return [r for r in out if _paused.get(r[0], 0) <= now]
+
+
+def _pause(name, err):
+    s = str(err)
+    if any(k in s for k in ('data_inspection', 'DataInspection', 'inappropriate', 'timeout', 'Timeout', 'timed out',
+                            '429', '500', '502', '503', '504')):
+        return                                   # 审核拦截、超时、限流只是这一次
+    _paused[name] = time.time() + PAUSE_S
+    print(f'[llm] {name} 停 30 分钟：{s[:160]}', flush=True)
+
+
+def _cheap(prompt):
+    """走 DeepSeek，拿到文字就返回；涉政、没有路线、全失败返回 None（调用方接着用 Gemini）。"""
+    if len(political(prompt)) >= GUARD_MIN:
+        with _lock:
+            _cheap_state['guarded'] += 1
+        return None
+    import requests
+    for name, base, k, model, extra in _cheap_routes():
+        try:
+            r = requests.post(base + '/chat/completions', timeout=300, headers={'Authorization': f'Bearer {k}'},
+                              json={'model': model, 'messages': [{'role': 'user', 'content': prompt}], **extra})
+            if r.status_code != 200:
+                raise RuntimeError(f'{r.status_code}: {r.text[:200]}')
+            body = r.json()
+            text = (((body.get('choices') or [{}])[0].get('message') or {}).get('content') or '').strip()
+            if not text:
+                raise RuntimeError('返回空')
+            _record('record_openai', body, name, model, 'ephemeris')
+            with _lock:
+                _cheap_state['calls'] += 1
+            return text
+        except Exception as e:                               # noqa: BLE001
+            with _lock:
+                _cheap_state['last_error'] = f'{name}: {e}'[:200]
+            _pause(name, e)
+    with _lock:
+        _cheap_state['fallback'] += 1
+    return None
+
+
+def prices():
+    """(每 token 进, 每 token 出) 美元：估价用。能走 DeepSeek 就按它算（涉政的那一小部分按 Gemini，忽略）。"""
+    return (0.14 / 1e6, 0.28 / 1e6) if cheap_on() else (0.25 / 1e6, 1.50 / 1e6)
+
+
 def _call(prompt, model=None):
     if _override:
         return _override(prompt)
@@ -124,6 +226,10 @@ def _call(prompt, model=None):
         return _verbatim(prompt, model)
     if b != 'gemini':
         raise RuntimeError(f'不认识的 EPHEMERIS_LLM：{b}（只有 gemini / verbatim）')
+    if cheap_on():
+        text = _cheap(prompt)
+        if text:
+            return text
     return _gemini(prompt, model)
 
 
@@ -247,7 +353,8 @@ def use(fn):
 
 
 def status():
-    return {'backend': backend(), **_state}
+    return {'backend': backend(), **_state, 'cheap': {'on': cheap_on(), **_cheap_state,
+            'routes': [r[0] for r in _cheap_routes()], 'paused': [n for n, t in _paused.items() if t > time.time()]}}
 
 
 def check():

@@ -9,7 +9,7 @@
 一张卡只说一件事：我想的 / 决定的 / 感受 / 计划 / 经历，或者 AI 的建议 / 解释 / 判断。
 **原话必须逐字在那条消息里找得到**，找不到的卡直接丢（模型改写过的「原话」不算出处）；核对不花钱。
 不做卡的：我粘贴进来的长文（单条超过 PASTE_CHARS 字，多半是文章、日志、别的聊天导出）。
-模型用 gemini-3.1-flash-lite：照着原文归纳的机械活，比 3.5-flash-lite 便宜（Verbatim 的摘要也是它）。
+模型：默认走 llm 的省钱路由（DeepSeek V4 Flash，2026-10-12 起）；涉政的那几块、或者没有 DeepSeek 的路时用 gemini-3.1-flash-lite。
 卡的 id =「日期·序号」。某天来了新消息（同步晚到）会整天重做，序号会变；问答记录里存了卡的快照，旧回答照样能看。
 """
 import hashlib
@@ -23,8 +23,7 @@ import jobs
 import llm
 import store
 
-MODEL = 'gemini-3.1-flash-lite'
-PRICE_IN, PRICE_OUT = 0.25 / 1e6, 1.50 / 1e6      # 每 token 美元；中文约一个字一个 token
+MODEL = 'gemini-3.1-flash-lite'                    # 只在不走 DeepSeek 时用（涉政、或者没有 DeepSeek 的路）
 OUT_RATIO = 0.06                                   # 卡片输出大约是输入的 6%（9 月试跑后按实际改）
 PASTE_CHARS = 2000                                 # 我发的单条超过这么多字：当粘贴，不做卡
 CHUNK_CHARS = 40000                                # 一次送多少字
@@ -41,8 +40,8 @@ PROMPT = """下面是 {date} 这一天「我」和 AI 的聊天记录，每条�
 - 一张卡只说一件事。
 - **「我」说的优先，而且要做全**：我说过的每一处有内容的话都做卡——我在想什么、决定了什么、什么感受、
   打算做什么、经历了什么、具体的事实（分数、名字、数字、进度、和谁怎样了）。哪怕很短、很口语、带脏话，只要有内容就做。
-- AI 说的只挑真正有分量的建议、解释、判断（我后来可能照着做、或者回头查的），套话、客套、长篇代码不做。
-  AI 的卡不要比「我」的多。
+- AI 说的也要做：每一条有实质内容的 AI 回复，挑它最重要的 1～3 个建议、解释或判断各做一张
+  （我后来可能照着做、或者回头查的）。套话、客套、复述我的话、长篇代码不做。
 - k 只能是：{kinds}。
 - t：直白的一句话，不超过 50 字。「我」说的用「我……」，AI 说的用「AI ……」开头。不评价、不修饰。
 - q：从那条消息里**一字不差地抄**一段（10～80 字），能支撑这张卡。不能改字、不能拼接、不能省略。
@@ -126,9 +125,17 @@ def _verify(chunk, raw):
             dropped += 1
             continue
         q, t, k = (c.get('q') or '').strip(), (c.get('t') or '').strip(), (c.get('k') or '').strip()
-        if not q or not t or len(_norm(q)) < 4 or _norm(q) not in _norm(m['text']):
+        nq = _norm(q)
+        if not q or not t or len(nq) < 4:
             dropped += 1
             continue
+        if nq not in _norm(m['text']):
+            # 原话是对的、编号写错了：这一块里只有一条消息有这句 → 改指那条（照 Verbatim 代码卡「原文唯一但行号错就改行号」）
+            others = [x for x in chunk if nq in _norm(x['text'])]
+            if len(others) != 1:
+                dropped += 1
+                continue
+            m = others[0]
         good.append({'conv_id': m['conv_id'], 'msg_id': m['id'], 'who': 'me' if m['role'] == 'human' else 'ai',
                      'kind': k if k in KINDS else '事实', 'text': t[:120], 'quote': q[:200]})
     return good, dropped
@@ -142,7 +149,8 @@ def build_day(date):
         prompt = PROMPT.format(date=date, kinds=' / '.join(KINDS), body=_body(chunk))
         raw = llm.ask_json(prompt, want=list, tries=2, model=MODEL)
         got, bad = _verify(chunk, raw or [])
-        return got, bad, len(prompt) * PRICE_IN + len(json.dumps(raw or [], ensure_ascii=False)) * PRICE_OUT
+        pin, pout = llm.prices()
+        return got, bad, len(prompt) * pin + len(json.dumps(raw or [], ensure_ascii=False)) * pout
 
     # 一天的几块一起送（一块 4 万字要一两分钟）；结果按块的顺序拼，卡的序号还是按时间
     with ThreadPoolExecutor(max_workers=PARALLEL) as pool:
@@ -171,7 +179,8 @@ def due(dates=None):
 
 def estimate(dates):
     stats = _day_stats(set(dates))
-    return round(sum(stats[d][1] for d in dates if d in stats) * (PRICE_IN + PRICE_OUT * OUT_RATIO), 2)
+    pin, pout = llm.prices()
+    return round(sum(stats[d][1] for d in dates if d in stats) * (pin + pout * OUT_RATIO), 2)
 
 
 def _run(job, dates):

@@ -9,3 +9,4 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 if 'DIARY_DB' not in os.environ:
     os.environ['DIARY_DB'] = os.path.join(tempfile.mkdtemp(prefix='ephemeris-test-'), 'test.db')
+os.environ['EPHEMERIS_NO_USAGE'] = '1'          # 别往旁边 Verbatim 的真账本（usage.db）里记测试的假调用

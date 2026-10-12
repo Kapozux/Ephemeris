@@ -37,7 +37,8 @@ function renderCards(c) {
   const j = c.job || {}, box = $('#qaCards');
   clearTimeout(POLL);
   if (j.running) {
-    box.innerHTML = `<span class="pulse"></span> 正在做证据卡 ${j.done} / ${j.total} 天${j.current ? ` · ${j.current}` : ''} · 已花 $${(j.cost || 0).toFixed(2)} · <a id="qaStop">停下</a>`;
+    box.innerHTML = `<span class="pulse"></span> 正在做证据卡 ${j.done} / ${j.total} 天${j.current ? ` · ${j.current}` : ''} · 已花 $${(j.cost || 0).toFixed(2)}`
+      + (j.failed_days ? ` · ${j.failed_days} 天没做全（限流 / 断线），做完再补` : '') + ` · <a id="qaStop">停下</a>`;
     $('#qaStop').onclick = async () => { await fetch('/api/qa/cards/stop', { method: 'POST' }); };
     POLL = setTimeout(loadQA, 3000);
     return;

@@ -19,6 +19,7 @@ import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
+import index as idx
 import jobs
 import llm
 import store
@@ -29,6 +30,7 @@ PASTE_CHARS = 2000                                 # 我发的单条超过这么
 CHUNK_CHARS = 40000                                # 一次送多少字
 MSG_CHARS = 12000                                  # AI 单条回复太长时只看前这么多字
 PARALLEL = 4                                       # 一天的几块同时送几块
+DAY_PARALLEL = int(idx.env('EPHEMERIS_CARDS_DAYS') or 6)   # 同时做几天（乘 PARALLEL 就是最多几个请求在飞）
 KINDS = ('想法', '决定', '感受', '计划', '经历', '事实', '建议', '解释', '判断')
 JOB = 'cards'
 
@@ -119,6 +121,9 @@ def _verify(chunk, raw):
     """模型给的卡 → 核对过的卡。原话找不到、编号不对、类型不对的丢掉。返回 (卡, 丢了几张)。"""
     good, dropped = [], 0
     for c in raw if isinstance(raw, list) else []:
+        if not isinstance(c, dict):                      # 模型偶尔吐一串数字之类的（10-12 全量做卡时把整个任务弄崩过）
+            dropped += 1
+            continue
         try:
             m = chunk[int(c.get('m')) - 1]
         except (TypeError, ValueError, IndexError):
@@ -147,26 +152,28 @@ def build_day(date):
 
     def one(chunk):
         prompt = PROMPT.format(date=date, kinds=' / '.join(KINDS), body=_body(chunk))
-        raw = llm.ask_json(prompt, want=list, tries=2, model=MODEL)
+        raw = llm.ask_json(prompt, want=list, tries=2, model=MODEL, fallback=False)   # None = 两次都没拿到；DeepSeek 限流不回 Gemini
         got, bad = _verify(chunk, raw or [])
         pin, pout = llm.prices()
-        return got, bad, len(prompt) * pin + len(json.dumps(raw or [], ensure_ascii=False)) * pout
+        return got, bad, len(prompt) * pin + len(json.dumps(raw or [], ensure_ascii=False)) * pout, raw is None
 
     # 一天的几块一起送（一块 4 万字要一两分钟）；结果按块的顺序拼，卡的序号还是按时间
     with ThreadPoolExecutor(max_workers=PARALLEL) as pool:
         results = list(pool.map(one, _chunks(rows)))
-    cards = [c for got, _, _ in results for c in got]
-    dropped = sum(b for _, b, _ in results)
-    cost = sum(c for _, _, c in results)
+    cards = [c for got, _, _, _ in results for c in got]
+    dropped = sum(r[1] for r in results)
+    cost = sum(r[2] for r in results)
+    failed = sum(1 for r in results if r[3])
     now = datetime.now().isoformat(timespec='seconds')
     with store.tx() as db:
         db.execute('DELETE FROM cards WHERE date=?', (date,))
         db.executemany('INSERT INTO cards (id, date, conv_id, msg_id, who, kind, text, quote, made_at) VALUES (?,?,?,?,?,?,?,?,?)',
                        [(f'{date}·{i}', date, c['conv_id'], c['msg_id'], c['who'], c['kind'], c['text'], c['quote'], now)
                         for i, c in enumerate(cards, 1)])
+        # 有块没拿到（断线、限流、JSON 坏了）：这天不算做完（指纹记空），下次 due() 还会把它挑出来整天重做
         db.execute('INSERT OR REPLACE INTO card_days (date, fp, n, dropped, cost, made_at) VALUES (?,?,?,?,?,?)',
-                   (date, _fp(rows), len(cards), dropped, round(cost, 5), now))
-    return {'n': len(cards), 'dropped': dropped, 'cost': cost}
+                   (date, '' if failed else _fp(rows), len(cards), dropped, round(cost, 5), now))
+    return {'n': len(cards), 'dropped': dropped, 'cost': cost, 'failed': failed}
 
 
 def due(dates=None):
@@ -183,21 +190,38 @@ def estimate(dates):
     return round(sum(stats[d][1] for d in dates if d in stats) * (pin + pout * OUT_RATIO), 2)
 
 
+def _safe_day(date):
+    """一天出错只算这一天没做全（下次 due() 还会挑出来），不让整个任务停掉。"""
+    try:
+        return build_day(date)
+    except Exception as e:                                   # noqa: BLE001
+        print(f'[cards] {date} 失败：{type(e).__name__}: {e}', flush=True)
+        return {'n': 0, 'dropped': 0, 'cost': 0.0, 'failed': 1}
+
+
 def _run(job, dates):
-    job['total'], job['done'], job['cost'], job['cards'] = len(dates), 0, 0.0, 0
-    for d in dates:
-        if job.get('stop'):
-            break
-        job['current'] = d
-        r = build_day(d)
-        job['done'] += 1
-        job['cost'] = round(job['cost'] + r['cost'], 4)
-        job['cards'] += r['n']
+    """一次做 DAY_PARALLEL 天（每天里面再分 PARALLEL 块同时送）；每做完一批看一眼「停下」。"""
+    job['total'], job['done'], job['cost'], job['cards'], job['failed_days'] = len(dates), 0, 0.0, 0, 0
+    with ThreadPoolExecutor(max_workers=DAY_PARALLEL) as pool:
+        for i in range(0, len(dates), DAY_PARALLEL):
+            if job.get('stop'):
+                break
+            batch = dates[i:i + DAY_PARALLEL]
+            job['current'] = ' / '.join(batch)
+            results = list(pool.map(_safe_day, batch))
+            for r in results:
+                job['done'] += 1
+                job['cost'] = round(job['cost'] + r['cost'], 4)
+                job['cards'] += r['n']
+                job['failed_days'] += bool(r['failed'])
+            # 一整批都没做成：多半是 DeepSeek 两条路都连不上 / 欠费了。停下，别空跑完剩下几百天
+            if len(batch) > 1 and all(r['failed'] for r in results):
+                raise RuntimeError('DeepSeek 连着失败（欠费 / 连不上），先停了，没有改用 Gemini；修好再点「做上」接着做')
     return job['done']
 
 
 def start(dates):
-    jobs.start(JOB, _run, list(dates), stop=False, done=0, total=len(dates), cost=0.0, cards=0)
+    jobs.start(JOB, _run, list(dates), stop=False, done=0, total=len(dates), cost=0.0, cards=0, failed_days=0)
     return status()
 
 

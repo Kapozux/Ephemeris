@@ -56,6 +56,17 @@ class Cards(unittest.TestCase):
         store.run('INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?)', 'm4', 'c1', 'claude', f'{DAY}T09:00', DAY, '09:00', 'human', '又来一句', 4)
         self.assertEqual(cards.due([DAY]), [DAY])
 
+    def test_garbage_items_are_dropped_not_fatal(self):
+        self.fake([3, 'x', {'m': 1, 'k': '决定', 't': '我决定 ED 交 CMU', 'q': 'ED 交 CMU'}])
+        r = cards.build_day(DAY)
+        self.assertEqual((r['n'], r['dropped']), (1, 2))
+
+    def test_failed_block_leaves_day_due(self):
+        llm.use(lambda p: 'not json at all')                                 # 两次都解析不出 → 这一块算没拿到
+        r = cards.build_day(DAY)
+        self.assertEqual(r['failed'], 1)
+        self.assertEqual(cards.due([DAY]), [DAY])                            # 下次还会重做
+
     def test_search_index_follows_cards(self):
         self.fake([{'m': 1, 'k': '决定', 't': '我决定 ED 交 CMU', 'q': 'ED 交 CMU'}])
         cards.build_day(DAY)

@@ -94,7 +94,9 @@ def api_window_day(conv_id, date):
 @bp.route('/api/qa')
 def api_qa():
     """「问」那一栏：证据卡做到哪了（还差几天、估价、正在做的进度）+ 对话记录。"""
-    return jsonify({'cards': cards.status(), 'history': qa.history(), 'live': qa.live()})
+    thread = request.args.get('thread', type=int) or qa.current()
+    return jsonify({'cards': cards.status(), 'history': qa.history(thread=thread), 'live': qa.live(),
+                    'thread': thread, 'threads': qa.threads()})
 
 
 @bp.route('/api/qa/live')
@@ -117,13 +119,13 @@ def api_qa_ask():
         except Exception as e:                           # noqa: BLE001
             return jsonify({'error': f'{type(e).__name__}: {e}'[:300]}), 500
     # 后台问、边写边看：进度在 /api/qa/live
-    return jsonify({'started': qa.start_ask(q, bool(body.get('deep'))), 'live': qa.live()})
+    return jsonify({'started': qa.start_ask(q, bool(body.get('deep')), body.get('thread')), 'live': qa.live()})
 
 
-@bp.route('/api/qa/clear', methods=['POST'])
-def api_qa_clear():
-    qa.clear()
-    return jsonify({'ok': True})
+@bp.route('/api/qa/new', methods=['POST'])
+@bp.route('/api/qa/clear', methods=['POST'])           # 老名字：以前是清空，现在是开一段新的（以前的留着）
+def api_qa_new():
+    return jsonify({'ok': True, 'thread': qa.new_thread()})
 
 
 @bp.route('/api/qa/cards', methods=['POST'])

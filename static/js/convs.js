@@ -36,7 +36,7 @@ async function loadConvs() {
   const HOW = { gemini: '用下面「复制导出脚本」在 gemini.google.com 导一份拖进来', claude: '看看上面的 claude.ai 同步是不是坏了' };
   const src = Object.entries(d.by_source).map(([k, v]) => {
     const last = (d.latest || {})[k], ago = last ? Math.round((Date.now() - new Date(last + 'T12:00:00')) / 864e5) : null;
-    const name = k === 'claude' ? 'Claude' : k === 'gemini' ? 'Gemini' : k;
+    const name = k === 'claude' ? 'Claude' : k === 'gemini' ? 'Gemini' : k === 'ask' ? '问' : k;
     return `${name} ${v}` + (last ? `（最新 ${last.slice(5)}${ago > 30 ? `，${ago} 天前 · ${HOW[k] || '导一份新的补上'}` : ''}）` : '');
   }).join(' · ');
   $('#convSub').textContent = `${d.total} 个窗口（${src}），其中 ${d.multi_day} 个横跨多天。最新的在上面。`;

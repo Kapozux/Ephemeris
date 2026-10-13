@@ -1,8 +1,10 @@
 """在终端里用「问」（2026-10-13 用户：网页被自律软件挡了，应急用）。调本机 5055 的 /api/qa/ask，记录跟网页那边是同一份。
 
-python ask.py                    一直问，空行 / Ctrl-D 退出；/clear 清掉对话；/claude 切换「问 Claude」（深挖）开关
-python ask.py 问题……              只问这一句（快：只看证据卡，十来秒）
-python ask.py --claude 问题……     问 Claude：它自己去搜原文、翻卡、读前后文再答（一两分钟，用 Claude 订阅额度）
+python ask.py                    一直问，空行 / Ctrl-D 退出。/new 开一段新对话；/list 以前的对话；/open 编号 打开那段接着问；
+                                 /claude 切换「问 Claude」开关
+python ask.py 问题……              问 Claude（默认）：它自己去搜原文、翻卡、读前后文再答（一两分钟，用 Claude 订阅额度）
+python ask.py --fast 问题……       快：只看证据卡，十来秒
+问过的都记着（跟网页同一份），也会写进当天的日记。
 """
 import json
 import re
@@ -46,9 +48,12 @@ def sources(cites):
     print()
 
 
-def ask(q, deep=False):
+THREAD = [None]                                          # 正在用的那段对话（None = 服务器上最近那段）
+
+
+def ask(q, deep=True):
     try:
-        r = _post('/api/qa/ask', {'question': q, 'deep': deep})
+        r = _post('/api/qa/ask', {'question': q, 'deep': deep, 'thread': THREAD[0]})
         if r.get('error') or not r.get('started'):
             print(f"\n没开始：{r.get('error') or '上一个问题还没答完'}\n")
             return
@@ -85,14 +90,31 @@ def ask(q, deep=False):
         print(f'连不上 Ephemeris（{e}）：应用开着吗？\n')
 
 
+def threads():
+    d = _get('/api/qa' + (f'?thread={THREAD[0]}' if THREAD[0] else ''))
+    THREAD[0] = d['thread']
+    for t in d['threads'][:20]:
+        mark = ' ◀' if t['id'] == d['thread'] else ''
+        print(f"  {t['id']:>4}  {t['updated'][5:16].replace('T', ' ')}  {t['n']:>3} 句  {t['title'] or '新对话'}{mark}")
+    print()
+
+
+def show_thread():
+    d = _get(f'/api/qa?thread={THREAD[0]}')
+    for t in d['history'][-6:]:
+        n = {c['id']: i for i, c in enumerate(t['cites'], 1)}
+        text = re.sub(r'\[\[([^\]]+)\]\]', lambda m: f'[{n[m.group(1)]}]' if m.group(1) in n else '', t['text'])
+        print(('> ' if t['role'] == 'user' else '') + text + '\n')
+
+
 if __name__ == '__main__':
     args = sys.argv[1:]
-    deep = '--claude' in args
-    args = [a for a in args if a != '--claude']
+    deep = '--fast' not in args
+    args = [a for a in args if a not in ('--fast', '--claude')]
     if args:
         ask(' '.join(args), deep)
         sys.exit()
-    print('问吧（空行退出，/clear 清掉对话，/claude 切换深挖）。[n] 是出处。\n')
+    print('问吧（空行退出；/new 新对话，/list 以前的对话，/open 编号 打开那段，/claude 切换深挖）。[n] 是出处。\n')
     while True:
         try:
             q = input('(Claude) > ' if deep else '> ').strip()
@@ -100,9 +122,16 @@ if __name__ == '__main__':
             break
         if not q:
             break
-        if q == '/clear':
-            _post('/api/qa/clear', {})
-            print('清掉了。\n')
+        if q in ('/new', '/clear'):
+            THREAD[0] = _post('/api/qa/new', {})['thread']
+            print('开了一段新对话（以前的用 /list 看）。\n')
+            continue
+        if q == '/list':
+            threads()
+            continue
+        if q.startswith('/open'):
+            THREAD[0] = int(q.split()[1]) if len(q.split()) > 1 and q.split()[1].isdigit() else THREAD[0]
+            show_thread()
             continue
         if q == '/claude':
             deep = not deep

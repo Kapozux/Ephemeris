@@ -154,6 +154,8 @@ CREATE TABLE IF NOT EXISTS card_days (
 CREATE TABLE IF NOT EXISTS qa_chat (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, role TEXT, text TEXT, cites TEXT
 );
+-- 一段一段的对话（2026-10-13）：qa_chat.thread_id 指这里；title = 第一个问题。每句也写进 messages（来源 ask，窗口 id = ask-<id>）
+CREATE TABLE IF NOT EXISTS qa_threads (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, created TEXT, updated TEXT);
 
 -- ---------------------------------------------------------------- 重复窗口的存档（dedup.py，2026-10-13）
 -- 同一个窗口手动导入一份（指纹 id）、自动同步又一份（uuid）：多出来的那份整份挪到这里（JSON 原样），正常的表里看不到。
@@ -208,7 +210,7 @@ _ADD_COLUMNS = [
     ('conversations', 'title_fallback', 'INTEGER DEFAULT 0'), ('conversations', 'n_days', 'INTEGER'),
     ('conversations', 'first_import', 'TEXT'), ('conversations', 'last_import', 'TEXT'),
     ('themes', 'desc', 'TEXT'), ('checkins', 'reply', 'TEXT'), ('diaries', 'added_later', 'INTEGER DEFAULT 0'),
-    ('journal', 'gone_at', 'TEXT'), ('qa_chat', 'sid', 'TEXT'),
+    ('journal', 'gone_at', 'TEXT'), ('qa_chat', 'sid', 'TEXT'), ('qa_chat', 'thread_id', 'INTEGER'),
     ('backups', 'files_written', 'INTEGER'), ('backups', 'files_total', 'INTEGER'),
     ('backups', 'bytes_written', 'INTEGER'), ('backups', 'warning', 'TEXT'),
 ]
@@ -228,6 +230,11 @@ def _migrate(db):
     for table, col, typ in _ADD_COLUMNS:
         if col not in _cols(db, table):
             db.execute(f'ALTER TABLE {table} ADD COLUMN {col} {typ}')
+    # 「问」分成一段一段的对话（2026-10-13）：以前那一条记录归进一段「以前的问答」
+    if db.execute('SELECT 1 FROM qa_chat WHERE thread_id IS NULL LIMIT 1').fetchone():
+        first, last = db.execute('SELECT MIN(ts), MAX(ts) FROM qa_chat WHERE thread_id IS NULL').fetchone()
+        tid = db.execute("INSERT INTO qa_threads (title, created, updated) VALUES ('以前的问答', ?, ?)", (first, last)).lastrowid
+        db.execute('UPDATE qa_chat SET thread_id=? WHERE thread_id IS NULL', (tid,))
     # theme_days 加 src 进主键（2026-09-27）：主键变了只能重建表
     if 'src' not in _cols(db, 'theme_days'):
         db.executescript("""

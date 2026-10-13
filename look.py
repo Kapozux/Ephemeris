@@ -8,13 +8,13 @@ python look.py convs <关键词>                                                
 python look.py day   <YYYY-MM-DD>                                                      那天有哪些窗口、那天的日记、手写日记
 
 出处记号：消息是 m:<id>，卡是 c:<id>。回答时照抄就能被 Ephemeris 认回原话。
+搜原文 / 找窗口不看「问」自己的对话（来源 ask）：不然会引到自己以前的回答。
 """
 import argparse
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import cards   # noqa: E402
 import qa      # noqa: E402
 import store   # noqa: E402
 
@@ -50,9 +50,9 @@ def msgs(a):
     who = {'me': " AND m.role='human'", 'ai': " AND m.role='assistant'"}.get(a.who or '', '')
     rows = store.q(f"""SELECT m.id, m.date, m.hhmm, m.role, m.text, m.chars, c.title FROM messages m
                         JOIN conversations c ON c.id = m.conv_id
-                       WHERE m.text LIKE ?{rng}{who} ORDER BY m.ts {'ASC' if a.old else 'DESC'} LIMIT ?""",
+                       WHERE m.text LIKE ?{rng}{who} AND m.source <> 'ask' ORDER BY m.ts {'ASC' if a.old else 'DESC'} LIMIT ?""",
                    f'%{kw}%', *args, a.n)
-    total = store.one(f"SELECT COUNT(*) n FROM messages m WHERE m.text LIKE ?{rng}{who}", f'%{kw}%', *args)['n']
+    total = store.one(f"SELECT COUNT(*) n FROM messages m WHERE m.text LIKE ?{rng}{who} AND m.source <> 'ask'", f'%{kw}%', *args)['n']
     print(f'「{kw}」原文命中 {total} 条，列出 {len(rows)} 条（{"最早" if a.old else "最新"}的在前）')
     for r in rows:
         print(f"[m:{r['id']}] {r['date']} {r['hhmm']} {WHO.get(r['role'], r['role'])} 《{r['title'] or '无标题'}》 {_around(r['text'], kw)}")
@@ -110,8 +110,8 @@ def convs(a):
                              (SELECT MIN(date) FROM messages m WHERE m.conv_id = c.id) first,
                              (SELECT MAX(date) FROM messages m WHERE m.conv_id = c.id) last
                         FROM conversations c LEFT JOIN card_convs s ON s.conv_id = c.id
-                       WHERE c.title LIKE ? OR s.summary LIKE ? OR EXISTS
-                             (SELECT 1 FROM messages m WHERE m.conv_id = c.id AND m.text LIKE ?)
+                       WHERE c.source <> 'ask' AND (c.title LIKE ? OR s.summary LIKE ? OR EXISTS
+                             (SELECT 1 FROM messages m WHERE m.conv_id = c.id AND m.text LIKE ?))
                        ORDER BY hits DESC LIMIT 25""", *([f'%{kw}%'] * 4))
     print(f'「{kw}」出现在 {len(rows)} 个窗口（命中多的在前，最多 25 个）')
     for r in rows:

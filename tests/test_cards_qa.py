@@ -19,7 +19,7 @@ def add(mid, conv, day, hh, role, text):
 
 def seed():
     with store.tx() as db:
-        for t in ('messages', 'conversations', 'cards', 'card_convs', 'card_vecs', 'qa_chat'):
+        for t in ('messages', 'conversations', 'cards', 'card_convs', 'card_vecs', 'qa_chat', 'qa_threads'):
             db.execute(f'DELETE FROM {t}')
         db.execute("INSERT INTO conversations(id, source, title) VALUES ('c1', 'claude', '申请季')")
     add('m1', 'c1', DAY, '01:00', 'human', '我决定 ED 交 CMU，UIUC 放 EA。')
@@ -294,6 +294,54 @@ class Streaming(unittest.TestCase):
         self.assertEqual(live['partial'], '你决定 ED 交 CMU [c1]。')
         self.assertEqual([c['id'] for c in live['result']['cites']], ['m1·1'])
         self.assertEqual(qa.history()[-1]['role'], 'assistant')
+
+
+
+class Threads(unittest.TestCase):
+    """「问」一段一段存、能翻回去；每句也进聊天记录（来源 ask，算进日记），但不做卡、不算重复、问 Claude 的搜原文不看它。"""
+    def setUp(self):
+        seed()
+        llm.use(lambda p: out([{'m': 1, 'k': '决定', 'p': '美本申请', 't': '我决定 ED 交 CMU', 'q': 'ED 交 CMU'}]))
+        cards.build_conv('c1')
+        llm.use(lambda p: json.dumps({'q': 'x', 'keywords': ['CMU'], 'since': None, 'until': None})
+                if p.startswith('你在帮一个人查') else '你决定 ED 交 CMU [c1]。')
+
+    def tearDown(self):
+        llm.use(None)
+
+    def test_each_turn_is_a_chat_message(self):
+        r = qa.answer('我早申交的哪？')
+        cid = f"ask-{r['thread']}"
+        msgs = store.q('SELECT role, text, source FROM messages WHERE conv_id=? ORDER BY ts', cid)
+        self.assertEqual([(m['role'], m['source']) for m in msgs], [('human', 'ask'), ('assistant', 'ask')])
+        self.assertEqual(msgs[1]['text'], '你决定 ED 交 CMU 。')                         # 出处记号不进聊天记录
+        self.assertEqual(store.one('SELECT title, n_msgs FROM conversations WHERE id=?', cid),
+                         {'title': '问：我早申交的哪？', 'n_msgs': 1})
+
+    def test_new_thread_keeps_the_old_one(self):
+        a = qa.answer('我早申交的哪？')['thread']
+        b = qa.new_thread()
+        qa.answer('第二段对话的问题')
+        self.assertNotEqual(a, b)
+        self.assertEqual([t['id'] for t in qa.threads()], [b, a])                       # 最近的在前，旧的还在
+        self.assertEqual(qa.history(thread=a)[0]['text'], '我早申交的哪？')
+        self.assertEqual(qa.history()[0]['text'], '第二段对话的问题')                    # 默认是正在用的那段
+
+    def test_ask_conversations_are_not_carded_or_deduped_or_searched_by_look(self):
+        import dedup
+        import io
+        import contextlib
+        import look
+        qa.answer('CMU 文书')
+        qa.new_thread()
+        qa.answer('CMU 文书')                                                          # 两段问了同一句
+        self.assertFalse(any(c.startswith('ask-') for c, _ in cards.due()))
+        self.assertEqual(dedup.find(store.connect())[0], [])
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            look.main(['msgs', 'CMU'])
+        self.assertNotIn('ask-', buf.getvalue())
+        self.assertIn('m:m1', buf.getvalue())
 
 
 if __name__ == '__main__':

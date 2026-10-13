@@ -166,7 +166,7 @@ button { font-family:inherit; }
 .threads-head h2 { font-size:19px; font-weight:400; letter-spacing:-.01em; }
 .threads-srclegend { margin-left:auto; font-size:11px; color:var(--muted); display:flex; gap:10px; align-items:center; }
 .src { display:inline-block; width:6px; height:6px; border-radius:50%; flex:none; margin-right:4px; }
-.src.claude { background:var(--claude); } .src.gemini { background:var(--gemini); }
+.src.claude { background:var(--claude); } .src.gemini { background:var(--gemini); } .src.ask { background:var(--coral); }
 .threads-body { overflow-y:auto; min-height:0; padding:4px 6px 8px; scrollbar-width:thin; }
 
 .thread { border-bottom:1px solid var(--line); }
@@ -608,6 +608,11 @@ button { font-family:inherit; }
 /* ================= 问（qa.js）：只凭证据卡回答的聊天窗口 ================= */
 .modal-pane[data-pane="qa"].active { display:flex; flex-direction:column; min-height:100%; }
 .qa-clear { cursor:pointer; font-size:12px; color:var(--muted); border-bottom:1px solid var(--line-2); }
+.qa-threads { max-width:220px; text-overflow:ellipsis; }
+@media (max-width: 700px) {                       /* 窄屏：下拉框和「新对话」换到标题下面一行，别把说明挤成一条 */
+  .modal-pane[data-pane="qa"] .pane-top { flex-wrap:wrap; gap:10px; }
+  .qa-threads { max-width:calc(100vw - 120px); }
+}
 .qa-cards { margin-top:14px; padding:9px 12px; font-size:12.5px; color:var(--ink-soft); background:var(--paper); border:1px solid var(--line); border-radius:var(--r-sm); }
 .qa-cards a { cursor:pointer; color:var(--coral-deep); border-bottom:1px solid var(--coral-line); }
 .qa-bad { color:var(--coral-deep); }

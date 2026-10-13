@@ -27,7 +27,7 @@ import jobs
 import llm
 import store
 
-BUDGET_CHARS = 80000          # 送给回答那一步的卡，最多这么多字（走 DeepSeek，一问一答约 $0.01；10-13 用户：效果优先）
+BUDGET_CHARS = 45000          # 送给回答那一步的卡，最多这么多字（Claude Opus 写，一问等值约 $0.2；8 万字是 DeepSeek 时放宽的，Claude 要 $0.68）
 RRF_K = 60                    # 两路名次融合的常数（RRF 的通用值）
 SUMMARY_CHARS = 6000          # 回答时带上相关窗口的小结，最多这么多字
 FOLLOW_UP = 30                # 追问时带上上一轮引用过的卡，最多这么多张
@@ -213,7 +213,7 @@ def clear():
     store.run('DELETE FROM qa_chat')
 
 
-def answer(question):
+def answer(question, on_text=None):
     question = (question or '').strip()
     if not question:
         raise ValueError('问题是空的')
@@ -230,9 +230,11 @@ def answer(question):
         text, cites = '卡里没找到跟这个有关的。可能是那段时间的卡还没做（看上面的「证据卡」那一行），或者换个说法再问。', []
     else:
         alias = {i: c for i, c in enumerate(picked, 1)}
-        raw = llm.ask(ANSWER_PROMPT.format(history=htext, question=plan.get('q') or question,
-                                           cards='\n'.join(_card_line(i, c) for i, c in alias.items()),
-                                           summaries=_summaries(picked)), effort='high', purpose='qa')
+        prompt = ANSWER_PROMPT.format(history=htext, question=plan.get('q') or question,
+                                      cards='\n'.join(_card_line(i, c) for i, c in alias.items()),
+                                      summaries=_summaries(picked))
+        raw = llm.ask_stream(prompt, on_text, effort='high', purpose='qa') if on_text else \
+            llm.ask(prompt, effort='high', purpose='qa')
         if not raw:
             raise RuntimeError('模型没回（看「窗口」栏里的模型状态）')
         text, used = clean(raw.strip(), alias)
@@ -249,7 +251,6 @@ def answer(question):
 # 这里让 Claude Code 自己查：只放行 look.py（只读：搜原文 / 搜卡 / 读前后文 / 看某天），它决定先搜什么、读哪段，
 # 够了再答，出处可以是卡（[[c:id]]）也可以是原话（[[m:id]]）。追问接着同一个会话（--resume），前面查到的东西走缓存。
 # 一问一两分钟、等值几毛钱（订阅额度），所以是个开关，不是默认。
-DEEP_JOB = 'qa-deep'
 DEEP_TTL = 50 * 60                       # 追问在这么久以内就接着上一轮的会话（缓存 1 小时）
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOOK = f'{sys.executable} {os.path.join(HERE, "look.py")}'
@@ -328,8 +329,9 @@ def _step(kind, text):
     return f'🔎 {label}：{rest[:100]}'
 
 
-def answer_deep(question, progress=None):
-    """让 Claude 自己查着回答。progress(一行文字) 报进度。追问（DEEP_TTL 以内）接着上一轮的会话。"""
+def answer_deep(question, progress=None, on_text=None):
+    """让 Claude 自己查着回答。progress(一行文字) 报进度；on_text(一小段字) 是正在写的回答，on_text(None) = 这段作废、重新开始
+    （它查一步说一句再查，每段话开头都会重置，最后留下的就是回答）。追问（DEEP_TTL 以内）接着上一轮的会话。"""
     question = (question or '').strip()
     if not question:
         raise ValueError('问题是空的')
@@ -341,7 +343,13 @@ def answer_deep(question, progress=None):
     turns = history(HISTORY_TURNS * 2)
     now = datetime.now().isoformat(timespec='seconds')
     store.run('INSERT INTO qa_chat (ts, role, text, cites) VALUES (?,?,?,?)', now, 'user', question, '[]')
-    say = (lambda kind, text: _step(kind, text) and progress(_step(kind, text))) if progress else None
+    def say(kind, text):
+        if kind == 'tool' and progress and _step(kind, text):
+            progress(_step(kind, text))
+        elif kind == 'message' and on_text:
+            on_text(None)
+        elif kind == 'delta' and on_text:
+            on_text(text)
     fresh = DEEP_PROMPT.format(name=idx.who(), today=days.today(), look=LOOK, history=_history_text(turns), question=question)
     try:
         text, new_sid = llm.claude_agent(FOLLOW_PROMPT.format(question=question) if sid else fresh, LOOK,
@@ -356,12 +364,18 @@ def answer_deep(question, progress=None):
     return {'answer': body, 'cites': cites, 'deep': True}
 
 
-def start_deep(question):
-    """后台问（一问一两分钟）：进度在 deep_status()['steps']，答完在 ['result']，记录照样进 history()。"""
-    def run(job, q):
-        job['result'] = answer_deep(q, progress=lambda line: job['steps'].append(line))
-    return jobs.start(DEEP_JOB, run, question, steps=[], result=None, question=question)
+QA_JOB = 'qa'
 
 
-def deep_status():
-    return jobs.get(DEEP_JOB, steps=[], result=None, question=None)
+def start_ask(question, deep=False):
+    """后台问（快的十来秒，问 Claude 一两分钟）。前端 / ask.py 轮询 live()：steps 是查找进度，partial 是正在写的回答，
+    result 是写完、出处认好的最终版；问答照样记进 history()。同一时间只问一个。"""
+    def run(job, q, deep):
+        def text(piece):
+            job['partial'] = '' if piece is None else job['partial'] + piece
+        job['result'] = answer_deep(q, progress=job['steps'].append, on_text=text) if deep else answer(q, on_text=text)
+    return jobs.start(QA_JOB, run, question, deep, steps=[], partial='', result=None, question=question, deep=deep)
+
+
+def live():
+    return jobs.get(QA_JOB, steps=[], partial='', result=None, question=None, deep=False)

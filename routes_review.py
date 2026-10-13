@@ -94,7 +94,13 @@ def api_window_day(conv_id, date):
 @bp.route('/api/qa')
 def api_qa():
     """「问」那一栏：证据卡做到哪了（还差几天、估价、正在做的进度）+ 对话记录。"""
-    return jsonify({'cards': cards.status(), 'history': qa.history(), 'deep': qa.deep_status()})
+    return jsonify({'cards': cards.status(), 'history': qa.history(), 'live': qa.live()})
+
+
+@bp.route('/api/qa/live')
+def api_qa_live():
+    """正在问的那一个：查找进度、写到哪了、写完的结果（前端 / ask.py 每半秒多看一眼，轻量）。"""
+    return jsonify(qa.live())
 
 
 @bp.route('/api/qa/ask', methods=['POST'])
@@ -103,14 +109,15 @@ def api_qa_ask():
     q = (body.get('question') or '').strip()
     if not q:
         return jsonify({'error': '问题是空的'}), 400
-    if body.get('deep'):                              # 问 Claude：后台查，进度看 /api/qa 的 deep
-        if not llm.claude_on():
-            return jsonify({'error': 'Claude 现在用不了（没装 / 没登录 / 额度用完停着），先用普通的「问」'}), 409
-        return jsonify({'started': qa.start_deep(q), 'deep': qa.deep_status()})
-    try:
-        return jsonify(qa.answer(q))
-    except Exception as e:                                   # noqa: BLE001
-        return jsonify({'error': f'{type(e).__name__}: {e}'[:300]}), 500
+    if body.get('deep') and not llm.claude_on():
+        return jsonify({'error': 'Claude 现在用不了（没装 / 没登录 / 额度用完停着），先用普通的「问」'}), 409
+    if body.get('wait'):                               # 老的同步用法：问完才返回
+        try:
+            return jsonify(qa.answer(q))
+        except Exception as e:                           # noqa: BLE001
+            return jsonify({'error': f'{type(e).__name__}: {e}'[:300]}), 500
+    # 后台问、边写边看：进度在 /api/qa/live
+    return jsonify({'started': qa.start_ask(q, bool(body.get('deep'))), 'live': qa.live()})
 
 
 @bp.route('/api/qa/clear', methods=['POST'])

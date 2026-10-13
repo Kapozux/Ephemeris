@@ -7,6 +7,7 @@
     stray(text, source)    → 输出里冒出来、材料里没有的别的文字（ask 自动重来一次）
     claude(prompt, effort) → (文本, 会话 id)：直接调 Claude（ask 默认就先走它）；Session(材料) 同一份材料做好几件事
     claude_agent(prompt, allow) → Claude 自己跑命令查资料（只放行 allow 开头的命令；「问 Claude」用）
+    ask_stream(prompt, on_text) → 边写边交字（Claude）；用不了就走原来的路线一次性交
     ask_strong(prompt)     → (文本, 实际美元)：只给「交接包」用的大模型，Claude Opus 4.6（走 OpenRouter）。失败抛异常
 
 为什么要有它（2026-10-02 体检）：
@@ -385,11 +386,20 @@ def claude_on():
     return bool(shutil.which('claude')) and _paused.get('claude', 0) <= time.time()
 
 
+def _env(args):
+    """一次性的调用（不留会话、不接着问）关掉缓存写入：Claude Code 默认把输入写进 1 小时缓存，写的价钱是普通输入的 2 倍，
+    之后又没人读，等于白付一倍（10-13 实测同样的输入 $0.063 → $0.032）。要接着用的（Session、问 Claude、追问）照常写。"""
+    if '--no-session-persistence' in args and '--resume' not in args:
+        return {**os.environ, 'DISABLE_PROMPT_CACHING': '1'}
+    return None
+
+
 def _claude_exec(args, stdin):
     if _claude_runner:
         return _claude_runner(args, stdin)
     os.makedirs(CLAUDE_CWD, exist_ok=True)
-    r = subprocess.run(['claude'] + args, input=stdin, capture_output=True, text=True, cwd=CLAUDE_CWD, timeout=CLAUDE_TIMEOUT)
+    r = subprocess.run(['claude'] + args, input=stdin, capture_output=True, text=True, cwd=CLAUDE_CWD, timeout=CLAUDE_TIMEOUT,
+                       env=_env(args))
     try:
         return json.loads(r.stdout)
     except ValueError:
@@ -425,54 +435,59 @@ def claude(prompt, effort='medium', session=None, keep=False, purpose=''):
     return text, d.get('session_id')
 
 
-def claude_agent(prompt, allow, effort='high', session=None, on_event=None, purpose='', timeout=600):
-    """让 Claude 自己用工具干活（「问 Claude」）：只给 Bash，且只放行 allow 开头的命令（别的命令一律被拒）。
-    on_event(kind, text)：kind = 'tool'（它要跑的命令）| 'text'（它中途说的话），给界面显示进度。
-    返回 (最后的回答, 会话 id)。会话留着，追问时传 session 接着问（前面查到的材料走缓存）。失败抛异常。"""
-    args = ['-p', '--model', CLAUDE_MODEL, '--effort', effort, '--system-prompt', CLAUDE_SYSTEM, '--tools', 'Bash',
-            '--allowedTools', f'Bash({allow}:*)', '--disable-slash-commands', '--strict-mcp-config', '--setting-sources', '',
-            '--output-format', 'stream-json', '--verbose']
-    if session:
-        args += ['--resume', session]
-    t = time.time()
-
+def _claude_events(args, prompt, on_event, timeout):
+    """跑 claude -p --output-format stream-json，边读边报：on_event(kind, text)
+      kind = 'message'（新的一段回复开始）| 'delta'（一小段字）| 'tool'（它要跑的命令）| 'text'（一整段话写完了）
+    返回最后那个 result 事件（dict）。测试时 _claude_runner 返回 {'events': [...], **result}。"""
     def seen(ev):
-        if not on_event or ev.get('type') != 'assistant':
+        if not on_event:
             return
-        for b in (ev.get('message') or {}).get('content') or []:
-            if b.get('type') == 'tool_use':
-                on_event('tool', (b.get('input') or {}).get('command', ''))
-            elif b.get('type') == 'text' and b.get('text', '').strip():
-                on_event('text', b['text'].strip())
+        t = ev.get('type')
+        if t == 'stream_event':
+            e = ev.get('event') or {}
+            if e.get('type') == 'message_start':
+                on_event('message', '')
+            elif e.get('type') == 'content_block_delta' and (e.get('delta') or {}).get('type') == 'text_delta':
+                on_event('delta', e['delta'].get('text', ''))
+        elif t == 'assistant':
+            for b in (ev.get('message') or {}).get('content') or []:
+                if b.get('type') == 'tool_use':
+                    on_event('tool', (b.get('input') or {}).get('command', ''))
+                elif b.get('type') == 'text' and b.get('text', '').strip():
+                    on_event('text', b['text'].strip())
 
-    with _claude_sem:
-        if _claude_runner:
-            d = _claude_runner(args, prompt)
-            for ev in d.get('events', []):
-                seen(ev)
+    if _claude_runner:
+        d = _claude_runner(args, prompt)
+        for ev in d.get('events', []):
+            seen(ev)
+        return d
+    os.makedirs(CLAUDE_CWD, exist_ok=True)
+    t = time.time()
+    p = subprocess.Popen(['claude'] + args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         text=True, cwd=CLAUDE_CWD, env=_env(args))
+    p.stdin.write(prompt)
+    p.stdin.close()
+    d = {'is_error': True, 'result': ''}
+    for line in p.stdout:
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if ev.get('type') == 'result':
+            d = ev
         else:
-            os.makedirs(CLAUDE_CWD, exist_ok=True)
-            p = subprocess.Popen(['claude'] + args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                 text=True, cwd=CLAUDE_CWD)
-            p.stdin.write(prompt)
-            p.stdin.close()
-            d = {'is_error': True, 'result': ''}
-            for line in p.stdout:
-                try:
-                    ev = json.loads(line)
-                except ValueError:
-                    continue
-                if ev.get('type') == 'result':
-                    d = ev
-                else:
-                    seen(ev)
-                if time.time() - t > timeout:
-                    p.kill()
-                    d = {'is_error': True, 'result': f'超过 {timeout} 秒没查完'}
-                    break
-            p.wait()
-            if not d.get('result') and d.get('is_error'):
-                d['result'] = (p.stderr.read() or '')[:300]
+            seen(ev)
+        if time.time() - t > timeout:
+            p.kill()
+            d = {'is_error': True, 'result': f'超过 {timeout} 秒没写完'}
+            break
+    p.wait()
+    if not d.get('result') and d.get('is_error'):
+        d['result'] = (p.stderr.read() or '')[:300]
+    return d
+
+
+def _claude_finish(d, effort, purpose, t):
     text = (d.get('result') or '').strip()
     _claude_record(d, effort, purpose, time.time() - t)
     if d.get('is_error') or not text:
@@ -480,6 +495,51 @@ def claude_agent(prompt, allow, effort='high', session=None, on_event=None, purp
             _claude_pause(text)
         raise RuntimeError(f'Claude：{text[:200] or "返回空"}')
     return text, d.get('session_id')
+
+
+def _base_args(effort):
+    return ['-p', '--model', CLAUDE_MODEL, '--effort', effort, '--system-prompt', CLAUDE_SYSTEM,
+            '--disable-slash-commands', '--strict-mcp-config', '--setting-sources', '',
+            '--output-format', 'stream-json', '--verbose', '--include-partial-messages']
+
+
+def claude_stream(prompt, on_text, effort='medium', purpose=''):
+    """跟 claude() 一样，但边写边把字交给 on_text(一小段)。返回 (全文, 会话 id)。失败抛异常。"""
+    t = time.time()
+    with _claude_sem:
+        d = _claude_events(_base_args(effort) + ['--tools', '', '--no-session-persistence'], prompt,
+                           lambda kind, text: kind == 'delta' and on_text(text), CLAUDE_TIMEOUT)
+    return _claude_finish(d, effort, purpose, t)
+
+
+def claude_agent(prompt, allow, effort='high', session=None, on_event=None, purpose='', timeout=600):
+    """让 Claude 自己用工具干活（「问 Claude」）：只给 Bash，且只放行 allow 开头的命令（别的命令一律被拒）。
+    on_event(kind, text) 见 _claude_events：'tool' 给界面报进度，'message' / 'delta' 是正在写的字。
+    返回 (最后的回答, 会话 id)。会话留着，追问时传 session 接着问（前面查到的材料走缓存）。失败抛异常。"""
+    args = _base_args(effort) + ['--tools', 'Bash', '--allowedTools', f'Bash({allow}:*)']
+    if session:
+        args += ['--resume', session]
+    t = time.time()
+    with _claude_sem:
+        d = _claude_events(args, prompt, on_event, timeout)
+    return _claude_finish(d, effort, purpose, t)
+
+
+def ask_stream(prompt, on_text, effort='medium', purpose=''):
+    """流式的 ask：Claude 能用就边写边交字；不能用（或中途失败）就走原来的路线，写完一次性交出。返回全文。"""
+    if claude_on():
+        sent = []
+        try:
+            return claude_stream(prompt, lambda x: (sent.append(x), on_text(x)), effort, purpose)[0]
+        except Exception as e:                               # noqa: BLE001
+            with _lock:
+                _state['last_error'] = f'{type(e).__name__}: {e}'[:300]
+            if sent:
+                on_text('\n\n（Claude 中途断了，换个模型重写）\n\n')
+    text = ask(prompt, route='cheap', effort=effort, purpose=purpose)
+    if text:
+        on_text(text)
+    return text
 
 
 def _claude_record(d, effort, purpose, secs):

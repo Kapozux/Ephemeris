@@ -28,15 +28,19 @@ def _get(path):
         return json.load(r)
 
 
-def show(r):
-    if r.get('error'):
-        print(f'没答上：{r["error"]}\n')
-        return
-    n = {c['id']: i for i, c in enumerate(r['cites'], 1)}
-    print('\n' + re.sub(r'\[\[([^\]]+)\]\]', lambda m: f'[{n[m.group(1)]}]' if m.group(1) in n else '', r['answer']))
-    if r['cites']:
+CITE = re.compile(r'\[\[[^\]]*\]\]|\[c\d+[^\[\]\n]{0,80}\]')
+
+
+def _draft(text, nums):
+    """写到一半的回答：出处记号按出现先后编成 [1] [2]（跟写完后的编号一样），正写到一半的记号先不打。"""
+    text = re.sub(r'\[\[?[^\]\n]*$', '', text or '')
+    return CITE.sub(lambda m: f'[{nums.setdefault(m.group(0), len(nums) + 1)}]', text)
+
+
+def sources(cites):
+    if cites:
         print('\n出处：')
-        for i, c in enumerate(r['cites'], 1):
+        for i, c in enumerate(cites, 1):
             who = '你说' if c['who'] == 'me' else 'AI 说'
             print(f"  [{i}] {c['date']} · {who} · {c.get('title') or ''}\n      「{c['quote']}」")
     print()
@@ -44,23 +48,39 @@ def show(r):
 
 def ask(q, deep=False):
     try:
-        if not deep:
-            show(_post('/api/qa/ask', {'question': q}))
-            return
-        r = _post('/api/qa/ask', {'question': q, 'deep': True})
+        r = _post('/api/qa/ask', {'question': q, 'deep': deep})
         if r.get('error') or not r.get('started'):
-            print(f"\n没开始：{r.get('error') or '上一个问题还在查'}\n")
+            print(f"\n没开始：{r.get('error') or '上一个问题还没答完'}\n")
             return
-        shown = 0
-        while True:                                      # 一边查一边把它在干什么打出来
-            time.sleep(2)
-            d = _get('/api/qa')['deep']
-            for line in d['steps'][shown:]:
+        steps = printed = 0
+        shown, nums = '', {}
+        while True:                                      # 边写边打：查找进度一行一行，回答一个字一个字
+            time.sleep(0.4)
+            d = _get('/api/qa/live')
+            for line in d['steps'][steps:]:
                 print('  ' + line, flush=True)
-            shown = len(d['steps'])
+            steps = len(d['steps'])
+            text = _draft(d['partial'], nums)
+            if text.startswith(shown):
+                print(('\n' if not printed and text else '') + text[len(shown):], end='', flush=True)
+            else:                                        # 问 Claude 查一步说一句：新的一段从头开始
+                nums.clear()
+                text = _draft(d['partial'], nums)
+                print('\n\n' + text, end='', flush=True)
+            printed += len(text) - len(shown) if text.startswith(shown) else len(text)
+            shown = text
             if not d['running']:
                 break
-        show({'error': d['error']} if d.get('error') else d['result'])
+        if d.get('error') or not d.get('result'):
+            print(f"\n没答上：{d.get('error') or '没有结果'}\n")
+            return
+        final = d['result']
+        if not shown.strip():                            # 走的不是 Claude（一次性给的）、或者一个字都没赶上：整段打
+            n = {c['id']: i for i, c in enumerate(final['cites'], 1)}
+            print('\n' + re.sub(r'\[\[([^\]]+)\]\]', lambda m: f'[{n[m.group(1)]}]' if m.group(1) in n else '', final['answer']))
+        else:
+            print()
+        sources(final['cites'])
     except OSError as e:
         print(f'连不上 Ephemeris（{e}）：应用开着吗？\n')
 
@@ -88,5 +108,5 @@ if __name__ == '__main__':
             deep = not deep
             print('问 Claude：开（它自己查，一两分钟）\n' if deep else '问 Claude：关（只看证据卡，十来秒）\n')
             continue
-        print('Claude 在查…' if deep else '在翻卡…', flush=True)
+        print('Claude 在查…' if deep else '在翻卡…', end='', flush=True)
         ask(q, deep)

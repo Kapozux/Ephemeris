@@ -59,6 +59,11 @@ class ClaudeRoute(unittest.TestCase):
         self.assertEqual(a2[a2.index('--resume') + 1], 's9')
         self.assertEqual(in2, '做证据卡')                          # 第二次只送任务，材料走缓存
 
+    def test_one_shot_calls_skip_cache_writes(self):
+        self.assertEqual(llm._env(['-p', '--no-session-persistence'])['DISABLE_PROMPT_CACHING'], '1')
+        self.assertIsNone(llm._env(['-p']))                                  # Session 第一次：要留缓存给后面读
+        self.assertIsNone(llm._env(['-p', '--resume', 's1']))                # 接着问
+
     def test_session_falls_back_with_material(self):
         seen = []
         llm._cheap = lambda prompt, why=None: (seen.append(prompt), 'deepseek 回的')[1]

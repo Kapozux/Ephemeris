@@ -243,5 +243,58 @@ class Deep(unittest.TestCase):
         self.assertTrue(in2.startswith('追问：那后来呢'))
 
 
+
+def deltas(*parts):
+    """claude -p --include-partial-messages 的事件：一段新回复 + 几小段字。"""
+    return [{'type': 'stream_event', 'event': {'type': 'message_start'}}] + [
+        {'type': 'stream_event', 'event': {'type': 'content_block_delta', 'delta': {'type': 'text_delta', 'text': p}}}
+        for p in parts]
+
+
+class Streaming(unittest.TestCase):
+    """边写边看：快的「问」和「问 Claude」都把写到一半的字交出来；后台任务里网页拿得到。"""
+    def setUp(self):
+        seed()
+        llm.use(lambda p: out([{'m': 1, 'k': '决定', 'p': '美本申请', 't': '我决定 ED 交 CMU', 'q': 'ED 交 CMU'}]))
+        cards.build_conv('c1')
+        llm.use(None)
+        plan = json.dumps({'q': '我 ED 交哪', 'keywords': ['CMU'], 'since': None, 'until': None})
+
+        def run(args, stdin):
+            if 'stream-json' not in args:                                   # 改写问题那一步（不流式）
+                return {'result': plan}
+            if '--allowedTools' in args:                                     # 问 Claude
+                return {'result': '你决定 ED 交 CMU [[c:m1·1]]。', 'session_id': 's1',
+                        'events': deltas('我先搜一下') + deltas('你决定', ' ED 交 CMU [[c:m1·1]]。')}
+            return {'result': '你决定 ED 交 CMU [c1]。', 'events': deltas('你决定', ' ED 交 CMU [c1]。')}
+        llm.use_claude(run)
+
+    def tearDown(self):
+        llm.use_claude(None)
+
+    def test_quick_answer_streams(self):
+        got = []
+        r = qa.answer('我早申交的哪？', on_text=got.append)
+        self.assertEqual(got, ['你决定', ' ED 交 CMU [c1]。'])
+        self.assertEqual(r['answer'], '你决定 ED 交 CMU [[m1·1]]。')
+
+    def test_deep_answer_resets_between_messages(self):
+        partial = ['']
+        qa.answer_deep('我早申交的哪？', on_text=lambda x: partial.__setitem__(0, '' if x is None else partial[0] + x))
+        self.assertEqual(partial[0], '你决定 ED 交 CMU [[c:m1·1]]。')            # 中间那句「我先搜一下」被下一段替掉
+
+    def test_background_job_exposes_partial_and_result(self):
+        import time
+        self.assertTrue(qa.start_ask('我早申交的哪？'))
+        for _ in range(100):
+            if not qa.live()['running']:
+                break
+            time.sleep(0.02)
+        live = qa.live()
+        self.assertEqual(live['partial'], '你决定 ED 交 CMU [c1]。')
+        self.assertEqual([c['id'] for c in live['result']['cites']], ['m1·1'])
+        self.assertEqual(qa.history()[-1]['role'], 'assistant')
+
+
 if __name__ == '__main__':
     unittest.main()

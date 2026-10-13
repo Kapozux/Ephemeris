@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>问 · Ephemeris</title>
+<link rel="icon" type="image/svg+xml" href="/static/logo.svg">
+<link rel="stylesheet" href="/static/chat.css?v={{ v }}">
+</head>
+<body data-thread="{{ thread }}" data-name="{{ name }}">
+
+<aside class="ch-side" id="chSide">
+  <div class="ch-side-top">
+    <a class="ch-brand" href="/" title="回 Ephemeris 日记">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><ellipse cx="12" cy="12" rx="9.4" ry="5.4" stroke="currentColor" stroke-width="1.7" transform="rotate(-32 12 12)"/><circle cx="17.4" cy="7.2" r="3.1" fill="var(--accent)"/></svg>
+      <span>Ephemeris</span>
+    </a>
+    <button class="ch-icon ch-fold" id="chFold" title="收起侧栏" aria-label="收起侧栏">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M9.5 4.5v15"/></svg>
+    </button>
+  </div>
+  <button class="ch-new" id="chNew">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>新对话
+  </button>
+  <nav class="ch-links">
+    <a href="/"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="5" width="16" height="15" rx="2.5"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>日记</a>
+    <a href="/checkin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="8"/><path d="M8.5 13.5c1 1.4 2.1 2 3.5 2s2.5-.6 3.5-2M9 9.5h.01M15 9.5h.01"/></svg>打卡</a>
+  </nav>
+  <div class="ch-sec">最近</div>
+  <div class="ch-threads" id="chThreads"></div>
+  <div class="ch-side-foot">
+    <span class="ch-avatar">{{ name[:1] }}</span><span>{{ name }}</span>
+    <span class="ch-cards" id="chCards" title="证据卡"></span>
+  </div>
+</aside>
+
+<main class="ch-main">
+  <header class="ch-head">
+    <button class="ch-icon ch-open" id="chOpen" title="展开侧栏" aria-label="展开侧栏">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M9.5 4.5v15"/></svg>
+    </button>
+    <div class="ch-title" id="chTitle"></div>
+  </header>
+
+  <section class="ch-scroll" id="chScroll">
+    <div class="ch-hello" id="chHello">
+      <svg class="ch-mark" viewBox="0 0 24 24" fill="none" aria-hidden="true"><ellipse cx="12" cy="12" rx="9.4" ry="5.4" stroke="currentColor" stroke-width="1.5" transform="rotate(-32 12 12)"/><circle cx="17.4" cy="7.2" r="3.1" fill="var(--accent)"/></svg>
+      <h1 id="chGreet"></h1>
+    </div>
+    <div class="ch-log" id="chLog"></div>
+  </section>
+
+  <form class="ch-composer" id="chForm">
+    <div class="ch-box">
+      <textarea id="chInput" rows="1" placeholder="问问你自己的聊天记录…" autocomplete="off"></textarea>
+      <div class="ch-tools">
+        <div class="ch-modes" role="radiogroup" aria-label="怎么答">
+          <button type="button" class="ch-mode" data-deep="1" title="Claude 自己翻原文和证据卡，一两分钟">深挖</button>
+          <button type="button" class="ch-mode" data-deep="0" title="只看证据卡，十来秒">快速</button>
+        </div>
+        <span class="ch-model" id="chModel">Opus 5.5 <i>High</i></span>
+        <button type="submit" class="ch-send" id="chSend" aria-label="发送" title="发送（回车）">
+          <svg class="ch-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+          <svg class="ch-stop" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><rect x="8.6" y="8.6" width="6.8" height="6.8" rx="1.4" fill="currentColor"/></svg>
+        </button>
+      </div>
+    </div>
+    <p class="ch-note">只凭你和 AI 的聊天记录、证据卡回答，可能出错；小数字是出处，点开能回到原话。</p>
+  </form>
+</main>
+
+<script type="module" src="/static/chat.js?v={{ v }}"></script>
+</body>
+</html>

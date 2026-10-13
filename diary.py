@@ -125,6 +125,27 @@ def _render_prev(prev, date):
     return '\n'.join(out)
 
 
+# ------------------------------------------------------------------ 当天记录只写入一次（2026-10-13）
+# 写日记、打「卡得多狠」（mood.score_friction）喂的是同一段 render_day。走 Claude 时把它放进一个会话：
+# 第一次写入缓存，第二件事接着这个会话问（--resume），这段按读取算。缓存 1 小时，会话 50 分钟内复用。
+_sessions = {}
+SESSION_TTL = 50 * 60
+
+
+def session_for(date, day=None):
+    """这一天的 llm.Session（材料 = 当天记录）。Claude 用不了时返回 None，调用方照原来整段送。"""
+    if not llm.claude_on():
+        return None
+    body = render_day(day or bundle.day_bundle(date))
+    hit = _sessions.get(date)
+    if hit and hit[1] == body and time.time() - hit[0] < SESSION_TTL:
+        return hit[2]
+    s = llm.Session(f'--- {date} 当天记录：{idx.who()} 这一天发给 AI 的全部消息 ---\n{body}', effort='medium',
+                    purpose=f'day {date}')
+    _sessions[date] = (time.time(), body, s)
+    return s
+
+
 def generate(day, refresh=False, char_budget=60000, prev=None, ledger=''):
     """生成一天的日记。命中缓存就直接返回。
 
@@ -135,11 +156,14 @@ def generate(day, refresh=False, char_budget=60000, prev=None, ledger=''):
         with open(path, encoding='utf-8') as f:
             return json.load(f)
 
-    body = render_day(day, char_budget=char_budget)
-    prompt = PROMPT.format(date=day['date'], n_threads=day['n_threads'], body=body,
-                           prev=_render_prev(prev, day['date']),
-                           ledger=ledger or '（账本还是空的。）')
-    parsed = llm.ask_json(prompt, dict, tries=1)
+    fields = dict(date=day['date'], n_threads=day['n_threads'], prev=_render_prev(prev, day['date']),
+                  ledger=ledger or '（账本还是空的。）')
+    sess = session_for(day['date'], day) if char_budget == 60000 else None
+    if sess:                                         # 当天记录已经在会话里：只送写法要求
+        parsed = llm.parse_json(sess.ask(PROMPT.replace('下面是', '前面那段是', 1).format(body='（就是前面那段，不再重复。）',
+                                                                                    **fields)), dict)
+    else:
+        parsed = llm.ask_json(PROMPT.format(body=render_day(day, char_budget=char_budget), **fields), dict, tries=1)
     if not parsed:
         return None
 

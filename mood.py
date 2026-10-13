@@ -141,7 +141,12 @@ def score_friction(date, call_model):
     if not day['threads']:
         return None
     import llm
-    d = llm.parse_json(call_model(FRICTION_PROMPT.format(material=render_day(day))), dict) or {}
+    sess = diary.session_for(date, day)              # 写日记时这天的记录已经进了 Claude 的缓存：接着问，不再整段送
+    if sess:
+        raw = sess.ask(FRICTION_PROMPT.replace('下面是', '前面那段是', 1).format(material='（就是前面那段当天记录。）'))
+    else:
+        raw = call_model(FRICTION_PROMPT.format(material=render_day(day)))
+    d = llm.parse_json(raw, dict) or {}
     try:
         f = max(0, min(4, int(round(float(d.get('friction'))))))
     except (AttributeError, ValueError, TypeError):

@@ -29,11 +29,6 @@
     <button class="sb-mode" data-mode="win" type="button">按窗口</button>
   </div>
 
-  <div id="batch" class="sb-batch hidden">
-    <button id="batchBtn" class="btn-secondary btn-small"></button>
-    <div id="batchBar" class="sb-batch-bar hidden"><i></i><span class="tnum"></span></div>
-  </div>
-
   <div class="sb-colors" id="colorswitch">
     <button class="sb-color active" data-c="act" type="button" title="颜色 = 当天开了几个窗口">活跃</button>
     <button class="sb-color" data-c="feel" type="button" title="颜色 = 那天过得怎么样（从手写日记来，没手写的天空着）">过得</button>
@@ -53,6 +48,11 @@
   </div>
 
   <div class="sb-legend" id="legend"></div>
+  <!-- 补全没写的日记：跟在图例（「还没日记」那格）下面的一行小字链接；窄屏图例收起来了它还在 -->
+  <div id="batch" class="sb-batch hidden">
+    <button id="batchBtn" type="button" class="sb-batch-link"></button>
+    <div id="batchBar" class="sb-batch-bar hidden"><i></i><span class="tnum"></span></div>
+  </div>
 
   <div class="sb-bottom">
     <button id="reflectOpen" class="sb-item" type="button" data-pane="reflect"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 7v5l3 2"/><path d="M17 3h4v4"/><path d="M21 3l-5 5"/></svg>回顾</button>
@@ -89,7 +89,7 @@
           <div class="threads-head">
             <h2 class="serif">当天的窗口</h2>
             <span class="tnum dim" id="threadCount"></span>
-            <span class="threads-srclegend"><i class="src claude"></i>Claude <i class="src gemini"></i>Gemini</span>
+            <span class="threads-srclegend" id="threadSrcs"></span>
           </div>
           <div id="threads" class="threads-body"></div>
         </div>

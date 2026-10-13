@@ -132,8 +132,11 @@ button { font-family:inherit; }
 .sb-hit b { display:block; color:var(--muted); font-weight:500; font-size:11px; margin-bottom:1px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
-.sb-batch { padding:0 2px; }
-.sb-batch button { width:100%; }
+.sb-batch { padding:0 6px 4px; }
+.sb-batch .sb-batch-link { border:0; background:none; padding:0; font:inherit; font-size:11.5px; color:var(--coral-deep); cursor:pointer; text-align:left;
+  border-bottom:1px solid var(--coral-line); }
+.sb-batch .sb-batch-link:hover { border-color:var(--coral); }
+.sb-batch .ask { font-size:11.5px; }
 .sb-batch-bar { margin-top:8px; height:4px; background:var(--line); border-radius:2px; position:relative; }
 .sb-batch-bar i { display:block; height:100%; width:100%; background:var(--coral); border-radius:2px; transform:scaleX(0); transform-origin:left; transition:transform .4s; }
 .sb-batch-bar span { position:absolute; right:0; top:7px; font-size:11px; color:var(--muted); }
@@ -216,6 +219,7 @@ button { font-family:inherit; }
 .threads-head { display:flex; align-items:baseline; gap:8px; padding:16px 18px 10px; border-bottom:1px solid var(--line); }
 .threads-head h2 { font-size:19px; font-weight:400; letter-spacing:-.01em; }
 .threads-srclegend { margin-left:auto; font-size:11px; color:var(--muted); display:flex; gap:10px; align-items:center; }
+.threads-srclegend span { display:inline-flex; align-items:center; white-space:nowrap; }
 .src { display:inline-block; width:6px; height:6px; border-radius:50%; flex:none; margin-right:4px; }
 .src.claude { background:var(--claude); } .src.gemini { background:var(--gemini); } .src.ask { background:var(--coral); } .src.cc { background:var(--ink-soft); }
 .threads-body { overflow-y:auto; min-height:0; padding:4px 6px 8px; scrollbar-width:thin; }
@@ -229,8 +233,10 @@ button { font-family:inherit; }
 .thread-head .thread-time { font-size:11.5px; color:var(--muted); }
 .thread-head .thread-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .thread-head .thread-right { display:flex; align-items:center; gap:8px; }
-.thread-head .thread-span { font-size:11px; color:var(--coral-deep); background:var(--coral-soft); border:1px solid var(--coral-line);
-  border-radius:999px; padding:1px 8px; cursor:pointer; white-space:nowrap; font-weight:600; }
+/* 横跨多天的窗口：灰色小字「跨 N 天」，点开看是哪几天（以前是珊瑚色实心胶囊，比标题还抢眼） */
+.thread-head .thread-span { font:inherit; font-size:11.5px; color:var(--muted); background:none; border:0; border-bottom:1px dotted var(--line-2);
+  padding:0; cursor:pointer; white-space:nowrap; }
+.thread-head .thread-span:hover { color:var(--coral-deep); border-color:var(--coral); }
 .thread-head .thread-count { font-size:11.5px; color:var(--muted); white-space:nowrap; }
 .thread-body { margin:0 10px 12px 50px; padding-left:12px; border-left:2px solid var(--line-2); }
 .thread-bar { display:flex; justify-content:flex-end; align-items:center; gap:14px; padding:4px 0 2px; }
@@ -690,6 +696,9 @@ button { font-family:inherit; }
 .rv-gap { fill:var(--paper); stroke:var(--line); stroke-dasharray:3 3; }
 
 .day-sig-add { color:var(--muted); text-decoration:none; border-style:dashed; cursor:pointer; }
+/* 「改打卡」前面一道竖线，跟「过得 / 卡得」两个指标分开（「卡得」和「打卡」挨着容易读成一回事） */
+.day-sig + .day-sig-add { position:relative; margin-left:13px; }
+.day-sig + .day-sig-add::before { content:''; position:absolute; left:-12px; top:5px; bottom:5px; width:1px; background:var(--line-2); }
 .day-sig-add:hover { color:var(--coral-deep); border-color:var(--coral-line); }
 .tl-stale { display:inline-block; margin-left:8px; font-size:11px; color:var(--coral-deep); border:1px solid var(--coral-line); border-radius:4px; padding:0 5px; }
 

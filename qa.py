@@ -77,7 +77,7 @@ def _like(k):
 def _history_text(turns):
     lines = []
     for t in turns:
-        one = re.sub(r'\s+', ' ', t['text'])[:600]
+        one = re.sub(r'\s+', ' ', re.sub(r'\[\[[^\]]+\]\]', '', t['text']))[:600]   # 出处记号不给模型看，不然它照抄卡 id
         lines.append(('问：' if t['role'] == 'user' else '答：') + one)
     return '\n'.join(lines) or '（无）'
 

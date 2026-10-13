@@ -38,6 +38,7 @@ SEG_CHARS = 40000                                  # 一段送多少字
 MSG_CHARS = 20000                                  # AI 单条回复太长时只看前这么多字
 CTX_MSGS, CTX_CHARS = 8, 8000                      # 每段前面带同一窗口的上几条当前文
 PARALLEL = 4                                       # 一个窗口的几段同时送几段
+SEG_RETRIES = 2                                    # 没拿到的段，当场再送几轮
 CONV_PARALLEL = int(idx.env('EPHEMERIS_CARDS_CONVS') or 12)   # 同时做几个窗口
 KINDS = ('想法', '决定', '感受', '计划', '经历', '事实', '建议', '解释', '判断')
 JOB = 'cards'
@@ -297,8 +298,15 @@ def build_conv(conv_id, mode=None):
         return raw if unpack(raw) is not None else None, len(p) * pin + len(json.dumps(raw or {}, ensure_ascii=False)) * pout
 
     # 一个窗口的几段一起送：每段带的前文是原话，用不着等上一段的结果
+    # 没拿到的段当场再送两轮：长窗口几十段，一段偶尔超时 / 限流就算整窗没做全，下次从那段起后面全部重送（10-13 实测白花 $2）
     with ThreadPoolExecutor(max_workers=PARALLEL) as pool:
         results = list(pool.map(one, segs))
+        for _ in range(SEG_RETRIES):
+            bad = [i for i, (r, _) in enumerate(results) if r is None]
+            if not bad:
+                break
+            for i, (r, c) in zip(bad, pool.map(one, [segs[i] for i in bad])):
+                results[i] = (r, results[i][1] + c)
     return apply(conv_id, mode, segs, [r for r, _ in results], cost=sum(c for _, c in results), src='api')
 
 

@@ -40,6 +40,7 @@ CTX_MSGS, CTX_CHARS = 8, 8000                      # 每段前面带同一窗口
 PARALLEL = 4                                       # 一个窗口的几段同时送几段
 SEG_RETRIES = 2                                    # 没拿到的段，当场再送几轮
 BULK_CONVS = 30                                    # 「做上」一次超过这么多个窗口：走 DeepSeek，不占 Claude 额度
+ROUTE = idx.env('EPHEMERIS_CARDS_ROUTE') or 'cheap'   # 做卡先不用 Claude（10-13：额度留给问答和写作）；.env 设 auto 才先走 Claude
 CONV_PARALLEL = int(idx.env('EPHEMERIS_CARDS_CONVS') or 12)   # 同时做几个窗口
 KINDS = ('想法', '决定', '感受', '计划', '经历', '事实', '建议', '解释', '判断')
 JOB = 'cards'
@@ -289,8 +290,9 @@ def apply(conv_id, mode, segs, raws, cost=0.0, src='api'):
     return {'n': n, 'dropped': dropped, 'cost': cost, 'failed': failed}
 
 
-def build_conv(conv_id, mode=None, route='auto'):
+def build_conv(conv_id, mode=None, route=None):
     """用 llm 做一个窗口（这一趟该做的段）。route='cheap'：一次性的大批量活，不占 Claude 额度。"""
+    route = route or ROUTE
     mode, segs = segments(conv_id, mode)
     if not segs:
         return {'n': 0, 'dropped': 0, 'cost': 0.0, 'failed': 0}
@@ -336,7 +338,7 @@ def estimate(todo):
     return round(chars * (pin + pout * OUT_RATIO), 2)
 
 
-def _safe(item, route='auto'):
+def _safe(item, route=None):
     """一个窗口出错只算这个窗口没做全（下次 due() 还会挑出来），不让整个任务停掉。"""
     cid, mode = item
     try:
@@ -346,7 +348,7 @@ def _safe(item, route='auto'):
         return {'n': 0, 'dropped': 0, 'cost': 0.0, 'failed': 1}
 
 
-def make(job, todo, route='auto'):
+def make(job, todo, route=None):
     """同时做 CONV_PARALLEL 个窗口；哪个做完就补下一个进来，不等最慢的那个。
     走 Claude 时真正同时在跑的只有 llm.CLAUDE_PARALLEL 个（其余排队），撞不了 5 小时上限。"""
     job['total'], job['done'], job['cost'], job['cards'], job['failed'] = len(todo), 0, 0.0, 0, 0
@@ -385,7 +387,7 @@ def make(job, todo, route='auto'):
 def start(todo):
     """「做上」按钮。窗口多（一次性补一大批，比如导入了旧聊天）就走 DeepSeek：10-13 用 Claude 全量做卡，
     一个小时撞了 5 小时上限；平常一天几个窗口的走 Claude。"""
-    route = 'cheap' if len(todo) > BULK_CONVS else 'auto'
+    route = 'cheap' if len(todo) > BULK_CONVS else ROUTE
     jobs.start(JOB, make, list(todo), route, stop=False, done=0, total=len(todo), cost=0.0, cards=0, failed=0)
     return status()
 

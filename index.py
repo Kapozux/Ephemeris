@@ -23,6 +23,7 @@ import zipfile
 from datetime import datetime, timedelta, timezone
 from html import unescape
 
+import dedup
 import store
 from days import LOCAL_TZ, bucket    # 一天怎么算：days.py
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -368,12 +369,15 @@ def ingest(conn, path, kind=None, source=None, label=None, invalidate=True):
     label = label or os.path.basename(path)
     now = datetime.now().isoformat(timespec='seconds')
     n_convs = n_new_convs = n_msgs = n_new_msgs = 0
-    touched, fresh_all = set(), []
+    touched, fresh_all, new_convs = set(), [], []
+    skip = dedup.archived(conn)                       # 认出来是重复、已经挪走的窗口：再导一次也不进
 
     for c in PARSERS[kind](path):
         msgs = sorted(c['msgs'], key=lambda x: x[0])
         # 有稳定 id（claude.ai 的 uuid）就用它；没有才退回指纹
         cid = c.get('uid') or conv_fingerprint(msgs)
+        if cid in skip:
+            continue
         n_convs += 1
         existing = conn.execute('SELECT id, title, title_fallback FROM conversations WHERE id=?', (cid,)).fetchone()
         before = conn.execute('SELECT COUNT(*) FROM messages WHERE conv_id=?', (cid,)).fetchone()[0]
@@ -415,11 +419,15 @@ def ingest(conn, path, kind=None, source=None, label=None, invalidate=True):
             conn.execute('UPDATE conversations SET last_import=? WHERE id=?', (label, cid))
         else:
             n_new_convs += 1
+            new_convs.append(cid)
             conn.execute('''INSERT INTO conversations (id, source, title, title_fallback, first_import, last_import)
                             VALUES (?,?,?,?,?,?)''', (cid, source, title, fb, label, label))
         if before == 0 and not existing:
             pass
 
+    # 新进来的窗口跟库里已有的是同一个（手动导出的指纹 id vs 同步来的 uuid）：多出来的那份挪去存档
+    if new_convs:
+        dedup.sweep(conn, ids=new_convs)
     # 从消息重算每个窗口的统计（也顺手修 reconcile 留下的坑）
     _recount(conn)
     invalidated = 0

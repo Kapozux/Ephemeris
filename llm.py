@@ -148,6 +148,7 @@ _POL_EN = [r'CCP', r'CPC', r'Chinese Communist', r'Communist Party', r'Xi Jinpin
 _POLITICAL = re.compile('|'.join(map(re.escape, _POL_ZH)) + r'|\b(?:' + '|'.join(_POL_EN) + r')\b')
 _cheap_state = {'calls': 0, 'guarded': 0, 'fallback': 0, 'last_error': None}
 _paused = {}                                     # 路线名 → 停到什么时候
+_turn = [0]                                      # 轮到哪条路先上（几条路分着扛并发，2026-10-13）
 
 
 def political(text):
@@ -205,7 +206,11 @@ def _cheap(prompt, why=None):
             _cheap_state['guarded'] += 1
         return None
     import requests
-    for name, base, k, model, extra in _cheap_routes():
+    routes = _cheap_routes()
+    with _lock:
+        i = _turn[0] % max(len(routes), 1)
+        _turn[0] += 1
+    for name, base, k, model, extra in routes[i:] + routes[:i]:     # 轮流先上，失败了再试别的
         try:
             r = requests.post(base + '/chat/completions', timeout=300, headers={'Authorization': f'Bearer {k}'},
                               json={'model': model, 'messages': [{'role': 'user', 'content': prompt}], **extra})

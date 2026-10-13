@@ -36,6 +36,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 
+import claude_gate
 import index as idx
 import store
 
@@ -376,8 +377,22 @@ _claude_runner = None            # 测试用：use_claude(fn)，fn(args, stdin) 
 _LIMIT = re.compile(r'usage limit|limit reached|rate limit|resets?|Not logged in|/login|credit balance', re.I)
 
 
+# 三个应用（Verbatim / Ephemeris / 墨页）共用一份额度时的分配器：claude_gate（CLAUDE_GATE 没设就不起作用）。
+# 问 = live（留着位子，批量跑满了也不排队），做卡 = batch，其余 normal；撞上限写进共用的 pause，别的应用也停。
+GATE_APP = 'ephemeris'
+if idx.env('CLAUDE_GATE'):
+    os.environ.setdefault('CLAUDE_GATE', idx.env('CLAUDE_GATE'))
+
+
+def _prio(purpose):
+    p = str(purpose or '')
+    return 'live' if p.startswith('qa') or p == 'ask' else 'batch' if p == 'cards' else 'normal'
+
+
 def claude_on():
     if (idx.env('EPHEMERIS_CLAUDE') or 'on').strip().lower() in ('off', '0', 'false', 'no'):
+        return False
+    if claude_gate.paused_until():
         return False
     if _claude_runner:
         return _paused.get('claude', 0) <= time.time()
@@ -411,6 +426,7 @@ def _claude_pause(text):
     m = re.search(r'\|(\d{10})', text or '')
     until = int(m.group(1)) if m else time.time() + PAUSE_S
     _paused['claude'] = max(until, time.time() + 60)
+    claude_gate.pause(_paused['claude'], text, GATE_APP)
     print(f'[llm] Claude 停到 {datetime.fromtimestamp(_paused["claude"]):%H:%M}，期间走 DeepSeek / Gemini：{(text or "")[:120]}', flush=True)
 
 
@@ -424,7 +440,7 @@ def claude(prompt, effort='medium', session=None, keep=False, purpose=''):
     elif not keep:
         args += ['--no-session-persistence']
     t = time.time()
-    with _claude_sem:
+    with _claude_sem, claude_gate.slot(GATE_APP, purpose, _prio(purpose)):
         d = _claude_exec(args, prompt)
     text = (d.get('result') or '').strip()
     _claude_record(d, effort, purpose, time.time() - t)
@@ -506,7 +522,7 @@ def _base_args(effort):
 def claude_stream(prompt, on_text, effort='medium', purpose=''):
     """跟 claude() 一样，但边写边把字交给 on_text(一小段)。返回 (全文, 会话 id)。失败抛异常。"""
     t = time.time()
-    with _claude_sem:
+    with _claude_sem, claude_gate.slot(GATE_APP, purpose, _prio(purpose)):
         d = _claude_events(_base_args(effort) + ['--tools', '', '--no-session-persistence'], prompt,
                            lambda kind, text: kind == 'delta' and on_text(text), CLAUDE_TIMEOUT)
     return _claude_finish(d, effort, purpose, t)
@@ -520,7 +536,7 @@ def claude_agent(prompt, allow, effort='high', session=None, on_event=None, purp
     if session:
         args += ['--resume', session]
     t = time.time()
-    with _claude_sem:
+    with _claude_sem, claude_gate.slot(GATE_APP, purpose, _prio(purpose)):
         d = _claude_events(args, prompt, on_event, timeout)
     return _claude_finish(d, effort, purpose, t)
 
@@ -543,6 +559,7 @@ def ask_stream(prompt, on_text, effort='medium', purpose=''):
 
 
 def _claude_record(d, effort, purpose, secs):
+    claude_gate.record(GATE_APP, purpose, CLAUDE_MODEL, d, secs, _prio(purpose))
     u = d.get('usage') or {}
     try:
         store.run('INSERT INTO claude_usage (ts, purpose, model, effort, input, output, cache_read, cache_write, usd, secs, ok) '

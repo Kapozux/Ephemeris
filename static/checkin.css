@@ -1,11 +1,14 @@
 /* 打卡：单独的全屏页。深色夜空，只干一件事。
    颜色只表示好坏（暖 = 好，冷 = 糟，灰 = 平 / 说不上来），是哪种情绪永远有文字 —— 见 checkin.js 的 VCOL
-   类名一律 ck- 开头；通用的只有 hidden，状态修饰（on sel today future editing thinking solid ring）只跟在本体类后面写 */
+   类名一律 ck- 开头（主导航除外：三页共用 nav.css 的 nav-）；通用的只有 hidden，状态修饰（on sel today future editing thinking solid ring）只跟在本体类后面写 */
 :root {
   --bg:#0E0D12; --panel:#17161D; --panel-2:#1E1D25; --line:#2A2933; --line-2:#383744;
   --ink:#EEEAF2; --ink-2:#B9B4C4; --muted:#8A8597; --faint:#6E6A7C;
   --gold:#E9B45E; --gold-2:#F3CD86; --gold-deep:#B9873A;
   --r:14px;
+  /* 三页共用的主导航（static/nav.css）在这一页的颜色 */
+  --nav-ink:var(--muted); --nav-icon:var(--muted); --nav-hover:var(--panel); --nav-on:var(--gold); --nav-on-bg:var(--panel);
+  --nav-bar:var(--bg); --nav-line:var(--line); --nav-dot:var(--gold);
   --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Hiragino Sans GB","Segoe UI",sans-serif;
   --serif:"Iowan Old Style","Hoefler Text","Songti SC",Georgia,serif;
 }
@@ -30,16 +33,25 @@ a { color:inherit; }
     radial-gradient(900px 500px at 70% -10%, #2a2140 0%, transparent 60%),
     radial-gradient(700px 400px at -10% 110%, #1b2640 0%, transparent 60%); }
 
-/* 左边竖条 */
+/* 左边竖条：logo + 主导航（nav-rail，长相在 nav.css） */
 .ck-rail { position:fixed; left:0; top:0; bottom:0; width:76px; display:flex; flex-direction:column; align-items:center; gap:10px;
   padding:22px 0; border-right:1px solid var(--line); background:#0B0A0Ecc; backdrop-filter:blur(6px); z-index:3; }
-.ck-back { width:38px; height:38px; display:grid; place-items:center; border-radius:50%; color:var(--muted); margin-bottom:18px; }
+.ck-back { width:38px; height:38px; display:grid; place-items:center; border-radius:50%; color:var(--muted); margin-bottom:12px; }
 .ck-back svg { width:24px; height:24px; }
 .ck-back:hover { color:var(--ink); background:var(--panel); }
-.ck-tab { writing-mode:vertical-rl; letter-spacing:.3em; font-size:12.5px; padding:14px 8px; border:0; background:none; color:var(--muted);
-  cursor:pointer; border-left:2px solid transparent; }
+.ck-rail .nav-item:hover { color:var(--ink-2); }
+
+/* 此刻 / 这个月：页内顶部的分段切换 */
+.ck-seg { display:flex; width:max-content; margin:0 auto 26px; padding:3px; gap:2px; border-radius:999px; background:var(--panel); border:1px solid var(--line); }
+.ck-tab { border:0; background:none; color:var(--muted); font-size:13px; letter-spacing:.08em; padding:5px 18px; border-radius:999px; cursor:pointer; }
 .ck-tab:hover { color:var(--ink-2); }
-.ck-tab.on { color:var(--gold); border-left-color:var(--gold); }
+.ck-tab.on { background:var(--panel-2); color:var(--gold); }
+.ck-tab:focus-visible { outline:2px solid var(--gold-deep); outline-offset:1px; }
+
+/* 长得像链接的按钮（改、删、回到今天、不改了、看 / 改这天）：是 button，Tab 走得到 */
+.ck-link { border:0; background:none; padding:0; font-size:12.5px; color:var(--muted); cursor:pointer; }
+.ck-link:hover { color:var(--gold); }
+.ck-link:focus-visible { outline:2px solid var(--gold-deep); outline-offset:2px; border-radius:3px; }
 
 main { position:relative; z-index:1; margin-left:76px; min-height:100%; padding:40px clamp(18px,5vw,72px) 80px; }
 
@@ -47,8 +59,6 @@ main { position:relative; z-index:1; margin-left:76px; min-height:100%; padding:
 .ck-now { max-width:760px; margin:0 auto; }
 .ck-dateline { display:flex; align-items:center; gap:12px; color:var(--muted); font-size:13px; }
 .ck-dateline span { font-variant-numeric:tabular-nums; }
-.ck-dateline a { cursor:pointer; font-size:12.5px; }
-.ck-dateline a:hover { color:var(--gold); }
 .ck-nav { width:28px; height:28px; border-radius:50%; border:1px solid var(--line-2); background:transparent; color:var(--ink-2); cursor:pointer; line-height:1; }
 .ck-nav:hover:not(:disabled) { border-color:var(--gold); color:var(--gold); }
 .ck-nav:disabled { opacity:.3; cursor:default; }
@@ -72,7 +82,7 @@ h1 .ck-spark { font-size:.6em; margin-left:10px; vertical-align:.25em; color:var
 .ck-tag:hover { border-color:var(--line-2); }
 .ck-tag.on { background:#ffffff12; border-color:currentColor; font-weight:600; }
 .ck-actions { display:flex; justify-content:flex-end; align-items:center; gap:14px; margin-top:14px; }
-.ck-actions a { font-size:13px; color:var(--muted); cursor:pointer; }
+.ck-actions .ck-link { font-size:13px; }
 .ck-record { border:0; border-radius:999px; padding:11px 26px; font-size:15px; font-weight:600; cursor:pointer;
   background:linear-gradient(180deg,var(--gold-2),var(--gold)); color:#2A1D07; }
 .ck-record:disabled { background:var(--panel-2); color:var(--muted); cursor:default; }
@@ -93,8 +103,7 @@ h1 .ck-spark { font-size:.6em; margin-left:10px; vertical-align:.25em; color:var
 .ck-item .ck-item-t { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
 .ck-item .ck-item-w { font-weight:600; font-size:14px; }
 .ck-item .ck-item-n { color:var(--ink-2); word-break:break-word; }
-.ck-item .ck-item-ops a { font-size:12px; color:var(--muted); cursor:pointer; margin-left:10px; }
-.ck-item .ck-item-ops a:hover { color:var(--gold); }
+.ck-item .ck-item-ops .ck-link { font-size:12px; margin-left:10px; }
 .ck-item .ck-item-r { grid-column:2 / -1; color:var(--ink-2); font-size:13.5px; line-height:1.8;
   border-left:1px solid var(--gold-deep); padding-left:12px; margin-top:2px; }
 .ck-item.editing { background:#ffffff08; }
@@ -133,8 +142,7 @@ h1 .ck-spark { font-size:.6em; margin-left:10px; vertical-align:.25em; color:var
 .ck-day-big .ck-big-meta { padding-bottom:6px; }
 .ck-day-big .ck-big-wk { color:var(--gold); font-weight:600; letter-spacing:.12em; font-size:13px; }
 .ck-day-big .ck-big-wd { color:var(--ink-2); font-size:13px; }
-.ck-day-big .ck-big-go { margin-left:auto; font-size:12.5px; color:var(--muted); cursor:pointer; padding-bottom:8px; white-space:nowrap; flex:none; }
-.ck-day-big .ck-big-go:hover { color:var(--gold); }
+.ck-day-big .ck-big-go { margin-left:auto; padding-bottom:8px; white-space:nowrap; flex:none; }
 .ck-constellation { background:#08070B; border:1px solid var(--line); border-radius:var(--r); overflow:hidden; }
 .ck-constellation svg { display:block; }
 .ck-c-legend { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:11.5px; color:var(--muted); margin-top:10px; }
@@ -154,11 +162,10 @@ h1 .ck-spark { font-size:.6em; margin-left:10px; vertical-align:.25em; color:var
   .ck-month { grid-template-columns:minmax(0,1fr); max-width:760px; }
 }
 @media (max-width:700px) {
-  .ck-rail { position:fixed; top:auto; bottom:0; width:100%; height:58px; flex-direction:row; justify-content:center; padding:0; border-right:0; border-top:1px solid var(--line); }
-  .ck-back { margin:0 auto 0 12px; }
-  .ck-tab { writing-mode:horizontal-tb; letter-spacing:.2em; border-left:0; border-top:2px solid transparent; padding:16px 18px; }
-  .ck-tab.on { border-top-color:var(--gold); }
-  .ck-rail .ck-tab:last-child { margin-right:auto; }
+  /* 竖条拆掉：logo 不要了，主导航自己变成固定底栏（nav.css 的 nav-bottom），跟主页手机底栏一样 */
+  .ck-rail { display:contents; }
+  .ck-back { display:none; }
+  .ck-seg { margin-bottom:20px; }
   main { margin-left:0; padding:26px 16px 90px; }
   .ck-progress { gap:8px; }
   .ck-pcard { padding:10px 12px; }

@@ -271,7 +271,7 @@ export async function openDay(date, focus) {
 // 主导航在顶栏（701–1079）时，日记开头（日期下面约 300px）已经在首屏就不滚，免得把顶栏的「问 / 打卡」滚走
 function coldScroll() {
   if (innerWidth >= 1080) return false;
-  if (getComputedStyle(document.querySelector('.sb-nav')).position === 'fixed') return true;
+  if (getComputedStyle($('#mainNav')).position === 'fixed') return true;
   return $('#day').getBoundingClientRect().top > innerHeight - 300;
 }
 

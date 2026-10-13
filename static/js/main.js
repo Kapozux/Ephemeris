@@ -41,18 +41,16 @@ function setMode(mode) {
 document.querySelectorAll('.sb-mode').forEach(b => b.onclick = () =>
   navigate(b.dataset.mode === 'win' ? (S.wsel ? 'win/' + S.wsel : 'win') : (S.sel ? 'day/' + S.sel : 'day')));
 
-// ---------------------------------------------------------------- 打卡入口（单独的全屏页 /checkin）
-// 今天还没打卡，侧栏「打卡」上亮个小点。打开页面时看一次，切回这个标签页时再看一次。
-// （以前只在补全日记的进度轮询里顺手刷新，平时根本不亮。）
+// ---------------------------------------------------------------- 主导航（日记 / 问 / 打卡，三页共用 templates/_nav.html）
+// 今天还没打卡，「打卡」上亮个小点。打开页面时看一次，切回这个标签页时再看一次。
+// （以前只在补全日记的进度轮询里顺手刷新，平时根本不亮。）聊天页 chat.js 也看一次。
 
-// 小点有两个：侧栏「打卡」上一个，窄屏顶栏 / 底栏的「打卡」上一个
 async function refreshCkDot() {
   const r = await fetch('/api/checkin').then(r => r.json());
-  document.querySelectorAll('.sb-ck-dot').forEach(d => d.classList.toggle('hidden', r.items.length > 0));
+  document.querySelectorAll('#mainNav .nav-dot').forEach(d => d.classList.toggle('hidden', r.items.length > 0));
 }
-$('#ckOpen').onclick = () => { location.href = '/checkin'; };
-// 窄屏主导航的「日记」：就是这一页。按窗口模式下点它回到按天（看着的那天），已经在按天就回到日记开头
-document.querySelector('.sb-nav-item[href="#/day"]').onclick = e => {
+// 「日记」：就是这一页。按窗口模式下点它回到按天（看着的那天），已经在按天就回到日记开头
+$('#mainNav [data-nav=day]').onclick = e => {
   e.preventDefault();
   if (S.mode === 'day' && S.sel) toContent($('#day'));
   else navigate(S.sel ? 'day/' + S.sel : 'day');
@@ -78,6 +76,21 @@ async function refreshJournal() {
   J_LAST = Date.now();
   const r = await fetch('/api/journal/refresh', { method: 'POST' }).then(r => r.json()).catch(() => null);
   if (r?.changed?.length) daysChanged(r.changed);
+}
+
+// ---------------------------------------------------------------- 回到原位
+// 去问 / 打卡再点「日记」回来，地址是 /（没有 hash）：落到上次在看的那天，而不是最新一天。
+// 只记「哪天 / 哪个窗口」，不记滚到哪条消息、开着哪个浮层。只从站内回来时才用；直接打开 / 还是最新一天
+const ROUTE_KEY = 'main-route';
+function rememberRoute(r) { try { localStorage.setItem(ROUTE_KEY, r); } catch (e) { /* 无痕窗口：不记 */ } }
+function restoreRoute() {
+  if (location.hash.replace(/^#\/?/, '')) return;
+  let from;
+  try { from = new URL(document.referrer); } catch (e) { return; }
+  if (from.origin !== location.origin) return;
+  let r = null;
+  try { r = localStorage.getItem(ROUTE_KEY); } catch (e) { return; }
+  if (r && /^(day|win)(\/|$)/.test(r)) history.replaceState(null, '', '#/' + r);
 }
 
 // ---------------------------------------------------------------- 路由分发（约定见 nav.js）
@@ -108,6 +121,7 @@ function applyRoute() {
   closeModal();                       // 非 panel 路由：确保浮层是关着的
 
   if (head === 'win') {
+    rememberRoute(parts[1] ? 'win/' + parts[1] : 'win');
     setMode('win');
     if (parts[1] && parts[1] !== S.wsel) openWindow(parts[1]);
     return;
@@ -118,6 +132,7 @@ function applyRoute() {
     const date = parts[1];
     if (!date) return LATEST ? navigate('day/' + LATEST, { replace: true }) : undefined;
     if (!S.byDate[date]) return LATEST ? navigate('day/' + LATEST, { replace: true }) : undefined;
+    rememberRoute('day/' + date);
     const focus = {};
     let i = 2;
     if (parts[2] === 'journal') { focus.journal = true; i = 3; }     // #/day/<d>/journal[/q/<词>]
@@ -184,6 +199,7 @@ document.addEventListener('keydown', e => {
   // 应用里面点过去的面板链接不受影响 —— 这里只管冷启动这一次。
   const head0 = location.hash.replace(/^#\/?/, '').split('/')[0];
   if (head0 === 'panel' || head0 === 'flashback') history.replaceState(null, '', '#/');
+  restoreRoute();                      // 从问 / 打卡点「日记」回来：回到上次那天
   applyRoute();
   refreshJournal();                    // 先把页面画出来，再悄悄看一眼 Notion
 })();

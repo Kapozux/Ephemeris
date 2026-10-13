@@ -317,6 +317,11 @@ $('#chOpen').addEventListener('click', () => {
 try { if (localStorage.getItem('chFolded') === '1') B.classList.add('ch-folded'); } catch { /* 同上 */ }
 window.addEventListener('popstate', () => load(+location.pathname.split('/')[2] || null));
 
+// 主导航「打卡」上的小点：今天还没打卡就亮（跟主页 main.js 一样，只看一眼、不轮询）
+fetch('/api/checkin').then(r => r.json()).then(r => {
+  document.querySelectorAll('#mainNav .nav-dot').forEach(d => d.classList.toggle('hidden', r.items.length > 0));
+}).catch(() => {});
+
 greet();
 setMode(DEEP);
 load(THREAD);

@@ -5,6 +5,9 @@
   --text: #1f1e1d; --muted: #77746c; --faint: #a19d93; --hover: #ebe8df; --bubble: #efece4;
   --accent: #d97757; --accent-text: #fff; --cite: #e9e5da; --hl: #f6ead9;
   --pop-shadow: 0 2px 6px rgba(0,0,0,.06), 0 10px 30px rgba(0,0,0,.10); --scrim: rgba(20,20,19,.32);
+  /* 三页共用的主导航（static/nav.css）在这一页的颜色；深色跟着上面几个 token 走，不用再写一遍 */
+  --nav-ink: var(--text); --nav-icon: var(--muted); --nav-hover: var(--hover); --nav-on: var(--text); --nav-on-bg: var(--line);
+  --nav-bar: var(--side); --nav-line: var(--line); --nav-dot: var(--accent); --nav-fs: 15px;
   --font: "PingFang SC", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;   /* 全页苹方、不加粗（用户 10-13） */
 }
 @media (prefers-color-scheme: dark) {
@@ -37,11 +40,9 @@ body.ch-folded .ch-side { margin-left: -272px; }
 .ch-new { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 10px; background: var(--hover);
 }
 .ch-new:hover { background: var(--line); }
-.ch-new svg, .ch-links svg { width: 18px; height: 18px; }
-.ch-links { display: flex; flex-direction: column; margin: 6px 0 4px; }
-.ch-links a { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 10px; color: var(--text); text-decoration: none; }
-.ch-links a:hover { background: var(--hover); }
-.ch-links svg { color: var(--muted); }
+.ch-new svg { width: 18px; height: 18px; }
+.ch-side > .nav { margin: 6px 0 4px; }   /* 主导航（日记 / 问 / 打卡）：长相在 nav.css */
+.ch-side > .nav .nav-item { border-radius: 10px; }
 .ch-sec { padding: 16px 10px 6px; font-size: 13px; color: var(--muted); }
 .ch-threads { flex: 1; overflow-y: auto; min-height: 0; }
 .ch-thread { display: block; width: 100%; text-align: left; padding: 7px 10px; border-radius: 10px; white-space: nowrap; overflow: hidden;

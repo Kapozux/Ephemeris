@@ -1,0 +1,35 @@
+/* 三页共用的主导航（日记 / 问 / 打卡）：templates/_nav.html 一份 HTML，这里一份长相。类名 nav- 开头。
+   颜色不在这里定：主页 style.css、聊天页 chat.css、打卡页 checkin.css 各在自己的 :root 里给这几个 token
+     --nav-ink 字   --nav-icon 图标   --nav-hover 悬停底色   --nav-on 当前页的字和图标   --nav-on-bg 当前页底色   --nav-dot 「今天还没打卡」的小点
+     --nav-bar 手机底栏底色   --nav-line 手机底栏上边线
+   这里只管一项长什么样；放在侧栏哪儿、窄屏怎么排（主页 701–1079 放顶栏右上角）各页自己写。
+   两个布局修饰：nav-rail（打卡页 76px 竖条：图标在上、字在下）、nav-bottom（≤700 变成固定底栏，主页和打卡页一样） */
+.nav { display:flex; flex-direction:column; gap:1px; }
+.nav-item { display:flex; align-items:center; gap:10px; padding:7px 10px; border-radius:8px; color:var(--nav-ink);
+  font-size:var(--nav-fs, 13.5px); line-height:1.4; text-decoration:none; white-space:nowrap; }
+.nav-item svg { width:18px; height:18px; flex:none; color:var(--nav-icon); }
+.nav-item:hover { background:var(--nav-hover); }
+.nav-item.on { background:var(--nav-on-bg); color:var(--nav-on); }
+.nav-item.on svg { color:inherit; }
+.nav-item:focus-visible { outline:2px solid var(--nav-on); outline-offset:-2px; }
+.nav-dot { width:6px; height:6px; border-radius:50%; background:var(--nav-dot); flex:none; margin-left:-4px; align-self:flex-start; margin-top:3px; }
+.nav-dot.hidden { display:none; }
+
+/* 竖条：图标在上、字在下 */
+.nav-rail { gap:4px; align-items:center; }
+.nav-rail .nav-item { flex-direction:column; gap:4px; width:58px; padding:9px 0 7px; font-size:11.5px; position:relative; }
+.nav-rail .nav-item svg { width:20px; height:20px; }
+.nav-rail .nav-dot { position:absolute; top:7px; right:14px; margin:0; }
+
+/* 手机底栏：58px 高、上边一条线、当前页上边描一道 */
+@media (max-width:700px) {
+  .nav-bottom { position:fixed; left:0; right:0; bottom:0; top:auto; z-index:150; height:calc(58px + env(safe-area-inset-bottom));
+    padding:0 0 env(safe-area-inset-bottom); flex-direction:row; align-items:stretch; justify-content:center; gap:0;
+    background:var(--nav-bar); border-top:1px solid var(--nav-line); }
+  .nav-bottom .nav-item { flex:0 1 120px; flex-direction:row; justify-content:center; gap:6px; width:auto; padding:0; border-radius:0;
+    border-top:2px solid transparent; font-size:13px; }
+  .nav-bottom .nav-item svg { width:18px; height:18px; }
+  .nav-bottom .nav-item:hover, .nav-bottom .nav-item.on { background:transparent; }
+  .nav-bottom .nav-item.on { border-top-color:var(--nav-on); }
+  .nav-bottom .nav-dot { position:static; margin:0 0 0 -2px; align-self:center; }
+}

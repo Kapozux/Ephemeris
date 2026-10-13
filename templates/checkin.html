@@ -5,28 +5,35 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>打卡 · Ephemeris</title>
 <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
+<link rel="stylesheet" href="/static/nav.css?v={{ v }}">
 <link rel="stylesheet" href="/static/checkin.css?v={{ v }}">
 </head>
 <body>
 <div class="ck-sky" aria-hidden="true"></div>
 
-<nav class="ck-rail">
+<!-- 左边竖条：logo（回到正在看的这一天）+ 三页共用的主导航（templates/_nav.html）；≤700 只剩主导航，变成固定底栏 -->
+<div class="ck-rail">
   <a class="ck-back" href="/" title="回 Ephemeris">
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><ellipse cx="12" cy="12" rx="9.4" ry="5.4" stroke="currentColor" stroke-width="1.7" transform="rotate(-32 12 12)"/><circle cx="17.4" cy="7.2" r="3.1" fill="#E9A45E"/></svg>
   </a>
-  <button class="ck-tab on" data-v="now">此刻</button>
-  <button class="ck-tab" data-v="month">这个月</button>
-</nav>
+  {% set nav_cur = 'checkin' %}{% set nav_cls = 'nav-rail nav-bottom' %}{% include '_nav.html' %}
+</div>
 
 <main>
+  <!-- 此刻 / 这个月：页内的分段切换 -->
+  <div class="ck-seg" role="tablist" aria-label="看哪个">
+    <button type="button" class="ck-tab on" data-v="now" role="tab" aria-selected="true">此刻</button>
+    <button type="button" class="ck-tab" data-v="month" role="tab" aria-selected="false">这个月</button>
+  </div>
+
   <!-- 此刻：只干一件事 -->
   <section class="ck-view" id="vNow">
     <div class="ck-now">
       <div class="ck-dateline">
-        <button class="ck-nav" id="dPrev" title="前一天">‹</button>
+        <button type="button" class="ck-nav" id="dPrev" title="前一天">‹</button>
         <span id="dLabel"></span>
         <button class="ck-nav" id="dNext" title="后一天">›</button>
-        <a id="dToday" class="hidden">回到今天</a>
+        <button type="button" id="dToday" class="ck-link hidden">回到今天</button>
       </div>
       <h1 id="hTitle">此刻怎么样<span class="ck-spark">✦</span></h1>
 
@@ -37,7 +44,7 @@
         <div class="ck-tags-label">点一个</div>
         <div class="ck-tags" id="tags"></div>
         <div class="ck-actions">
-          <a id="cancelEdit" class="hidden">不改了</a>
+          <button type="button" id="cancelEdit" class="ck-link hidden">不改了</button>
           <button class="ck-record" id="record" disabled>记下 →</button>
         </div>
       </div>

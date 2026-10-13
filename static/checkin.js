@@ -3,18 +3,21 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const WK = '日一二三四五六';
 
-// 颜色只编码好坏：暖 = 好（越好越亮），冷 = 糟（越糟越深），灰 = 平。「说不上来」单独一个深灰。
+// 颜色只编码好坏：暖 = 好，冷 = 糟（越糟越深），灰 = 平。「说不上来」单独一个深灰。
 // 是哪种情绪永远配文字，不靠颜色区分（焦虑、烦躁同分同色）。
+// 色值在 checkin.css 的 :root（深浅两套），这里读出来是十六进制 —— 光球要拼透明度（${c}55），SVG 属性里也不认 var()
+const CSSV = {};
+const cssv = n => CSSV[n] ??= getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 function vcol(v, word) {
-  if (word === '说不上来') return '#6E7280';     // 一天几条时传的是 words（「兴奋→平稳→说不上来」），按平均分上色
-  if (v >= 1.75) return '#F5A45D';
-  if (v >= 1.25) return '#EDBB72';
-  if (v >= 0.25) return '#D8C690';
-  if (v > -0.25) return '#A3A9B6';
-  if (v > -0.75) return '#A5B7DA';
-  if (v > -1.25) return '#7F9ED8';
-  if (v > -1.75) return '#5F83D0';
-  return '#4B63C2';
+  if (word === '说不上来') return cssv('--v-unsure');     // 一天几条时传的是 words（「兴奋→平稳→说不上来」），按平均分上色
+  if (v >= 1.75) return cssv('--v-good2');
+  if (v >= 1.25) return cssv('--v-good1');
+  if (v >= 0.25) return cssv('--v-good0');
+  if (v > -0.25) return cssv('--v-flat');
+  if (v > -0.75) return cssv('--v-bad1');
+  if (v > -1.25) return cssv('--v-bad2');
+  if (v > -1.75) return cssv('--v-bad3');
+  return cssv('--v-bad4');
 }
 const WV = {};   // 词 → 分
 
@@ -58,6 +61,7 @@ async function loadNow(date) {
   Object.assign(S, { date: r.date, today: r.today, words: r.words, items: r.items });
   r.words.forEach(w => WV[w.word] = w.v);
   renderProgress(r.progress);
+  S.orbs = r.orbs;
   renderTube(r.orbs);
   renderNow();
   syncUrl();
@@ -244,10 +248,11 @@ function renderStars() {
   const x = d => L + (d - 1) / Math.max(days - 1, 1) * (W - L - R);
   const y = v => T + (2 - v) / 4 * (H - T - B);
   let seed = yy * 100 + mm; const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
-  const dust = Array.from({ length: 80 }, () => `<circle cx="${(rnd() * W).toFixed(1)}" cy="${(rnd() * H).toFixed(1)}" r="${(rnd() * .9 + .3).toFixed(2)}" fill="#fff" opacity="${(rnd() * .3 + .1).toFixed(2)}"/>`).join('');
+  const ink = cssv('--star-ink');      // 深色是白线白字，浅色是墨色；星尘只在深色夜空里有
+  const dust = +cssv('--star-dust') ? Array.from({ length: 80 }, () => `<circle cx="${(rnd() * W).toFixed(1)}" cy="${(rnd() * H).toFixed(1)}" r="${(rnd() * .9 + .3).toFixed(2)}" fill="${ink}" opacity="${(rnd() * .3 + .1).toFixed(2)}"/>`).join('') : '';
   const pts = stars.map(s => ({ ...s, d: +s.date.slice(8), cx: x(+s.date.slice(8)), cy: y(s.v) }));
   const lines = pts.slice(1).map((p, i) => p.d - pts[i].d === 1
-    ? `<line x1="${pts[i].cx}" y1="${pts[i].cy}" x2="${p.cx}" y2="${p.cy}" stroke="#fff" stroke-opacity=".3"/>` : '').join('');
+    ? `<line x1="${pts[i].cx}" y1="${pts[i].cy}" x2="${p.cx}" y2="${p.cy}" stroke="${ink}" stroke-opacity=".3"/>` : '').join('');
   const els = pts.map((p, i) => {
     const c = vcol(p.v, p.words || p.word), r = 3.2 + Math.abs(p.v) * 1.2 + Math.min(p.n - 1, 3) * .6;
     const sel = p.date === S.selDay ? `<circle cx="${p.cx}" cy="${p.cy}" r="${r + 5}" fill="none" stroke="${c}" stroke-opacity=".7"/>` : '';
@@ -255,12 +260,12 @@ function renderStars() {
       (p.src === 'checkin' ? `<circle cx="${p.cx}" cy="${p.cy}" r="${r}" fill="${c}"/>` : `<circle cx="${p.cx}" cy="${p.cy}" r="${r}" fill="none" stroke="${c}" stroke-width="1.4"/>`) +
       `<circle cx="${p.cx}" cy="${p.cy}" r="12" fill="transparent"/></g>`;
   }).join('');
-  const ax = (t, yy2) => `<text x="${L - 8}" y="${yy2 + 4}" text-anchor="end" fill="#fff" fill-opacity=".4" font-size="10.5">${t}</text>`;
-  const ticks = [1, 8, 15, 22, days].map(d => `<text x="${x(d)}" y="${H - 8}" text-anchor="middle" fill="#fff" fill-opacity=".4" font-size="10.5">${d}</text>`).join('');
+  const ax = (t, yy2) => `<text x="${L - 8}" y="${yy2 + 4}" text-anchor="end" fill="${ink}" fill-opacity=".4" font-size="10.5">${t}</text>`;
+  const ticks = [1, 8, 15, 22, days].map(d => `<text x="${x(d)}" y="${H - 8}" text-anchor="middle" fill="${ink}" fill-opacity=".4" font-size="10.5">${d}</text>`).join('');
   box.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${S.month} 每天过得怎么样">${dust}
-    <line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="#fff" stroke-opacity=".12" stroke-dasharray="2 4"/>
+    <line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="${ink}" stroke-opacity=".12" stroke-dasharray="2 4"/>
     ${ax('好', y(2))}${ax('平', y(0))}${ax('糟', y(-2))}${lines}${els}${ticks}
-    ${stars.length ? '' : `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="#fff" fill-opacity=".45" font-size="12.5">这个月还没有星星</text>`}</svg>`;
+    ${stars.length ? '' : `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="${ink}" fill-opacity=".45" font-size="12.5">这个月还没有星星</text>`}</svg>`;
   box.querySelectorAll('.ck-star').forEach(g => {
     const p = pts[+g.dataset.i];
     tipOn(g, () => `<b>${p.date.slice(5)}　${esc(p.words || p.word)}</b>${p.note ? esc(p.note.slice(0, 120)) : ''}<em>${p.src === 'checkin' ? '自己打卡' : '从手写日记读出来的'}</em>`);
@@ -273,6 +278,13 @@ const shiftMonth = n => { let [y, m] = S.month.split('-').map(Number); m += n;
 $('#mPrev').onclick = () => shiftMonth(-1);
 $('#mNext').onclick = () => { if (S.month < S.today.slice(0, 7)) shiftMonth(1); };
 window.addEventListener('resize', () => { if (S.view === 'month' && S.M) renderStars(); });
+// 系统换了明暗：颜色重新读，画过的重画（不重新请求，「这个月」那一句不会因此重写）
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  for (const k in CSSV) delete CSSV[k];
+  if (!S.date) return;
+  renderNow(); renderTube(S.orbs || []);
+  if (S.M) renderMonth();
+});
 
 // ---------------------------------------------------------------- 悬停提示
 function tipOn(el, html) {

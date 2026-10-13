@@ -1,16 +1,39 @@
-/* 打卡：单独的全屏页。深色夜空，只干一件事。
+/* 打卡：单独的全屏页，只干一件事。明暗跟系统走：浅色是象牙底 + 金色点缀（底、线、字跟主页 style.css 同一组值），深色是夜空。
    颜色只表示好坏（暖 = 好，冷 = 糟，灰 = 平 / 说不上来），是哪种情绪永远有文字 —— 见 checkin.js 的 VCOL
    类名一律 ck- 开头（主导航除外：三页共用 nav.css 的 nav-）；通用的只有 hidden，状态修饰（on sel today future editing thinking solid ring）只跟在本体类后面写 */
 :root {
-  --bg:#0E0D12; --panel:#17161D; --panel-2:#1E1D25; --line:#2A2933; --line-2:#383744;
-  --ink:#EEEAF2; --ink-2:#B9B4C4; --muted:#8A8597; --faint:#6E6A7C;
-  --gold:#E9B45E; --gold-2:#F3CD86; --gold-deep:#B9873A;
+  --bg:#FAF9F5; --panel:#FFFFFF; --panel-2:#F3F1EA; --line:#ECEAE1; --line-2:#E1DED2;
+  --ink:#141413; --ink-2:#3D3A34; --muted:#79756C; --faint:#A8A398;
+  --gold:#A8741F; --gold-2:#D9A04A; --gold-deep:#D9B87E;          /* 字和图标 · 小星星 · 线和描边 */
+  --btn-top:#F3CD86; --btn-bot:#E9B45E; --btn-ink:#2A1D07;          /* 「记下」按钮 */
+  --pc-moments:#2F6FA8; --pc-streak:#7A52B3;                        /* 光球数、连续天数（打卡天数用 gold） */
+  --tag-on:rgba(20,20,19,.05); --edit-bg:rgba(20,20,19,.03);
+  --rail-bg:rgba(250,249,245,.85); --tip-shadow:0 10px 30px rgba(40,30,20,.14);
+  --sky-op:0; --sky-box:var(--panel); --star-ink:#141413; --star-dust:0;   /* 星点背景、星座图的底和线（checkin.js 读 --star-ink / --star-dust） */
+  /* 过得怎么样（checkin.js 的 vcol 读）：暖 = 好，冷 = 糟，越糟越深；灰 = 平；「说不上来」单独一个 */
+  --v-good2:#D9732A; --v-good1:#C98A2C; --v-good0:#A08A3E; --v-flat:#878D99;
+  --v-bad1:#7189BC; --v-bad2:#5A78B8; --v-bad3:#4566AE; --v-bad4:#33509F; --v-unsure:#6E7280;
   --r:14px;
   /* 三页共用的主导航（static/nav.css）在这一页的颜色 */
   --nav-ink:var(--muted); --nav-icon:var(--muted); --nav-hover:var(--panel); --nav-on:var(--gold); --nav-on-bg:var(--panel);
   --nav-bar:var(--bg); --nav-line:var(--line); --nav-dot:var(--gold);
   --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Hiragino Sans GB","Segoe UI",sans-serif;
   --serif:"Iowan Old Style","Hoefler Text","Songti SC",Georgia,serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme:dark;
+    --bg:#0E0D12; --panel:#17161D; --panel-2:#1E1D25; --line:#2A2933; --line-2:#383744;
+    --ink:#EEEAF2; --ink-2:#B9B4C4; --muted:#8A8597; --faint:#6E6A7C;
+    --gold:#E9B45E; --gold-2:#F3CD86; --gold-deep:#B9873A;
+    --btn-top:var(--gold-2); --btn-bot:var(--gold);
+    --pc-moments:#8EC5F0; --pc-streak:#C9A6F0;
+    --tag-on:#ffffff12; --edit-bg:#ffffff08;
+    --rail-bg:#0B0A0Ecc; --tip-shadow:0 10px 30px #0008;
+    --sky-op:.55; --sky-box:#08070B; --star-ink:#fff; --star-dust:1;
+    --v-good2:#F5A45D; --v-good1:#EDBB72; --v-good0:#D8C690; --v-flat:#A3A9B6;
+    --v-bad1:#A5B7DA; --v-bad2:#7F9ED8; --v-bad3:#5F83D0; --v-bad4:#4B63C2; --v-unsure:#6E7280;
+  }
 }
 * { box-sizing:border-box; margin:0; padding:0; }
 html, body { height:100%; }
@@ -20,7 +43,7 @@ button { font:inherit; color:inherit; }
 a { color:inherit; }
 
 /* 背景的星点 */
-.ck-sky { position:fixed; inset:0; pointer-events:none; opacity:.55;
+.ck-sky { position:fixed; inset:0; pointer-events:none; opacity:var(--sky-op);
   background-image:
     radial-gradient(1px 1px at 12% 18%, #fff8 50%, transparent 51%),
     radial-gradient(1px 1px at 72% 12%, #fff6 50%, transparent 51%),
@@ -35,7 +58,7 @@ a { color:inherit; }
 
 /* 左边竖条：logo + 主导航（nav-rail，长相在 nav.css） */
 .ck-rail { position:fixed; left:0; top:0; bottom:0; width:76px; display:flex; flex-direction:column; align-items:center; gap:10px;
-  padding:22px 0; border-right:1px solid var(--line); background:#0B0A0Ecc; backdrop-filter:blur(6px); z-index:3; }
+  padding:22px 0; border-right:1px solid var(--line); background:var(--rail-bg); backdrop-filter:blur(6px); z-index:3; }
 .ck-back { width:38px; height:38px; display:grid; place-items:center; border-radius:50%; color:var(--muted); margin-bottom:12px; }
 .ck-back svg { width:24px; height:24px; }
 .ck-back:hover { color:var(--ink); background:var(--panel); }
@@ -69,7 +92,7 @@ h1 .ck-spark { font-size:.6em; margin-left:10px; vertical-align:.25em; color:var
 .ck-pcard { background:var(--panel); border:1px solid var(--line); border-radius:var(--r); padding:12px 16px; }
 .ck-pcard .ck-pcard-k { font-size:11px; letter-spacing:.14em; color:var(--muted); }
 .ck-pcard .ck-pcard-v { font-size:28px; font-weight:600; font-variant-numeric:tabular-nums; margin-top:2px; }
-.ck-pcard:nth-child(1) .ck-pcard-v { color:#8EC5F0; } .ck-pcard:nth-child(2) .ck-pcard-v { color:var(--gold); } .ck-pcard:nth-child(3) .ck-pcard-v { color:#C9A6F0; }
+.ck-pcard:nth-child(1) .ck-pcard-v { color:var(--pc-moments); } .ck-pcard:nth-child(2) .ck-pcard-v { color:var(--gold); } .ck-pcard:nth-child(3) .ck-pcard-v { color:var(--pc-streak); }
 
 .ck-capture { background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:22px 22px 18px; }
 .ck-capture textarea { width:100%; background:transparent; border:0; outline:0; resize:vertical; color:var(--ink); font:inherit; font-size:17px; line-height:1.7; min-height:84px; }
@@ -80,11 +103,11 @@ h1 .ck-spark { font-size:.6em; margin-left:10px; vertical-align:.25em; color:var
 @keyframes ck-flash { 0%, 40% { background:var(--panel-2); box-shadow:0 0 0 2px var(--gold-deep); } 100% { background:transparent; box-shadow:0 0 0 2px transparent; } }
 .ck-tag { border:1px solid transparent; background:transparent; padding:7px 13px; border-radius:999px; font-size:15px; cursor:pointer; transition:background .15s, border-color .15s; }
 .ck-tag:hover { border-color:var(--line-2); }
-.ck-tag.on { background:#ffffff12; border-color:currentColor; font-weight:600; }
+.ck-tag.on { background:var(--tag-on); border-color:currentColor; font-weight:600; }
 .ck-actions { display:flex; justify-content:flex-end; align-items:center; gap:14px; margin-top:14px; }
 .ck-actions .ck-link { font-size:13px; }
 .ck-record { border:0; border-radius:999px; padding:11px 26px; font-size:15px; font-weight:600; cursor:pointer;
-  background:linear-gradient(180deg,var(--gold-2),var(--gold)); color:#2A1D07; }
+  background:linear-gradient(180deg,var(--btn-top),var(--btn-bot)); color:var(--btn-ink); }
 .ck-record:disabled { background:var(--panel-2); color:var(--muted); cursor:default; }
 
 /* 它说 */
@@ -106,7 +129,7 @@ h1 .ck-spark { font-size:.6em; margin-left:10px; vertical-align:.25em; color:var
 .ck-item .ck-item-ops .ck-link { font-size:12px; margin-left:10px; }
 .ck-item .ck-item-r { grid-column:2 / -1; color:var(--ink-2); font-size:13.5px; line-height:1.8;
   border-left:1px solid var(--gold-deep); padding-left:12px; margin-top:2px; }
-.ck-item.editing { background:#ffffff08; }
+.ck-item.editing { background:var(--edit-bg); }
 
 /* 光球管 */
 .ck-tube-head { text-align:center; font-size:11px; letter-spacing:.24em; color:var(--muted); margin:46px 0 16px; }
@@ -143,7 +166,7 @@ h1 .ck-spark { font-size:.6em; margin-left:10px; vertical-align:.25em; color:var
 .ck-day-big .ck-big-wk { color:var(--gold); font-weight:600; letter-spacing:.12em; font-size:13px; }
 .ck-day-big .ck-big-wd { color:var(--ink-2); font-size:13px; }
 .ck-day-big .ck-big-go { margin-left:auto; padding-bottom:8px; white-space:nowrap; flex:none; }
-.ck-constellation { background:#08070B; border:1px solid var(--line); border-radius:var(--r); overflow:hidden; }
+.ck-constellation { background:var(--sky-box); border:1px solid var(--line); border-radius:var(--r); overflow:hidden; }
 .ck-constellation svg { display:block; }
 .ck-c-legend { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:11.5px; color:var(--muted); margin-top:10px; }
 .ck-c-legend span { display:inline-flex; align-items:center; gap:6px; }
@@ -154,7 +177,7 @@ h1 .ck-spark { font-size:.6em; margin-left:10px; vertical-align:.25em; color:var
 .ck-m-note:empty::before, .ck-m-note:empty::after { content:none; }
 
 .ck-tip { position:fixed; z-index:10; max-width:280px; background:var(--panel-2); border:1px solid var(--line-2); border-radius:10px;
-  padding:9px 12px; font-size:12.5px; line-height:1.6; pointer-events:none; box-shadow:0 10px 30px #0008; }
+  padding:9px 12px; font-size:12.5px; line-height:1.6; pointer-events:none; box-shadow:var(--tip-shadow); }
 .ck-tip b { display:block; margin-bottom:3px; }
 .ck-tip em { display:block; font-style:normal; color:var(--muted); font-size:11px; margin-top:4px; }
 

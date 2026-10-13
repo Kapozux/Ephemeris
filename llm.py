@@ -6,6 +6,7 @@
     status()               → 现在用哪个后端、能不能用、上次失败原因
     stray(text, source)    → 输出里冒出来、材料里没有的别的文字（ask 自动重来一次）
     claude(prompt, effort) → (文本, 会话 id)：直接调 Claude（ask 默认就先走它）；Session(材料) 同一份材料做好几件事
+    claude_agent(prompt, allow) → Claude 自己跑命令查资料（只放行 allow 开头的命令；「问 Claude」用）
     ask_strong(prompt)     → (文本, 实际美元)：只给「交接包」用的大模型，Claude Opus 4.6（走 OpenRouter）。失败抛异常
 
 为什么要有它（2026-10-02 体检）：
@@ -415,6 +416,63 @@ def claude(prompt, effort='medium', session=None, keep=False, purpose=''):
     t = time.time()
     with _claude_sem:
         d = _claude_exec(args, prompt)
+    text = (d.get('result') or '').strip()
+    _claude_record(d, effort, purpose, time.time() - t)
+    if d.get('is_error') or not text:
+        if _LIMIT.search(text):
+            _claude_pause(text)
+        raise RuntimeError(f'Claude：{text[:200] or "返回空"}')
+    return text, d.get('session_id')
+
+
+def claude_agent(prompt, allow, effort='high', session=None, on_event=None, purpose='', timeout=600):
+    """让 Claude 自己用工具干活（「问 Claude」）：只给 Bash，且只放行 allow 开头的命令（别的命令一律被拒）。
+    on_event(kind, text)：kind = 'tool'（它要跑的命令）| 'text'（它中途说的话），给界面显示进度。
+    返回 (最后的回答, 会话 id)。会话留着，追问时传 session 接着问（前面查到的材料走缓存）。失败抛异常。"""
+    args = ['-p', '--model', CLAUDE_MODEL, '--effort', effort, '--system-prompt', CLAUDE_SYSTEM, '--tools', 'Bash',
+            '--allowedTools', f'Bash({allow}:*)', '--disable-slash-commands', '--strict-mcp-config', '--setting-sources', '',
+            '--output-format', 'stream-json', '--verbose']
+    if session:
+        args += ['--resume', session]
+    t = time.time()
+
+    def seen(ev):
+        if not on_event or ev.get('type') != 'assistant':
+            return
+        for b in (ev.get('message') or {}).get('content') or []:
+            if b.get('type') == 'tool_use':
+                on_event('tool', (b.get('input') or {}).get('command', ''))
+            elif b.get('type') == 'text' and b.get('text', '').strip():
+                on_event('text', b['text'].strip())
+
+    with _claude_sem:
+        if _claude_runner:
+            d = _claude_runner(args, prompt)
+            for ev in d.get('events', []):
+                seen(ev)
+        else:
+            os.makedirs(CLAUDE_CWD, exist_ok=True)
+            p = subprocess.Popen(['claude'] + args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 text=True, cwd=CLAUDE_CWD)
+            p.stdin.write(prompt)
+            p.stdin.close()
+            d = {'is_error': True, 'result': ''}
+            for line in p.stdout:
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    continue
+                if ev.get('type') == 'result':
+                    d = ev
+                else:
+                    seen(ev)
+                if time.time() - t > timeout:
+                    p.kill()
+                    d = {'is_error': True, 'result': f'超过 {timeout} 秒没查完'}
+                    break
+            p.wait()
+            if not d.get('result') and d.get('is_error'):
+                d['result'] = (p.stderr.read() or '')[:300]
     text = (d.get('result') or '').strip()
     _claude_record(d, effort, purpose, time.time() - t)
     if d.get('is_error') or not text:

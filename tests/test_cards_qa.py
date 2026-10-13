@@ -201,5 +201,47 @@ class Ask(unittest.TestCase):
         self.assertEqual([c['id'] for c in r['cites']], ['m1·1'])                # 关键词没命中，靠上一轮的卡接上
 
 
+
+class Deep(unittest.TestCase):
+    """问 Claude：只放行 look.py；出处认回卡 / 原话；追问接着同一个会话。"""
+    def setUp(self):
+        seed()
+        llm.use(lambda p: out([{'m': 1, 'k': '决定', 'p': '大学申请', 't': '我决定 ED 交 MIT', 'q': 'ED 交 MIT'}]))
+        cards.build_conv('c1')
+        llm.use(None)
+        self.calls = []
+
+        def run(args, stdin):
+            self.calls.append((args, stdin))
+            cmd = f'{qa.LOOK} msgs MIT --old'
+            return {'result': '你决定 ED 交 MIT [[c:m1·1]]，AI 建议改文书 [[m:m2]]，还有编的 [[m:不存在]]。',
+                    'session_id': 's1', 'events': [
+                        {'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'input': {'command': cmd}}]}},
+                        {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': '你决定……'}]}}]}
+        llm.use_claude(run)
+
+    def tearDown(self):
+        llm.use_claude(None)
+
+    def test_cites_cards_and_messages_and_only_look_is_allowed(self):
+        steps = []
+        r = qa.answer_deep('我早申交的哪', progress=steps.append)
+        self.assertEqual(r['answer'], '你决定 ED 交 MIT [[c:m1·1]]，AI 建议改文书 [[m:m2]]，还有编的 。')
+        self.assertEqual([c['id'] for c in r['cites']], ['c:m1·1', 'm:m2'])
+        self.assertEqual(r['cites'][1]['who'], 'ai')
+        args = self.calls[0][0]
+        self.assertEqual(args[args.index('--allowedTools') + 1], f'Bash({qa.LOOK}:*)')
+        self.assertEqual(args[args.index('--tools') + 1], 'Bash')
+        self.assertEqual(steps, ['🔎 搜原文：MIT --old'])                      # 中途的话不进进度
+        self.assertEqual(qa.history()[-1]['cites'][0]['quote'], 'ED 交 MIT')
+
+    def test_follow_up_resumes_the_session(self):
+        qa.answer_deep('我早申交的哪')
+        qa.answer_deep('那后来呢')
+        a2, in2 = self.calls[1]
+        self.assertEqual(a2[a2.index('--resume') + 1], 's1')
+        self.assertTrue(in2.startswith('追问：那后来呢'))
+
+
 if __name__ == '__main__':
     unittest.main()

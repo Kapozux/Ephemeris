@@ -149,7 +149,8 @@ END;
 CREATE TABLE IF NOT EXISTS card_days (
   date TEXT PRIMARY KEY, fp TEXT, n INTEGER, dropped INTEGER, cost REAL, made_at TEXT
 );
--- 「问」那个聊天窗口的记录。cites：这条回答引用的卡（存一份快照，卡重做了旧回答照样看得懂）
+-- 「问」那个聊天窗口的记录。cites：这条回答引用的卡 / 原话（存一份快照，卡重做了旧回答照样看得懂）；
+-- sid：「问 Claude」那一轮的 Claude 会话（追问接着它，_migrate 补的列）
 CREATE TABLE IF NOT EXISTS qa_chat (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, role TEXT, text TEXT, cites TEXT
 );
@@ -201,7 +202,7 @@ _ADD_COLUMNS = [
     ('conversations', 'title_fallback', 'INTEGER DEFAULT 0'), ('conversations', 'n_days', 'INTEGER'),
     ('conversations', 'first_import', 'TEXT'), ('conversations', 'last_import', 'TEXT'),
     ('themes', 'desc', 'TEXT'), ('checkins', 'reply', 'TEXT'), ('diaries', 'added_later', 'INTEGER DEFAULT 0'),
-    ('journal', 'gone_at', 'TEXT'),
+    ('journal', 'gone_at', 'TEXT'), ('qa_chat', 'sid', 'TEXT'),
     ('backups', 'files_written', 'INTEGER'), ('backups', 'files_total', 'INTEGER'),
     ('backups', 'bytes_written', 'INTEGER'), ('backups', 'warning', 'TEXT'),
 ]

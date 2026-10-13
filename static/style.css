@@ -26,6 +26,14 @@
   --coral:#D97757; --coral-deep:#B05230; --coral-press:#933F22; --coral-soft:#FBEEE7; --coral-line:#F0D8CC;
   --code-bg:#F1EFE8; --mark:#FFF1B8;
   --claude:#D97757; --gemini:#4A7DB5;
+  --on-coral:#fff; --btn:var(--coral-deep); --btn-press:var(--coral-press);   /* 主按钮：底色和上面的字 */
+  --ok:#4F7A5B; --ok-dot:#5B8C5A;                 /* 好 / 已完成：字用 ok，圆点和底色用 ok-dot */
+  --journal-bg:#FFFDF9;                            /* 手写日记卡：比 card 暖一点 */
+  --scrim:rgba(20,20,19,.32); --scrim-strong:rgba(20,20,19,.38);
+  /* 回顾的曲线；主题占比 SHADES（reflect.js）和话题河流 RV_COLORS（river.js）也在这里，JS 只写 var(--t0) 这样的名字 */
+  --chart-cur:#A9502B; --chart-prev:#9C968B;
+  --t0:#A9502B; --t1:#C4764F; --t2:#D99A78; --t3:#E9BFA6; --t4:#B7AEA0; --t5:#D3CEC4; --t6:#E5E1D8; --t7:#EFECE5; --t8:#F4F2ED;
+  --rv0:#2a78d6; --rv1:#eb6834; --rv2:#1baf7a; --rv3:#eda100; --rv4:#e87ba4; --rv5:#008300; --rv6:#4a3aa7; --rv7:#e34948; --rv8:#b3aea3;
   /* 日历热度：珊瑚 ramp，编码「窗口数」 */
   --h0:#F1EFE8; --h1:#F6E3D8; --h2:#EFC4AE; --h3:#E5997A; --h4:#D97757;
   /* 三页共用的主导航（static/nav.css）在这一页的颜色 */
@@ -35,6 +43,7 @@
   --r-xs:6px; --r-sm:8px; --r-md:9px; --r-lg:12px;
   --e1:0 1px 2px rgba(50,42,28,.04);
   --e2:0 6px 20px rgba(60,50,30,.06), 0 1px 3px rgba(50,42,28,.04);
+  --e3:0 24px 60px rgba(40,30,20,.22);
 
   --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Hiragino Sans GB","Segoe UI",sans-serif;
   --serif:"Hoefler Text","Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
@@ -43,6 +52,32 @@
   --shell-w: 1800px;
   --col-gap: clamp(24px, 3vw, 56px);
   --sidebar-w: clamp(240px, 16vw, 290px);
+}
+/* 深色：跟系统走，底色、线、字跟 chat.css 的深色同一组值（bg #1a1a19 · card #262624 · line #33332f · text #ece9e2）。
+   色阶都反过来想：深底上「越多 / 越卡 / 越好」= 越亮，空的那一格最接近底色 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme:dark;
+    --f-2:#7B9CC4; --f-1:#46586C; --f0:#3A3833; --f1:#7E4D36; --f2:#E08A5E;
+    --s0:#34332F; --s1:#524E46; --s2:#7C7568; --s3:#ABA393; --s4:#DDD6C6;
+    --paper:#1A1A19; --card:#262624;
+    --ink:#ECE9E2; --ink-soft:#CBC7BE; --muted:#9C9890; --faint:#6F6C66;
+    --line:#33332F; --line-2:#44433F;
+    --coral:#D97757; --coral-deep:#E8957A; --coral-press:#B05230; --coral-soft:#3A2A22; --coral-line:#5C3B2D;
+    --code-bg:#2C2C2A; --mark:#5A4A1C;
+    --claude:#D97757; --gemini:#6A9AD0;
+    --on-coral:#fff; --btn:#C4603E; --btn-press:#A94F30;
+    --ok:#8DB88C; --ok-dot:#6E9F6C;
+    --journal-bg:#292825;
+    --scrim:rgba(0,0,0,.5); --scrim-strong:rgba(0,0,0,.56);
+    --chart-cur:#E8957A; --chart-prev:#7F7A70;
+    --t0:#E8957A; --t1:#C9714C; --t2:#9E5A3F; --t3:#7A4733; --t4:#6E685E; --t5:#5A5650; --t6:#4C4944; --t7:#43413C; --t8:#3B3935;
+    --rv0:#4F95E8; --rv1:#F07A48; --rv2:#2FC28C; --rv3:#F0B030; --rv4:#EC8FB3; --rv5:#43AD43; --rv6:#8A7CF0; --rv7:#EF6766; --rv8:#8A857B;
+    --h0:#2A2A27; --h1:#4A3128; --h2:#7A4430; --h3:#B05D3E; --h4:#E07B57;
+    --e1:0 1px 2px rgba(0,0,0,.3);
+    --e2:0 2px 6px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.4);
+    --e3:0 24px 60px rgba(0,0,0,.55);
+  }
 }
 
 *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
@@ -60,10 +95,10 @@ mark { background:var(--mark); color:inherit; padding:0 2px; border-radius:2px; 
 .ask button.ask-yes { color:var(--coral-deep); font-weight:600; border-color:var(--coral); }
 button { font-family:inherit; }
 
-.btn-primary { display:inline-block; min-height:40px; padding:10px 22px; background:var(--coral-deep); color:#fff;
-  border:1px solid var(--coral-deep); border-radius:var(--r-md); font-size:14px; font-weight:500; cursor:pointer;
+.btn-primary { display:inline-block; min-height:40px; padding:10px 22px; background:var(--btn); color:var(--on-coral);
+  border:1px solid var(--btn); border-radius:var(--r-md); font-size:14px; font-weight:500; cursor:pointer;
   transition:background .15s ease; }
-.btn-primary:hover { background:var(--coral-press); border-color:var(--coral-press); }
+.btn-primary:hover { background:var(--btn-press); border-color:var(--btn-press); }
 .btn-secondary { padding:8px 15px; min-height:36px; background:var(--card); color:var(--ink-soft);
   border:1px solid var(--line-2); border-radius:var(--r-sm); font-size:13px; cursor:pointer; white-space:nowrap;
   transition:border-color .15s ease, background .15s ease; }
@@ -231,7 +266,7 @@ button { font-family:inherit; }
 .pop .pop-days { display:flex; flex-wrap:wrap; gap:4px; max-height:200px; overflow-y:auto; }
 .pop .pop-days a { padding:2px 8px; border-radius:999px; background:var(--code-bg); cursor:pointer; font-size:11px; color:var(--ink-soft); }
 .pop .pop-days a:hover { background:var(--coral-soft); color:var(--coral-deep); }
-.pop .pop-days a.cur { background:var(--coral); color:#fff; }
+.pop .pop-days a.cur { background:var(--coral); color:var(--on-coral); }
 .pop .pop-win { display:inline-block; margin-top:10px; font-size:12px; color:var(--ink-soft); border-bottom:1px solid var(--line-2); text-decoration:none; }
 .pop .pop-win:hover { color:var(--coral-deep); border-color:var(--coral); }
 
@@ -279,7 +314,7 @@ button { font-family:inherit; }
 .sb-item:hover { background:var(--card); color:var(--ink); }
 .sb-sep { display:block; height:1px; background:var(--line); margin:4px 10px 6px; flex:none; }   /* 回顾 | 管（数据来源 Notion 设置） */
 
-.modal-overlay { position:fixed; inset:0; z-index:400; background:rgba(20,20,19,.32); display:flex; align-items:center; justify-content:center; padding:24px; }
+.modal-overlay { position:fixed; inset:0; z-index:400; background:var(--scrim); display:flex; align-items:center; justify-content:center; padding:24px; }
 .modal { width:min(1040px, 100%); height:min(86vh, 900px); background:var(--card); border:1px solid var(--line); border-radius:var(--r-lg);
   box-shadow:var(--e2); display:grid; grid-template-columns:168px minmax(0,1fr); overflow:hidden; position:relative; }
 .modal-x { position:absolute; top:14px; right:14px; z-index:1; }   /* 浮层右上角的 ×，长相和回忆卡的 .fb-x 共用一条规则 */
@@ -310,7 +345,7 @@ button { font-family:inherit; }
 .pane-kpi b.text { font-family:var(--sans); font-size:22px; font-weight:600; padding-top:5px; }
 .pane-kpi span { display:block; font-size:12px; color:var(--muted); margin-top:5px; }
 .pane-kpi small { font-size:11.5px; color:var(--muted); margin-left:6px; }
-.pane-kpi small.up { color:var(--ok, #4F7A5B); } .pane-kpi small.down { color:var(--coral-deep); }
+.pane-kpi small.up { color:var(--ok); } .pane-kpi small.down { color:var(--coral-deep); }
 .pane-sec { margin-top:14px; }
 .pane-sec + .pane-sec { margin-top:34px; }
 .pane-two > .pane-sec, .pane-two > .pane-sec + .pane-sec { margin-top:0; }   /* 并排的两栏：顶端对齐，间距交给 grid 的 gap */
@@ -323,11 +358,11 @@ button { font-family:inherit; }
 .reflect-chart .chart-grid { stroke:var(--line-2); stroke-dasharray:4 5; }
 .reflect-chart .chart-base { stroke:var(--line-2); }
 .reflect-chart .chart-ylab, .reflect-chart .chart-xlab { font-family:var(--sans); font-size:13px; fill:var(--muted); }
-.reflect-chart .chart-cur { fill:none; stroke:#A9502B; stroke-width:2.4; stroke-linejoin:round; stroke-linecap:round; }
-.reflect-chart .chart-prev { fill:none; stroke:#9C968B; stroke-width:2; stroke-dasharray:1 5; stroke-linecap:round; }
+.reflect-chart .chart-cur { fill:none; stroke:var(--chart-cur); stroke-width:2.4; stroke-linejoin:round; stroke-linecap:round; }
+.reflect-chart .chart-prev { fill:none; stroke:var(--chart-prev); stroke-width:2; stroke-dasharray:1 5; stroke-linecap:round; }
 .pane-legend { display:flex; gap:22px; margin-top:6px; font-size:12.5px; color:var(--muted); }
-.pane-legend i { display:inline-block; width:18px; height:0; border-top:2px solid #A9502B; vertical-align:middle; margin-right:6px; }
-.pane-legend i.prev { border-top:2px dotted #9C968B; }
+.pane-legend i { display:inline-block; width:18px; height:0; border-top:2px solid var(--chart-cur); vertical-align:middle; margin-right:6px; }
+.pane-legend i.prev { border-top:2px dotted var(--chart-prev); }
 .reflect-bar { display:flex; gap:4px; height:18px; margin:20px 0 24px; border-radius:999px; overflow:hidden; }
 .reflect-bar i { display:block; height:100%; min-width:4px; }
 .reflect-topics { display:grid; grid-template-columns:1fr 1fr; column-gap:40px; row-gap:22px; }
@@ -383,7 +418,7 @@ button { font-family:inherit; }
 .cv-import-gemini { margin-top:12px; padding-top:12px; border-top:1px dashed var(--line-2); font-size:12.5px; color:var(--muted); line-height:1.7; }
 .cv-import-gemini b { display:block; color:var(--ink); font-weight:600; font-size:13px; }
 .cv-import-gemini a { cursor:pointer; color:var(--coral-deep); border-bottom:1px solid var(--coral-line); text-decoration:none; }
-.cv-import-gemini em { font-style:normal; color:#5B8C5A; }
+.cv-import-gemini em { font-style:normal; color:var(--ok-dot); }
 .cv-import-result { margin-top:12px; padding-top:12px; border-top:1px solid var(--line); font-size:13px; }
 .cv-import-result .cv-import-row { display:flex; gap:10px; align-items:baseline; padding:4px 0; }
 .cv-import-result .cv-import-row b { font-weight:600; }
@@ -495,7 +530,7 @@ button { font-family:inherit; }
 .cv-sync-row a:hover { color:var(--coral-deep); border-color:var(--coral); }
 .cv-sync-row code { font-family:ui-monospace,Menlo,monospace; font-size:11.5px; background:var(--card); border:1px solid var(--line); border-radius:3px; padding:1px 4px; }
 .cv-sync-dot { width:7px; height:7px; border-radius:50%; flex:none; }
-.cv-sync-dot.ok { background:#5B8C5A; } .cv-sync-dot.bad { background:var(--coral); } .cv-sync-dot.off { background:var(--faint); }
+.cv-sync-dot.ok { background:var(--ok-dot); } .cv-sync-dot.bad { background:var(--coral); } .cv-sync-dot.off { background:var(--faint); }
 
 /* 主题账本：日记页的那一行 + 主题面板 */
 .diary-chips { display:flex; flex-wrap:wrap; gap:6px; margin:-4px 0 16px; }
@@ -532,7 +567,7 @@ button { font-family:inherit; }
 }
 
 /* 手写日记：我自己在 Notion 里写的，放在 AI 日记上面 */
-.journal { padding:20px 30px 18px; margin-bottom:16px; background:#FFFDF9; }
+.journal { padding:20px 30px 18px; margin-bottom:16px; background:var(--journal-bg); }
 .j-head { display:flex; align-items:baseline; gap:10px; font-size:12px; margin-bottom:10px; }
 .j-head .sp { flex:1; }
 .j-head a { color:var(--muted); cursor:pointer; }
@@ -622,9 +657,9 @@ button { font-family:inherit; }
   background:var(--card); color:var(--muted); cursor:pointer; }
 .fb-dice:hover { color:var(--coral-deep); border-color:var(--coral-line); }
 /* 2026-09-30 踩过：遮罩以前叫「点 fb」，撞上窗口列表里自动标题的同名 class，每一行都变成全屏灰罩。所以现在类名一律带区域前缀 */
-.flashback { position:fixed; inset:0; z-index:300; background:rgba(20,20,19,.38); display:grid; place-items:center; padding:16px; }
+.flashback { position:fixed; inset:0; z-index:300; background:var(--scrim-strong); display:grid; place-items:center; padding:16px; }
 .fb-card { width:min(560px,100%); max-height:calc(100vh - 32px); overflow-y:auto; background:var(--card); border-radius:18px;
-  box-shadow:0 24px 60px rgba(40,30,20,.22); padding:18px 26px 22px; animation:fbIn .22s ease-out; }
+  box-shadow:var(--e3); padding:18px 26px 22px; animation:fbIn .22s ease-out; }
 @keyframes fbIn { from { opacity:0; transform:translateY(10px) scale(.98); } to { opacity:1; transform:none; } }
 .fb-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
 .fb-seg { display:inline-flex; border:1px solid var(--line-2); border-radius:999px; padding:2px; }
@@ -656,7 +691,7 @@ button { font-family:inherit; }
 .su-step.done { background:var(--paper); }
 .su-num { flex:none; width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center;
   font-size:13px; font-weight:600; color:var(--coral-deep); background:var(--coral-soft); border:1px solid var(--coral-line); }
-.su-step.done .su-num { color:#fff; background:#5B8C5A; border-color:#5B8C5A; }
+.su-step.done .su-num { color:var(--on-coral); background:var(--ok-dot); border-color:var(--ok-dot); }
 .su-main { flex:1; min-width:0; font-size:13.5px; line-height:1.75; color:var(--ink-soft); }
 .su-main h3 { font-size:15px; font-weight:600; color:var(--ink); margin-bottom:6px; }
 .su-main ol { padding-left:20px; margin:4px 0 8px; }

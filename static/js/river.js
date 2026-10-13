@@ -2,7 +2,8 @@
 import { $, esc } from './util.js';
 
 // 每周各大类占了多少「主题·天」。颜色 = 类别身份，固定顺序（已过配色校验）；叠放顺序 = 颜色顺序。
-const RV_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948', '#b3aea3'];
+// 话题的颜色：色值在 style.css 的 :root（--rv0…--rv8，深浅两套），这里只写名字
+const RV_COLORS = Array.from({ length: 9 }, (_, k) => `var(--rv${k})`);
 let RV = null, RV_SCALE = 'share', RV_FROM = 'year', RV_HI = -1;
 // 「近一年」= 今天往前 365 天（本地日期），每次加载现算
 const fromDate = v => {
@@ -72,7 +73,7 @@ function renderRiver() {
       edges.push(monoSegs(xs.map((xx, j) => [xx, y(k === 0 ? stacks[at(j)][0][0] : stacks[at(j)][k - 1][1])])));
     return RV.cats.map((c, k) => {
       const lo = edges[k], hi = edges[k + 1];
-      return `<path class="rv-band" data-k="${k}" d="M${_f(hi[0][0])}${segsFwd(hi)}L${_f(lo[lo.length - 1][3])}${segsRev(lo)}Z" fill="${RV_COLORS[k]}"/>`;
+      return `<path class="rv-band" data-k="${k}" d="M${_f(hi[0][0])}${segsFwd(hi)}L${_f(lo[lo.length - 1][3])}${segsRev(lo)}Z" style="fill:${RV_COLORS[k]}"/>`;
     }).join('');
   }).join('');
   const gaps = segs.slice(1).map((g, j) => {

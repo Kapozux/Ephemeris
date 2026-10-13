@@ -3,7 +3,8 @@ import { $, esc, fmtW, ask } from './util.js';
 import { S } from './state.js';
 import { navigate } from './nav.js';
 
-const SHADES = ['#A9502B', '#C4764F', '#D99A78', '#E9BFA6', '#B7AEA0', '#D3CEC4', '#E5E1D8', '#EFECE5', '#F4F2ED'];
+// 主题占比的颜色：从珊瑚到灰，第一名最显眼。色值在 style.css 的 :root（--t0…--t8，深浅两套）
+const SHADES = Array.from({ length: 9 }, (_, i) => `var(--t${i})`);
 const WD = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 let RDATA = null, RMETRIC = 'msgs', RPOLL = null, RREQ = 0;
 

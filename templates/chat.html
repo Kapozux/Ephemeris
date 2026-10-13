@@ -30,9 +30,11 @@
   <div class="ch-threads" id="chThreads"></div>
   <div class="ch-side-foot">
     <span class="ch-avatar">{{ name[:1] }}</span><span>{{ name }}</span>
-    <span class="ch-cards" id="chCards" title="证据卡"></span>
+    <button type="button" class="ch-cards" id="chCards" aria-haspopup="dialog" aria-expanded="false" hidden></button>
+    <div class="ch-pop" id="chPop" role="dialog" aria-label="证据卡" hidden></div>
   </div>
 </aside>
+<div class="ch-scrim" id="chScrim"></div>
 
 <main class="ch-main">
   <header class="ch-head">
@@ -51,6 +53,7 @@
   </section>
 
   <form class="ch-composer" id="chForm">
+    <div class="ch-other" id="chOther" hidden></div>
     <div class="ch-box">
       <textarea id="chInput" rows="1" placeholder="问问你自己的聊天记录…" autocomplete="off"></textarea>
       <div class="ch-tools">

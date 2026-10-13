@@ -1,7 +1,7 @@
 // 入口：模式切换（按天 / 按窗口）、路由分发、启动，以及跨块的事（数据变了统一重拉）。
 // 各块在自己的文件里：
 //   calendar 侧栏日历 · batch 补全日记 · day 某一天 · search 搜索 · flashback 回忆卡 · windows 按窗口回顾
-//   panel 浮层（reflect 回顾/数据 · themes 主题 · river 河流 · convs 窗口与导入 · notion）
+//   panel 浮层（reflect 回顾/数据 · themes 主题 · river 河流 · convs 数据来源 · notion）
 // 共用的状态在 state.js（S），路由约定在 nav.js 开头。
 import { $, typing, topLayer } from './util.js';
 import { S, setDays, daysChanged } from './state.js';

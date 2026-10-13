@@ -1,4 +1,4 @@
-// 浮层「窗口」栏（窗口与导入）：claude.ai 同步和备份的状态、导入新文件、全部窗口一览、导入历史。
+// 浮层「数据来源」栏（以前叫窗口与导入）：claude.ai 同步和备份的状态、导入新文件、全部窗口一览、导入历史。
 import { $, esc, rel, fmtW } from './util.js';
 import { daysChanged } from './state.js';
 import { navigate } from './nav.js';
@@ -101,7 +101,7 @@ ib.addEventListener('drop', e => { e.preventDefault(); ib.classList.remove('over
 export const ensureConvs = () => { if (!CONVS.length) loadConvs(); };
 
 // ---------------------------------------------------------------- claude.ai 自动同步
-// 状态条放在「窗口与导入」面板顶上——那一栏本来就是讲「数据从哪来」的。
+// 状态条放在「数据来源」面板顶上——那一栏本来就是讲「数据从哪来」的。
 
 let CSPOLL = null;
 // 早上那一串（daily.py）：同步的几个阶段之后还有「写日记」「整理」两段，分开说清楚在干嘛

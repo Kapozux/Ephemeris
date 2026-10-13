@@ -11,7 +11,7 @@
        sb- 侧栏   cal- 日历   wl- 侧栏的窗口列表
        pagehead- 页头   day- diary- journal(j-) thread- msg- 某一天   pop- 跨天弹层   tl- win- 按窗口的时间轴
        modal- 浮层   pane- 浮层里各栏共用的骨架   reflect- chart- data- 回顾和数据   th- 主题   rv- 河流
-       cv- 窗口与导入   nt- Notion   set- 设置   qa- 问（证据卡问答）   su- 开始用（新装时的引导页）   fb- 回忆卡
+       cv- 数据来源（窗口一览与导入）   nt- Notion   set- 设置   qa- 问（证据卡问答）   su- 开始用（新装时的引导页）   fb- 回忆卡
    - 新加类之前先 grep 一下有没有重名。踩过两次：.k 撞了打卡页，.fb 让窗口列表每一行都变成全屏灰罩
    ============================================================ */
 :root {
@@ -247,19 +247,21 @@ button { font-family:inherit; }
 
 .modal-overlay { position:fixed; inset:0; z-index:400; background:rgba(20,20,19,.32); display:flex; align-items:center; justify-content:center; padding:24px; }
 .modal { width:min(1040px, 100%); height:min(86vh, 900px); background:var(--card); border:1px solid var(--line); border-radius:var(--r-lg);
-  box-shadow:var(--e2); display:grid; grid-template-columns:168px minmax(0,1fr); overflow:hidden; }
+  box-shadow:var(--e2); display:grid; grid-template-columns:168px minmax(0,1fr); overflow:hidden; position:relative; }
+.modal-x { position:absolute; top:14px; right:14px; z-index:1; }   /* 浮层右上角的 ×，长相和回忆卡的 .fb-x 共用一条规则 */
 .modal-nav { display:flex; flex-direction:column; gap:2px; padding:16px 10px; background:var(--paper); border-right:1px solid var(--line); }
-.modal-nav .sp { flex:1; }
+.modal-nav-sep { height:1px; background:var(--line-2); margin:8px 12px; flex:none; }   /* 看（回顾 数据 主题 河流）| 管（数据来源 Notion 设置） */
 .modal-nav-item { border:0; background:transparent; text-align:left; padding:8px 12px; border-radius:var(--r-sm); font-size:13.5px; color:var(--ink-soft); cursor:pointer; }
 .modal-nav-item:hover { background:var(--card); color:var(--ink); }
 .modal-nav-item.active { background:var(--coral-soft); color:var(--coral-deep); font-weight:600; }
 .modal-body { overflow-y:auto; padding:28px 34px 40px; min-width:0; }
 .modal-pane { display:none; } .modal-pane.active { display:block; }
 
-.pane-top { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; }
+.pane-top { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; padding-right:28px; }   /* 右边让出浮层的 × */
 .pane-title { font-size:19px; font-weight:600; letter-spacing:-.01em; }
 .pane-sub { font-size:13px; color:var(--muted); margin-top:2px; }
 .pane-ctl { display:flex; align-items:center; gap:8px; flex:none; }
+.pane-ctl input[type=search] { width:200px; }
 .pane-ctl select { appearance:none; padding-right:26px; background:var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2379756C' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 9px center; }
 .pane-body { margin-top:24px; }
 .pane-loading, .pane-empty { font-size:14px; color:var(--muted); padding:40px 0; text-align:center; }
@@ -323,8 +325,17 @@ button { font-family:inherit; }
 .data-split i { display:block; height:100%; }
 @media (max-width: 700px) {
   .modal { grid-template-columns:1fr; grid-template-rows:auto minmax(0,1fr); height:100vh; border-radius:0; }
-  .modal-nav { flex-direction:row; border-right:0; border-bottom:1px solid var(--line); overflow-x:auto; padding:10px; }
+  .modal-nav { flex-direction:row; border-right:0; border-bottom:1px solid var(--line); overflow-x:auto; padding:10px 52px 10px 10px; }
   .modal-nav-item { flex:none; white-space:nowrap; }
+  .modal-nav-sep { width:1px; height:auto; margin:6px 6px; }
+  .modal > .modal-x { top:10px; right:8px; background:var(--paper); border-radius:var(--r-sm); padding:5px 9px; box-shadow:-10px 0 10px var(--paper); }
+  .modal-body { padding:20px 16px 32px; }
+  .pane-top { flex-wrap:wrap; gap:12px; padding-right:0; }      /* 控件另起一行，标题和说明占满宽度 */
+  .pane-ctl { flex:1 1 100%; flex-wrap:wrap; }
+  .pane-ctl input[type=search] { flex:1 1 auto; width:auto; min-width:0; }
+  .pane-list .pane-row { grid-template-columns:auto minmax(0,1fr); gap:2px 12px; }   /* 标题一行，小字放下一行 */
+  .pane-list .pane-row .pane-row-title { grid-column:1 / -1; }
+  .pane-list .pane-row .pane-row-meta { white-space:normal; font-size:12px; }
   .reflect-topics, .pane-two { grid-template-columns:1fr; }
   .modal-overlay { padding:0; }
 }
@@ -356,6 +367,14 @@ button { font-family:inherit; }
 .cv-row .cv-span { font-size:11px; color:var(--coral-deep); background:var(--coral-soft); border:1px solid var(--coral-line); border-radius:999px; padding:0 7px; margin-left:6px; }
 .cv-row .cv-snip { grid-column:2 / -1; margin-top:-4px; font-size:12px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .cv-row .cv-snip b { font-weight:600; color:var(--ink-soft); margin-right:8px; }
+@media (max-width: 700px) {                       /* 窄屏：一行标题，下面一行小字「日期 · 条数 · 字数」 */
+  .cv-row { display:flex; flex-wrap:wrap; align-items:center; column-gap:6px; row-gap:2px; }
+  .cv-row .cv-title { flex:1 1 calc(100% - 20px); min-width:0; }
+  .cv-row .cv-meta { font-size:11.5px; text-align:left; }
+  .cv-row .cv-title + .cv-meta { margin-left:16px; }
+  .cv-row .cv-meta + .cv-meta::before { content:'· '; }
+  .cv-row .cv-snip { flex:1 1 100%; margin:2px 0 0 16px; }
+}
 .cv-list .cv-none { padding:16px 4px; color:var(--muted); font-size:13px; }
 .cv-list .cv-more { display:block; text-align:center; padding:12px; color:var(--muted); cursor:pointer; }
 
@@ -579,8 +598,8 @@ button { font-family:inherit; }
 .fb-seg button { border:0; background:none; padding:4px 12px; border-radius:999px; font:inherit; font-size:12.5px; color:var(--muted); cursor:pointer; }
 .fb-seg button.on { background:var(--ink); color:var(--paper); }
 .fb-seg button:disabled { opacity:.35; cursor:default; }
-.fb-x { border:0; background:none; font-size:22px; line-height:1; color:var(--faint); cursor:pointer; padding:2px 6px; }
-.fb-x:hover { color:var(--ink); }
+.fb-x, .modal-x { border:0; background:none; font-size:22px; line-height:1; color:var(--faint); cursor:pointer; padding:2px 6px; }   /* 右上角 ×：回忆卡和浮层共用 */
+.fb-x:hover, .modal-x:hover { color:var(--ink); }
 .fb-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
 .fb-ago { font-size:22px; font-weight:700; letter-spacing:-.01em; }
 .fb-date { color:var(--muted); font-size:13px; font-variant-numeric:tabular-nums; }
@@ -622,7 +641,6 @@ button { font-family:inherit; }
 .qa-clear { cursor:pointer; font-size:12px; color:var(--muted); border-bottom:1px solid var(--line-2); }
 .qa-threads { max-width:220px; text-overflow:ellipsis; }
 @media (max-width: 700px) {                       /* 窄屏：下拉框和「新对话」换到标题下面一行，别把说明挤成一条 */
-  .modal-pane[data-pane="qa"] .pane-top { flex-wrap:wrap; gap:10px; }
   .qa-threads { max-width:calc(100vw - 120px); }
 }
 .qa-cards { margin-top:14px; padding:9px 12px; font-size:12.5px; color:var(--ink-soft); background:var(--paper); border:1px solid var(--line); border-radius:var(--r-sm); }

@@ -43,7 +43,7 @@ function render(s) {
         <li>右边列表里找名字叫 <b>sessionKey</b> 的那一行，双击它的值（sk-ant- 开头），全选、复制，贴到下面。</li></ol>
       <p class="su-note">这一串等于你的登录，别发给别人。它过一段时间会失效，到时候再来贴一次新的。${s.claude ? '已经填好了。' : ''}</p>
       ${field('suClaude', 'CLAUDE_SESSION_KEY', 'sk-ant- 开头的一串')}
-      <p class="su-note">不想用自动下载也行：claude.ai 左下角头像 → 设置 → 隐私 →「导出数据」，邮件里下载那个 .zip，拖进 <a href="#/panel/convs">窗口与导入</a>（不用解压）。这样只有那一次的，以后不会自己更新。</p>`)}
+      <p class="su-note">不想用自动下载也行：claude.ai 左下角头像 → 设置 → 隐私 →「导出数据」，邮件里下载那个 .zip，拖进 <a href="#/panel/convs">数据来源</a>（不用解压）。这样只有那一次的，以后不会自己更新。</p>`)}
     ${STEP(3, !!s.name, '日记里怎么称呼你（可以不填）', `
       <p class="su-note">${s.name ? `现在是「${esc(s.name)}」。` : '不填就叫「用户」。'}</p>
       ${field('suName', 'DIARY_NAME', '比如：小明', 'text')}`)}

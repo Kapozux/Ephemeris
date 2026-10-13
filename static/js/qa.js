@@ -1,9 +1,9 @@
-// 浮层「问」栏：一个聊天窗口，只凭证据卡回答（后端 qa.py / cards.py）。
+// 浮层「问」栏：一个聊天窗口，只凭证据卡回答（后端 qa.py / cards.py）；勾上「问 Claude」走 qa.answer_deep（它自己查原文）。
 // 回答里的 [[卡 id]] 换成上标数字；下面列出处，每条带原话，点「去原话」回到那天那条消息。
 import { $, esc, usd, ask } from './util.js';
 import { navigate } from './nav.js';
 
-let POLL = null, BUSY = false;
+let POLL = null, DEEP_POLL = null, BUSY = false;
 
 // 回答正文：先转义，再认 [[id]]、**粗体**、换行和「- 」列表
 function body(text, cites) {
@@ -24,7 +24,7 @@ function sources(cites) {
     <div class="qa-src-row" data-n="${i + 1}">
       <span class="qa-src-n">${i + 1}</span>
       <span class="qa-src-main"><span class="qa-src-meta">${c.date} · ${c.who === 'me' ? '你说' : 'AI 说'} · ${esc(c.title || '')}</span>
-        ${esc(c.text)}<span class="qa-src-q">「${esc(c.quote)}」</span></span>
+        ${c.kind === '原话' ? '' : esc(c.text)}<span class="qa-src-q">「${esc(c.quote)}」</span></span>
       <a class="qa-go" data-d="${c.date}" data-c="${c.conv_id}" data-m="${c.msg_id}">去原话 →</a></div>`).join('')}</details>`;
 }
 
@@ -55,10 +55,43 @@ function renderCards(c) {
   });
 }
 
+// 问 Claude（深挖）：后台查，一两分钟。每 2 秒看一眼进度，把它在干什么列在等待的气泡里
+function deepWait(steps) {
+  return `<span class="pulse"></span> Claude 在查…` + (steps.length ? `<ul class="qa-steps">${steps.slice(-6).map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : '');
+}
+
+function pollDeep() {
+  clearTimeout(DEEP_POLL);
+  DEEP_POLL = setTimeout(async () => {
+    const r = await fetch('/api/qa').then(r => r.json()).catch(() => null);
+    const d = r && r.deep, wait = $('#qaLog .qa-wait');
+    if (!d) return pollDeep();
+    if (d.running) {
+      if (wait) wait.innerHTML = deepWait(d.steps || []);
+      return pollDeep();
+    }
+    if (wait) wait.outerHTML = d.error ? `<div class="qa-a qa-bad">没答上：${esc(d.error)}</div>` : turnHtml({ role: 'assistant', ...d.result, text: d.result.answer });
+    doneSending();
+  }, 2000);
+}
+
+function doneSending() {
+  BUSY = false;
+  $('#qaSend').disabled = false;
+  $('#qaInput').focus();
+}
+
 export async function loadQA() {
   const r = await fetch('/api/qa').then(r => r.json()).catch(() => null);
   if (!r) return;
   renderCards(r.cards);
+  if (r.deep && r.deep.running && !BUSY) {           // 关掉浮层再打开时还在查：接着显示进度
+    BUSY = true;
+    $('#qaSend').disabled = true;
+    $('#qaLog').innerHTML = r.history.map(turnHtml).join('') + `<div class="qa-a qa-wait">${deepWait(r.deep.steps || [])}</div>`;
+    pollDeep();
+    return;
+  }
   if (!BUSY) {
     $('#qaLog').innerHTML = r.history.length ? r.history.map(turnHtml).join('')
       : '<div class="qa-empty">问一句试试。它只看证据卡，答案里每句话后面的小数字就是出处。</div>';
@@ -72,24 +105,29 @@ async function send(e) {
   BUSY = true;
   $('#qaSend').disabled = true;
   $('#qaLog').querySelector('.qa-empty')?.remove();
-  $('#qaLog').insertAdjacentHTML('beforeend', `<div class="qa-q">${esc(q)}</div><div class="qa-a qa-wait"><span class="pulse"></span> 在翻卡…</div>`);
+  const deep = $('#qaDeep').checked;
+  $('#qaLog').insertAdjacentHTML('beforeend', `<div class="qa-q">${esc(q)}</div><div class="qa-a qa-wait">${deep ? deepWait([]) : '<span class="pulse"></span> 在翻卡…'}</div>`);
   $('#qaInput').value = '';
   $('#qaLog').lastElementChild.scrollIntoView({ block: 'nearest' });
-  const r = await fetch('/api/qa/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q }) })
+  const r = await fetch('/api/qa/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q, deep }) })
     .then(r => r.json()).catch(() => ({ error: '连不上 Ephemeris' }));
   const wait = $('#qaLog .qa-wait');
+  if (deep && !r.error) {
+    if (!r.started) r.error = '上一个问题 Claude 还在查';
+    else return pollDeep();
+  }
   if (r.error) {
     wait.outerHTML = `<div class="qa-a qa-bad">没答上：${esc(r.error)}</div>`;
     $('#qaInput').value = q;                         // 问题还给你，改一下再问
   } else {
     wait.outerHTML = turnHtml({ role: 'assistant', text: r.answer, cites: r.cites });
   }
-  BUSY = false;
-  $('#qaSend').disabled = false;
-  $('#qaInput').focus();
+  doneSending();
 }
 
 $('#qaForm').addEventListener('submit', send);
+try { $('#qaDeep').checked = localStorage.getItem('qaDeep') === '1'; } catch { /* 隐私模式：不记 */ }
+$('#qaDeep').addEventListener('change', e => { try { localStorage.setItem('qaDeep', e.target.checked ? '1' : '0'); } catch { /* 同上 */ } });
 $('#qaInput').addEventListener('keydown', e => {           // 回车发送，Shift+回车换行（输入法选字时不算）
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('#qaForm').requestSubmit(); }
 });

@@ -150,13 +150,14 @@
       </section>
       <section class="modal-pane" data-pane="qa">
         <div class="pane-top">
-          <div><div class="pane-title">问</div><div class="pane-sub">只凭证据卡回答：你和 AI 聊天里的原话，每句话都能点回那天那条消息。</div></div>
+          <div><div class="pane-title">问</div><div class="pane-sub">只凭证据卡回答（勾上「问 Claude」：它自己去翻原文）：每句话都能点回那天那条消息。</div></div>
           <div class="pane-ctl"><a id="qaClear" class="qa-clear">清空对话</a></div>
         </div>
         <div class="qa-cards" id="qaCards"></div>
         <div class="qa-log" id="qaLog"></div>
         <form class="qa-form" id="qaForm">
           <textarea id="qaInput" rows="2" placeholder="问点什么，比如：我九月对选校是怎么想的？后来变了吗？"></textarea>
+          <label class="qa-deep" title="让 Claude 自己去搜原文、翻卡、读前后文再答：一两分钟，用 Claude 订阅额度"><input type="checkbox" id="qaDeep">问 Claude</label>
           <button class="btn-primary btn-small" id="qaSend" type="submit">问</button>
         </form>
       </section>

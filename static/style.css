@@ -196,6 +196,16 @@ button { font-family:inherit; }
 .thread-body.showai .msg.ai { display:flex; }
 .msg.ai .msg-text { color:var(--muted); font-size:12.5px; }
 .msg-more { cursor:pointer; font-size:12px; margin-left:6px; }
+/* AI 回复按 Markdown 渲染（md.js 的 mdBlocks，记号沿用手写日记 .j-body 那套）：字号、颜色跟消息走，块间距收紧 */
+.msg .msg-md { white-space:normal; }
+.msg .msg-md p, .msg .msg-md .j-li, .msg .msg-md .j-todo, .msg .msg-md blockquote { font-size:inherit; line-height:1.7; color:inherit; margin-bottom:4px; }
+.msg .msg-md h4 { font-size:inherit; margin:8px 0 2px; color:var(--ink-soft); }
+.msg .msg-md h4:first-child { margin-top:0; }
+.msg .msg-md hr { margin:8px 0; }
+.msg .msg-md code { font-size:.92em; }
+.msg .msg-md pre { margin:4px 0 6px; padding:8px 10px; background:var(--code-bg); border-radius:var(--r-xs); overflow-x:auto; white-space:pre; font-size:12px; line-height:1.55; }
+.msg .msg-md pre code { background:none; padding:0; font-size:inherit; }
+.msg .msg-md .msg-more { margin-left:0; }
 
 /* 跨度弹层 */
 .pop { position:fixed; z-index:300; background:var(--card); border:1px solid var(--line); border-radius:var(--r-lg);
@@ -267,6 +277,7 @@ button { font-family:inherit; }
 .pane-kpi small.up { color:var(--ok, #4F7A5B); } .pane-kpi small.down { color:var(--coral-deep); }
 .pane-sec { margin-top:14px; }
 .pane-sec + .pane-sec { margin-top:34px; }
+.pane-two > .pane-sec, .pane-two > .pane-sec + .pane-sec { margin-top:0; }   /* 并排的两栏：顶端对齐，间距交给 grid 的 gap */
 .pane-sec-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .pane-sec-label { font-size:12px; letter-spacing:.1em; color:var(--muted); }
 .reflect-seg { display:inline-flex; background:var(--code-bg); border-radius:10px; padding:3px; }
@@ -333,6 +344,7 @@ button { font-family:inherit; }
 .cv-import-result .cv-import-row b { font-weight:600; }
 .cv-import-result .cv-import-row .cv-import-meta { color:var(--muted); font-size:12.5px; }
 .cv-import-result .cv-import-row.bad { color:var(--coral-deep); }
+.cv-import-result .cv-import-row.bad a { cursor:pointer; color:inherit; border-bottom:1px solid currentColor; }
 .cv-list { margin-top:22px; border-top:1px solid var(--line); }
 .cv-row { display:grid; grid-template-columns:8px minmax(0,1fr) 92px 72px 88px; gap:12px; align-items:center;
   padding:9px 6px; border-bottom:1px solid var(--line); font-size:13px; cursor:pointer; border-radius:var(--r-sm); }

@@ -40,3 +40,21 @@ export const journalHtml = text => (text || '').split('\n').map(line).join('');
 
 // 有几张图（日记页决定要不要先收起来）
 export const imageCount = text => ((text || '').match(/^ *!\[[^\]]*\]\(\/journal-files\//gm) || []).length;
+
+// AI 回复（Claude / Gemini 写的 Markdown）→ 一块一块的 HTML。跟手写日记同一套行规则（同样先转义），
+// 另外认 ``` 代码块、「* 」列表、#### 标题、--- 分隔。每块带原文字数 n 和行数 lines：日记页按块折叠，不在半个标签里切。
+export function mdBlocks(text) {
+  const out = [];
+  let code = null;
+  const flush = () => { const s = code.join('\n'); out.push({ html: `<pre><code>${esc(s)}</code></pre>`, n: s.length, lines: code.length }); code = null; };
+  for (const raw of (text || '').split('\n')) {
+    if (/^\s*```/.test(raw)) { if (code) flush(); else code = []; continue; }
+    if (code) { code.push(raw); continue; }
+    const l = raw.replace(/^(\s*)\* /, '$1- ').replace(/^(\s*)#{4,6} /, '$1### ').replace(/^\s*(?:-{3,}|\*{3,})\s*$/, '———')
+                 .replace(/^(\s*)!\[/, '$1\u200b![');               // 行首垫个零宽空格：AI 写的图片语法不当成本地图片
+    const html = line(l);
+    if (html) out.push({ html, n: raw.length, lines: 1 });
+  }
+  if (code) flush();                                          // 没收尾的代码块
+  return out;
+}

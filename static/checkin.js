@@ -79,7 +79,8 @@ function renderNow() {
   $('#tags').querySelectorAll('.ck-tag').forEach(b => b.onclick = () => { S.word = S.word === b.dataset.w ? null : b.dataset.w; renderNow(); });
   $('#record').disabled = !S.word;
   const dt = new Date(S.date + 'T12:00:00');
-  $('#record').textContent = S.editing ? '改好了 →' : isToday ? '记下 →' : `记到 ${dt.getMonth() + 1} 月 ${dt.getDate()} 日 →`;
+  $('#record').textContent = !S.word ? '先点一个词' : S.editing ? '改好了 →' : isToday ? '记下 →' : `记到 ${dt.getMonth() + 1} 月 ${dt.getDate()} 日 →`;
+  $('#note').placeholder = isToday ? '此刻在发生什么……（可以不写）' : '那天发生了什么……（可以不写）';
   $('#cancelEdit').classList.toggle('hidden', !S.editing);
 
   $('#todayList').innerHTML = S.items.length
@@ -132,7 +133,13 @@ $('#record').onclick = async () => {
   o.classList.remove('thinking'); $('#oText').textContent = r.reply || '（这次没想出来说什么）';
   loadNow(S.date);
 };
-$('#note').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) $('#record').click(); });
+// ⌘↩ 记下；还没点词就让词那一行闪一下，告诉他缺什么
+$('#note').addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return;
+  e.preventDefault();
+  if (S.word) { $('#record').click(); return; }
+  const t = $('#tags'); t.classList.remove('flash'); void t.offsetWidth; t.classList.add('flash');
+});
 $('#cancelEdit').onclick = () => { S.editing = null; S.word = null; $('#note').value = ''; renderNow(); };
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && S.editing) { $('#cancelEdit').click(); return; }

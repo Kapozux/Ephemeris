@@ -65,7 +65,16 @@ async function doImport(files) {
   const box = $('#importResult'); box.classList.remove('hidden');
   box.innerHTML = `<div class="cv-import-row"><span class="pulse"></span>正在导入 ${files.length} 个文件…</div>`;
   const fd = new FormData(); [...files].forEach(f => fd.append('file', f));
-  const r = await fetch('/api/import', { method: 'POST', body: fd }).then(r => r.json());
+  let r;
+  try {
+    const res = await fetch('/api/import', { method: 'POST', body: fd });
+    r = await res.json().catch(() => ({}));
+    if (!res.ok && !(r.results || []).length) throw new Error(r.error || `Ephemeris 出错了（${res.status}）`);
+  } catch (e) {                      // 连不上 / 服务器报错：别一直转圈，说原因，给个重试
+    box.innerHTML = `<div class="cv-import-row bad">没导进去：${esc(e instanceof TypeError ? '连不上 Ephemeris' : e.message)} · <a class="cv-import-retry">再选一次</a></div>`;
+    box.querySelector('.cv-import-retry').onclick = () => $('#importFile').click();
+    return;
+  }
   box.innerHTML = (r.results || []).map(x => x.ok
     ? `<div class="cv-import-row"><b>${esc(x.file)}</b><span class="cv-import-meta">${x.n_convs} 个窗口（新 ${x.n_convs_new}）· ${x.n_msgs.toLocaleString()} 条（新 ${x.n_msgs_new.toLocaleString()}）· 涉及 ${x.days_touched.length} 天${x.diaries_invalidated ? ` · 作废日记 ${x.diaries_invalidated} 篇，侧栏可补全` : ''}</span></div>`
     : `<div class="cv-import-row bad"><b>${esc(x.file)}</b><span class="cv-import-meta">${esc(x.error || '失败')}</span></div>`).join('')

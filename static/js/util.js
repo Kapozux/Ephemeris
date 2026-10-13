@@ -41,11 +41,11 @@ export function scrollWithin(box, el, center) {
   else if (r.bottom > b.bottom) box.scrollTop = top - box.clientHeight + r.height;
 }
 
-// 把搜索词标出来：text 是已经转义过的 HTML，q 是原样的词（不分大小写）
+// 把搜索词标出来：html 是已经转义过的 HTML（可以带标签，只标标签外面的字），q 是原样的词（不分大小写）
 export function markHits(html, q) {
   if (!q) return html;
   const re = new RegExp(esc(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-  return html.replace(re, m => `<mark>${m}</mark>`);
+  return html.replace(/(<[^>]*>)|([^<]+)/g, (all, tag, txt) => tag || txt.replace(re, m => `<mark>${m}</mark>`));
 }
 
 // 钱：不到一分写「不到 $0.01」

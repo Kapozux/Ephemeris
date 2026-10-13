@@ -111,8 +111,9 @@ function applyRoute() {
     if (!date) return LATEST ? navigate('day/' + LATEST, { replace: true }) : undefined;
     if (!S.byDate[date]) return LATEST ? navigate('day/' + LATEST, { replace: true }) : undefined;
     const focus = {};
-    if (parts[2] === 'journal') focus.journal = true;
-    for (let i = 2; i < parts.length; i += 2) {
+    let i = 2;
+    if (parts[2] === 'journal') { focus.journal = true; i = 3; }     // #/day/<d>/journal[/q/<词>]
+    for (; i < parts.length; i += 2) {
       if (parts[i] === 'conv') focus.conv = parts[i + 1];
       if (parts[i] === 'msg') focus.msg = parts[i + 1];
       if (parts[i] === 'q') focus.q = parts[i + 1];          // 搜的词：落地那条消息里标出来

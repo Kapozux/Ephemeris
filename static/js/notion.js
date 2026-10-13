@@ -1,13 +1,18 @@
 // 浮层「Notion」栏：日记推到 Notion 的一览和同步。
-import { $, esc, rel } from './util.js';
+import { $, esc, rel, ask } from './util.js';
 
 // 判别「哪页是 Ephemeris 推的」在后端做（icon 💬 + 裸日期标题 + notion_pages 表）。
 // 这里只管把结果摆出来，以及起/盯后台任务。
 
 let NTPOLL = null;
 
-function ntRow(label, n, hint) {
-  return `<div class="pane-row"><span class="pane-row-title">${label}<span class="pane-row-meta" style="margin-left:10px">${hint || ''}</span></span><span class="pane-row-meta">${n} 天</span></div>`;
+// 一类一行；待办的那几类（k 有值、有日期）能点开看是哪几天
+function ntRow(label, n, hint, dates) {
+  const open = dates && dates.length;
+  return `<div class="pane-row${open ? ' nt-row' : ''}"${open ? ' role="button" tabindex="0" aria-expanded="false"' : ''}>
+      <span class="pane-row-title">${label}<span class="pane-row-meta" style="margin-left:10px">${hint || ''}</span></span>
+      <span class="pane-row-meta">${n} 天${open ? '<span class="nt-caret" aria-hidden="true">›</span>' : ''}</span></div>`
+    + (open ? `<div class="nt-dates hidden">${dates.map(d => `<a href="#/day/${d}">${d}</a>`).join('')}</div>` : '');
 }
 
 function renderNotion(s) {
@@ -33,7 +38,7 @@ function renderNotion(s) {
   sub.textContent = `已连接 · ${esc(s.integration || '')} · 远端 ${s.remote_pages} 页`;
 
   const pending = (s.create || 0) + (s.append || 0) + (s.update || 0) + (s.replace || 0);
-  const running = j.running;
+  const running = j.running, D = s.dates || {};
   const pct = j.total ? Math.round(j.done / j.total * 100) : 0;
 
   body.innerHTML = `
@@ -42,10 +47,10 @@ function renderNotion(s) {
         <span class="pane-sub">${pending ? `${pending} 天待同步` : '全部已同步'}</span></div>
       <div class="pane-list">
         ${ntRow('已同步', s.skip || 0, '内容没变，不动')}
-        ${ntRow('新建', s.create || 0, '这天你没写过日记')}
-        ${ntRow('追加', s.append || 0, '追到你自己那页末尾')}
-        ${(s.update || 0) ? ntRow('重推', s.update, '日记重跑过，或是误建的重复页') : ''}
-        ${(s.replace || 0) ? ntRow('换新', s.replace, '日记重跑过，内容在你自己那页里 — 只换掉分隔线之后属于 Ephemeris 的那段') : ''}
+        ${ntRow('新建', s.create || 0, '这天你没写过日记', D.create)}
+        ${ntRow('追加', s.append || 0, '追到你自己那页末尾', D.append)}
+        ${(s.update || 0) ? ntRow('重推', s.update, '日记重跑过，或是误建的重复页', D.update) : ''}
+        ${(s.replace || 0) ? ntRow('换新', s.replace, '日记重跑过，内容在你自己那页里 — 只换掉分隔线之后属于 Ephemeris 的那段', D.replace) : ''}
       </div>
     </div>
     <div class="pane-sec">
@@ -64,11 +69,28 @@ function renderNotion(s) {
       你自己写过日记的那天不会新建页，只在你那页末尾加一条分隔线再往后写。</p>
     </div>`;
 
+  // 点开某一类：看是哪几天
+  body.querySelectorAll('.nt-row').forEach(r => {
+    const flip = () => { const open = r.nextElementSibling.classList.toggle('hidden') === false;
+      r.classList.toggle('open', open); r.setAttribute('aria-expanded', open); };
+    r.onclick = flip;
+    r.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } };
+  });
+
+  // 会写他自己的 Notion 页面：先说清楚动哪些页，点「确定」才跑
   const b = $('#ntSync');
-  if (b) b.onclick = async () => {
-    b.disabled = true; b.textContent = '起来了…';
-    await fetch('/api/notion/sync', { method: 'POST' });
-    pollNotion();
+  if (b) b.onclick = () => {
+    const mine = (s.append || 0) + (s.replace || 0), ours = s.update || 0;
+    const parts = [];
+    if (mine) parts.push(`会改你自己写的 ${mine} 页（${[s.append && `追加 ${s.append}`, s.replace && `换新 ${s.replace}`].filter(Boolean).join(' · ')}）`);
+    if (ours) parts.push(`重推 Ephemeris 自己建的 ${ours} 页`);
+    if (s.create) parts.push(`新建 ${s.create} 页`);
+    ask(b, `${parts.join('，')}。不调模型，上面每类点开能看是哪几天。`, async () => {
+      b.disabled = true; b.textContent = '起来了…';
+      const ok = await fetch('/api/notion/sync', { method: 'POST' }).then(r => r.ok).catch(() => false);
+      if (!ok) { b.disabled = false; b.textContent = '没起来（连不上 Ephemeris）· 重试'; return; }
+      pollNotion();
+    });
   };
 
   clearTimeout(NTPOLL);

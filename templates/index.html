@@ -160,12 +160,18 @@
       <section class="modal-pane" data-pane="convs">
         <div class="pane-top">
           <div><div class="pane-title">数据来源</div><div class="pane-sub" id="convSub">正在数…</div></div>
-          <div class="pane-ctl"><input id="convFilter" type="search" placeholder="搜标题和聊天全文…" class="btn-secondary btn-small"></div>
+          <div class="pane-ctl"><input id="convFilter" type="search" placeholder="搜标题和聊天全文…" class="btn-secondary btn-small">
+            <button id="importToggle" class="btn-secondary btn-small" type="button" aria-expanded="false" aria-controls="importBox">导入…</button></div>
         </div>
-        <div class="cv-sync" id="syncBox"></div>
-        <div class="cv-sync" id="backupBox"></div>
+        <!-- 一条紧凑的状态：同步、备份各一行，下面是各来源新到哪天（太久没新的标红） -->
+        <div class="cv-sync">
+          <div id="syncBox"></div>
+          <div id="backupBox"></div>
+          <div id="cvSrcs" class="cv-srcs"></div>
+        </div>
 
-        <div class="cv-import" id="importBox">
+        <!-- 导入：点「导入…」才展开（拖文件进这一栏也会自己展开） -->
+        <div class="cv-import hidden" id="importBox">
           <input type="file" id="importFile" multiple accept=".md,.json,.txt,.zip" hidden>
           <div class="cv-import-hint">
             <b>导入新的聊天记录</b>
@@ -177,9 +183,9 @@
             → 按 ⌥⌘J 打开控制台（Windows：Ctrl+Shift+J）→ 粘贴、回车（第一次要先打一行 allow pasting）。几分钟后会下载一个 gemini_export_日期.json，拖到这里。
             第二次起只拉变过的；以前 Takeout 导进来过的那几轮会自动跳过。<em id="geminiCopied"></em></span></div>
           <div id="importResult" class="cv-import-result hidden"></div>
+          <div class="cv-import-hist"><div class="pane-sec-head"><span class="pane-sec-label">导入历史</span></div><div id="importHist" class="pane-list"></div></div>
         </div>
         <div id="convList" class="cv-list"></div>
-        <div class="pane-sec" style="margin-top:30px"><div class="pane-sec-head"><span class="pane-sec-label">导入历史</span></div><div id="importHist" class="pane-list"></div></div>
       </section>
       <section class="modal-pane" data-pane="themes">
         <div class="pane-top">
@@ -207,7 +213,8 @@
         <div id="dataBody" class="pane-body"></div>
       </section>
       <section class="modal-pane" data-pane="settings">
-        <div class="pane-top"><div><div class="pane-title">设置</div><div class="pane-sub">把这里的东西带走：存成文件，或者整理一份给新的 AI 账号。</div></div></div>
+        <div class="pane-top"><div><div class="pane-title">设置</div><div class="pane-sub">登录和密钥；把这里的东西带走：存成文件，或者整理一份给新的 AI 账号。</div></div></div>
+        <div class="pane-sec"><div class="pane-sec-head"><span class="pane-sec-label">账号与密钥</span></div><div class="set-box" id="keysBox"></div></div>
         <div class="pane-sec"><div class="pane-sec-head"><span class="pane-sec-label">导出</span></div><div class="set-box" id="exportBox"></div></div>
       </section>
       <section class="modal-pane" data-pane="notion">

@@ -1,6 +1,48 @@
-// 浮层「设置」栏：目前只有导出（export.py）。
+// 浮层「设置」栏：账号与密钥（写 .env，跟「开始用」页同一套：setup.save），导出（export.py）。
 // 完整导出：所有聊天原文 + 每周日记 + 图片 + 主题，不调模型；交接包：请大模型（Claude Opus 4.6）写给新 AI 账号的三份文件。
 import { $, esc, rel, ask } from './util.js';
+import { field, bindSave } from './setup.js';
+
+// ---------------------------------------------------------------- 账号与密钥
+// 页面拿不回原值，只显示「填了没有」。sessionKey 过期是最常见的：数据来源栏的同步报错会链到这里。
+const KEYS = [
+  ['setClaude', 'CLAUDE_SESSION_KEY', 'claude.ai 的 sessionKey', 'sk-ant- 开头的一串', 'password',
+    '每天自动拉新对话用，等于你的登录，别发给别人。过一段时间会失效：同步报错时在这里贴一个新的。'
+    + '取法：Chrome 打开 claude.ai（已登录）→ 右键「检查」→ Application → Cookies → https://claude.ai → sessionKey 那一行的值。',
+    s => s.claude ? '已填' : '没填：claude.ai 不会自动同步'],
+  ['setGemini', 'GEMINI_API_KEY', 'Gemini API key', 'AIza 开头的一串', 'password',
+    'Claude 用不了时的后备模型。在 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> 拿，存之前先跟 Google 验一下（不花钱）。',
+    s => s.gemini ? '能用' : '没填或用不了'],
+  ['setName', 'DIARY_NAME', '日记里怎么称呼你', '比如：妈妈', 'text',
+    '不填就叫「用户」。只影响以后写的日记。',
+    s => s.name ? `现在是「${esc(s.name)}」` : '没填'],
+];
+
+function keysStatus(s) {
+  for (const [id, , , , , , st] of KEYS) {
+    const el = $(`#${id}St`); if (!el) continue;
+    el.innerHTML = st(s);
+    el.classList.toggle('ok', !!(id === 'setClaude' ? s.claude : id === 'setGemini' ? s.gemini : s.name));
+  }
+}
+
+export async function pollKeys() {
+  const box = $('#keysBox'); if (!box) return;
+  if (!box.firstElementChild) {          // 骨架只画一次：之后只改状态，贴了没存的值不会被清掉
+    box.innerHTML = KEYS.map(([id, name, title, ph, type, what]) => `
+      <div class="set-row">
+        <span class="set-text"><b>${title}</b><span class="set-key-st" id="${id}St"></span>
+          <span class="set-what">${what}</span></span>
+        ${field(id, name, ph, type)}
+      </div>`).join('') +
+      '<div class="set-note">只写进这台电脑上的 ephemeris/.env，页面上看不到原值。Notion 的 token 也在 .env 里（NOTION_TOKEN=），见 Notion 栏。</div>';
+    bindSave(box, keysStatus);
+  }
+  const s = await fetch('/api/setup').then(r => r.json()).catch(() => null);
+  if (s) keysStatus(s);
+}
+
+// ---------------------------------------------------------------- 导出
 
 let POLL = null, ESTMR = null, LAST = null;
 const nice = m => (m || '').split('/').pop().replace(/-/g, ' ').replace(/\b\w/g, x => x.toUpperCase());

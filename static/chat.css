@@ -74,8 +74,8 @@ body.ch-folded .ch-side { margin-left: -272px; }
 .ch-pop-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .ch-pop-btn.primary:hover { opacity: .9; }
 .ch-pop .ask { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 8px; color: var(--text); }
-.ch-pop .ask a { cursor: pointer; color: var(--muted); }
-.ch-pop .ask a:hover { color: var(--text); }
+.ch-pop .ask button { color: var(--muted); }
+.ch-pop .ask button:hover { color: var(--text); }
 .ch-pop .ask .ask-yes { color: var(--accent); }
 
 /* ---- 中间 ---- */

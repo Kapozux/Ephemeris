@@ -4,6 +4,7 @@
   --bg: #faf9f5; --side: #f3f1ea; --box: #ffffff; --line: #e2dfd5; --line2: #d3cfc3;
   --text: #1f1e1d; --muted: #77746c; --faint: #a19d93; --hover: #ebe8df; --bubble: #efece4;
   --accent: #d97757; --accent-text: #fff; --cite: #e9e5da; --hl: #f6ead9;
+  --pop-shadow: 0 2px 6px rgba(0,0,0,.06), 0 10px 30px rgba(0,0,0,.10); --scrim: rgba(20,20,19,.32);
   --font: "PingFang SC", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;   /* 全页苹方、不加粗（用户 10-13） */
 }
 @media (prefers-color-scheme: dark) {
@@ -11,6 +12,7 @@
     --bg: #1a1a19; --side: #1f1f1e; --box: #262624; --line: #33332f; --line2: #44433f;
     --text: #ece9e2; --muted: #9c9890; --faint: #6f6c66; --hover: #2c2c2a; --bubble: #2f2f2c;
     --accent: #d97757; --accent-text: #fff; --cite: #34342f; --hl: #3a3127;
+    --pop-shadow: 0 2px 6px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.4); --scrim: rgba(0,0,0,.5);
   }
 }
 * { box-sizing: border-box; }
@@ -20,6 +22,7 @@ body { display: flex; background: var(--bg); color: var(--text); font: 400 15px/
 b, strong, h1 { font-weight: 400; }
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
 svg { display: block; }
+[hidden], .hidden { display: none !important; }   /* .hidden 是 util.ask 用的 */
 
 /* ---- 左栏 ---- */
 .ch-side { width: 272px; flex: none; display: flex; flex-direction: column; background: var(--side); border-right: 1px solid var(--line);
@@ -47,10 +50,32 @@ body.ch-folded .ch-side { margin-left: -272px; }
 .ch-thread.on { background: var(--line); }
 .ch-thread.live::after { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
   margin-left: 8px; vertical-align: middle; animation: ch-pulse 1.2s ease-in-out infinite; }
-.ch-side-foot { display: flex; align-items: center; gap: 10px; padding: 10px 8px 2px; border-top: 1px solid var(--line); font-size: 14px; }
+.ch-side-foot { position: relative; display: flex; align-items: center; gap: 10px; padding: 10px 8px 2px; border-top: 1px solid var(--line); font-size: 14px; }
 .ch-avatar { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--accent-text);
   font-size: 13px; flex: none; }
-.ch-cards { margin-left: auto; font-size: 12px; color: var(--faint); }
+.ch-cards { margin-left: auto; display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 8px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.ch-cards:hover, .ch-cards[aria-expanded="true"] { background: var(--hover); color: var(--text); }
+.ch-dot { display: inline-block; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 7px;
+  animation: ch-pulse 1.2s ease-in-out infinite; }
+
+/* 做卡的小弹层：贴在「N 张卡」上面 */
+.ch-pop { position: absolute; z-index: 6; left: 4px; right: 4px; bottom: calc(100% + 6px); padding: 14px 14px 12px; background: var(--box);
+  border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--pop-shadow); font-size: 13px; line-height: 1.6; }
+.ch-pop-h { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.ch-pop-made { color: var(--text); }
+.ch-pop-dim { display: block; font-size: 12px; color: var(--faint); }
+.ch-pop-todo, .ch-pop-run { margin-top: 10px; color: var(--muted); }
+.ch-pop-run { display: flex; align-items: baseline; }
+.ch-pop-bad { margin-top: 10px; color: var(--accent); word-break: break-word; }
+.ch-pop-btn { margin-top: 8px; padding: 5px 12px; border-radius: 8px; border: 1px solid var(--line2); font-size: 13px; }
+.ch-pop-btn:hover { background: var(--hover); }
+.ch-pop-btn:disabled { opacity: .5; cursor: default; }
+.ch-pop-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.ch-pop-btn.primary:hover { opacity: .9; }
+.ch-pop .ask { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 8px; color: var(--text); }
+.ch-pop .ask a { cursor: pointer; color: var(--muted); }
+.ch-pop .ask a:hover { color: var(--text); }
+.ch-pop .ask .ask-yes { color: var(--accent); }
 
 /* ---- 中间 ---- */
 .ch-main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
@@ -103,6 +128,13 @@ sup .ch-cite:hover { color: var(--text); }
 
 /* ---- 输入框 ---- */
 .ch-composer { flex: none; padding: 0 16px 10px; }
+/* 别的对话在写：输入框上面一条 */
+.ch-other { max-width: 760px; margin: 0 auto 8px; display: flex; align-items: center; gap: 8px; padding: 0 6px; font-size: 13px; color: var(--muted); }
+.ch-other .ch-dot { margin-right: 0; align-self: center; }
+.ch-other-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-other a { flex: none; color: var(--text); text-decoration: none; border-bottom: 1px solid var(--line2); }
+.ch-other a:hover { border-color: var(--text); }
+.ch-other-sep { color: var(--faint); }
 .ch-box { max-width: 760px; margin: 0 auto; background: var(--box); border: 1px solid var(--line2); border-radius: 20px;
   padding: 14px 14px 10px 18px; box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 18px rgba(0,0,0,.05); }
 .ch-box:focus-within { border-color: var(--faint); }
@@ -125,10 +157,13 @@ body.ch-busy .ch-send .ch-up { display: none; }
 body.ch-busy .ch-send .ch-stop { display: block; }
 .ch-note { max-width: 760px; margin: 8px auto 0; padding: 0 18px; font-size: 12.5px; color: var(--faint); text-align: center; }
 
-/* ---- 窄屏：左栏变成盖在上面的抽屉 ---- */
+/* ---- 窄屏：左栏变成盖在上面的抽屉（收起时整个挪出去、不带阴影；打开时底下一层遮罩，点它或 Esc 关上） ---- */
+.ch-scrim { display: none; }
 @media (max-width: 760px) {
-  .ch-side { position: fixed; z-index: 5; inset: 0 auto 0 0; box-shadow: 0 0 40px rgba(0,0,0,.25); }
-  body:not(.ch-side-open) .ch-side { margin-left: -272px; }
+  .ch-side, body.ch-folded .ch-side { position: fixed; z-index: 5; inset: 0 auto 0 0; margin-left: 0; transform: translateX(-100%);
+    transition: transform .2s ease; }
+  body.ch-side-open .ch-side { transform: none; box-shadow: var(--pop-shadow); }
+  body.ch-side-open .ch-scrim { display: block; position: fixed; inset: 0; z-index: 4; background: var(--scrim); }
   .ch-open { display: grid; }
   body.ch-empty .ch-hello { margin-top: 18vh; }
   body.ch-empty .ch-composer { top: calc(18vh + 110px); }

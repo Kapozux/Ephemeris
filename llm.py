@@ -96,20 +96,56 @@ def _client(api_key=None):
 
 
 def _gemini(prompt, model=None):
-    client = _client()
+    """先直连 Gemini（AI Studio）；不行再走 OpenRouter 上同一个 Google 模型（2026-10-13：AI Studio 月度上限满了，
+    涉政的段只能给 Gemini、全卡住了）。直连报的是到上限 / 欠费这种一直会失败的，30 分钟内不再试直连。"""
     err = None
-    for m in ((model,) if model else MODELS):
+    if _paused.get('gemini', 0) <= time.time():
         try:
-            resp = client.models.generate_content(model=m, contents=prompt)
-        except Exception as e:                               # noqa: BLE001
-            err = e
-            continue
-        _record('record_gemini', resp, m, 'ephemeris')
-        text = (resp.text or '').strip()
-        if text:
-            return text
-        err = RuntimeError(f'{m} 返回空（多半是安全过滤）')
+            client = _client()
+        except Exception as e:                               # noqa: BLE001  没 key：直接走 OpenRouter
+            client, err = None, e
+        for m in ((model,) if model and client else MODELS if client else ()):
+            try:
+                resp = client.models.generate_content(model=m, contents=prompt)
+            except Exception as e:                           # noqa: BLE001
+                err = e
+                if any(k in str(e) for k in _GEMINI_HARD):
+                    _paused['gemini'] = time.time() + PAUSE_S
+                    print(f'[llm] gemini 直连停 30 分钟，改走 OpenRouter：{str(e)[:160]}', flush=True)
+                    break
+                continue
+            _record('record_gemini', resp, m, 'ephemeris')
+            text = (resp.text or '').strip()
+            if text:
+                return text
+            err = RuntimeError(f'{m} 返回空（多半是安全过滤）')
+    if openrouter_key():
+        for m in ((model,) if model else MODELS):
+            try:
+                return _gemini_openrouter(prompt, m)
+            except Exception as e:                           # noqa: BLE001
+                err = e
     raise err or RuntimeError('没有可用的模型')
+
+
+_GEMINI_HARD = ('spending cap', 'spend cap', 'API key not valid', 'API_KEY_INVALID', 'PERMISSION_DENIED', 'billing')
+
+
+def _gemini_openrouter(prompt, model):
+    """OpenRouter 上的 google/<model>，只让 Google 自己接（provider.only），不让别家托管。"""
+    import requests
+    r = requests.post(OPENROUTER, timeout=600, headers={'Authorization': f'Bearer {openrouter_key()}'},
+                      json={'model': f'google/{model}', 'usage': {'include': True},
+                            'provider': {'only': ['google-ai-studio', 'google-vertex'], 'allow_fallbacks': False},
+                            'messages': [{'role': 'user', 'content': prompt}]})
+    if r.status_code != 200:
+        raise RuntimeError(f'OpenRouter google/{model} {r.status_code}: {r.text[:200]}')
+    body = r.json()
+    _record('record_openai', body, 'openrouter', f'google/{model}', 'ephemeris')
+    text = (((body.get('choices') or [{}])[0].get('message') or {}).get('content') or '').strip()
+    if not text:
+        raise RuntimeError(f'OpenRouter google/{model} 返回空（多半是安全过滤）')
+    return text
 
 
 # 向量（证据卡按意思找，2026-10-13，照 Verbatim ask.py 的 _embed_texts）：只给 Google 的模型，私密内容不给别家。

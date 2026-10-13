@@ -5,6 +5,7 @@
     parse_json(text, want) → 纯函数：从模型输出里抠 JSON（去代码块、修 LaTeX 反斜杠）
     status()               → 现在用哪个后端、能不能用、上次失败原因
     stray(text, source)    → 输出里冒出来、材料里没有的别的文字（ask 自动重来一次）
+    claude(prompt, effort) → (文本, 会话 id)：直接调 Claude（ask 默认就先走它）；Session(材料) 同一份材料做好几件事
     ask_strong(prompt)     → (文本, 实际美元)：只给「交接包」用的大模型，Claude Opus 4.6（走 OpenRouter）。失败抛异常
 
 为什么要有它（2026-10-02 体检）：
@@ -12,6 +13,8 @@
 - 借来的东西会被别人改掉：10-01 Verbatim 为了省钱，把 `reflect._call_model` 改成按内容分流到阿里云 DeepSeek，
   Ephemeris 的日记、打卡回话也就跟着悄悄换了服务商 —— 没人替 Ephemeris 做过这个决定。
 - 调用失败只返回 None，上层不报错：哪天借的函数改名了，日记会一篇都写不出来却没人知道。
+
+首选 Claude（2026-10-13 起，见下面「Claude」那一节）：本机的 Claude Code，用订阅额度；用不了才走下面的后端。
 
 后端（.env 的 EPHEMERIS_LLM 选）：
   gemini   默认。Gemini flash-lite，不行退一档 2.5-flash。直接用 google-genai，key 是 .env 的 GEMINI_API_KEY。
@@ -24,11 +27,15 @@ key 没填会去读它存的（只读它的 .env / settings.local.json，不 imp
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import threading
 import time
+from datetime import datetime, timedelta
 
 import index as idx
+import store
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GETAUDIO = os.path.join(HERE, '..', 'getAudio')
@@ -348,12 +355,136 @@ def prices():
     return (0.14 / 1e6, 0.28 / 1e6) if cheap_on() else (0.25 / 1e6, 1.50 / 1e6)
 
 
-def _call(prompt, model=None, fallback=True):
-    """fallback=False：不涉政、又有 DeepSeek 的路时，DeepSeek 失败就当失败，不回 Gemini。
+# ------------------------------------------------------------------ Claude（2026-10-13 起首选）
+# 走本机的 Claude Code（`claude -p`），用的是用户的订阅额度，不是 API key。
+# 精简模式：自己的系统提示、不给工具、不读设置和 MCP、输出 JSON（带 token 用量和等值美元）—— 每次只多带约 550 token。
+#   · 同时最多 CLAUDE_PARALLEL 个进程：10-13 全量做卡一个小时开了几千次，撞了 5 小时上限（额度按「贵的 token」算，缓存写入最贵）
+#   · 撞上限 / 没登录：Claude 停一阵（能读到重置时间就停到那时），期间自动走原来的 DeepSeek / Gemini
+#   · 每次调用记进 claude_usage（设置页「本周 Claude 用了多少」）
+#   · Session：同一份材料做好几件事 —— 第一次写入缓存，之后 --resume 只送任务，材料按读取算（便宜 25～40 倍）
+#   · 跑测试时不会真的调（EPHEMERIS_NO_USAGE；要测就 use_claude(假函数)）
+#   · 关掉：.env 里 EPHEMERIS_CLAUDE=off
+CLAUDE_MODEL = 'claude-opus-5-5'
+CLAUDE_PARALLEL = int(idx.env('EPHEMERIS_CLAUDE_PARALLEL') or 3)
+CLAUDE_TIMEOUT = 900
+CLAUDE_CWD = os.path.expanduser('~/.ephemeris-claude')     # 会话存在这个目录名下，不混进用户自己的 Claude Code 项目
+CLAUDE_SYSTEM = '你是 Ephemeris（一个人的私人日记应用）里的文本处理程序。只按用户消息里的要求输出，不寒暄，不加额外说明。'
+_claude_sem = threading.BoundedSemaphore(CLAUDE_PARALLEL)
+_claude_runner = None            # 测试用：use_claude(fn)，fn(args, stdin) -> claude -p 的 JSON（dict）
+_LIMIT = re.compile(r'usage limit|limit reached|rate limit|resets?|Not logged in|/login|credit balance', re.I)
+
+
+def claude_on():
+    if (idx.env('EPHEMERIS_CLAUDE') or 'on').strip().lower() in ('off', '0', 'false', 'no'):
+        return False
+    if _claude_runner:
+        return _paused.get('claude', 0) <= time.time()
+    if os.environ.get('EPHEMERIS_NO_USAGE'):     # 测试环境：没给假的就当没有
+        return False
+    return bool(shutil.which('claude')) and _paused.get('claude', 0) <= time.time()
+
+
+def _claude_exec(args, stdin):
+    if _claude_runner:
+        return _claude_runner(args, stdin)
+    os.makedirs(CLAUDE_CWD, exist_ok=True)
+    r = subprocess.run(['claude'] + args, input=stdin, capture_output=True, text=True, cwd=CLAUDE_CWD, timeout=CLAUDE_TIMEOUT)
+    try:
+        return json.loads(r.stdout)
+    except ValueError:
+        return {'is_error': True, 'result': (r.stdout or r.stderr or f'claude 退出码 {r.returncode}')[:500]}
+
+
+def _claude_pause(text):
+    """撞上限：结果里带了重置时间（「…|1760400000」）就停到那时，不然停 30 分钟。"""
+    m = re.search(r'\|(\d{10})', text or '')
+    until = int(m.group(1)) if m else time.time() + PAUSE_S
+    _paused['claude'] = max(until, time.time() + 60)
+    print(f'[llm] Claude 停到 {datetime.fromtimestamp(_paused["claude"]):%H:%M}，期间走 DeepSeek / Gemini：{(text or "")[:120]}', flush=True)
+
+
+def claude(prompt, effort='medium', session=None, keep=False, purpose=''):
+    """调一次 Claude，返回 (文本, 会话 id)。失败抛异常。
+    session：接着那个会话问（--resume，前面的内容走缓存）；keep：留下会话，之后能接着问（Session 用）。"""
+    args = ['-p', '--model', CLAUDE_MODEL, '--effort', effort, '--system-prompt', CLAUDE_SYSTEM, '--tools', '',
+            '--disable-slash-commands', '--strict-mcp-config', '--setting-sources', '', '--output-format', 'json']
+    if session:
+        args += ['--resume', session]
+    elif not keep:
+        args += ['--no-session-persistence']
+    t = time.time()
+    with _claude_sem:
+        d = _claude_exec(args, prompt)
+    text = (d.get('result') or '').strip()
+    _claude_record(d, effort, purpose, time.time() - t)
+    if d.get('is_error') or not text:
+        if _LIMIT.search(text):
+            _claude_pause(text)
+        raise RuntimeError(f'Claude：{text[:200] or "返回空"}')
+    return text, d.get('session_id')
+
+
+def _claude_record(d, effort, purpose, secs):
+    u = d.get('usage') or {}
+    try:
+        store.run('INSERT INTO claude_usage (ts, purpose, model, effort, input, output, cache_read, cache_write, usd, secs, ok) '
+                  'VALUES (?,?,?,?,?,?,?,?,?,?,?)', datetime.now().isoformat(timespec='seconds'), purpose, CLAUDE_MODEL, effort,
+                  u.get('input_tokens', 0), u.get('output_tokens', 0), u.get('cache_read_input_tokens', 0),
+                  u.get('cache_creation_input_tokens', 0), float(d.get('total_cost_usd') or 0), round(secs, 1),
+                  0 if d.get('is_error') else 1)
+    except Exception:                                        # noqa: BLE001  记账失败不影响结果
+        pass
+
+
+def claude_week():
+    """这周（周一起）Claude 用了多少：次数、等值美元、缓存读 / 写。"""
+    monday = (datetime.now() - timedelta(days=datetime.now().weekday())).date().isoformat()
+    return store.one('SELECT COUNT(*) calls, COALESCE(SUM(usd), 0) usd, COALESCE(SUM(cache_read), 0) cache_read, '
+                     'COALESCE(SUM(cache_write), 0) cache_write FROM claude_usage WHERE ts >= ?', monday)
+
+
+def use_claude(fn):
+    """测试用：fn(args, stdin) -> dict（claude -p --output-format json 的样子）。use_claude(None) 换回来。"""
+    global _claude_runner
+    _claude_runner = fn
+    _paused.pop('claude', None)
+
+
+class Session:
+    """同一份材料做好几件事（早上那一串、「问」的追问）。第一次把材料 + 任务送去并留下会话；之后只送任务（--resume），
+    材料在缓存里按读取算。Claude 用不了就退回普通 ask：每次把材料 + 任务整段送。"""
+
+    def __init__(self, material, effort='medium', purpose=''):
+        self.material, self.effort, self.purpose, self.sid = material, effort, purpose, None
+
+    def ask(self, task):
+        if claude_on():
+            try:
+                if self.sid:
+                    text, sid = claude(task, self.effort, session=self.sid, purpose=self.purpose)
+                else:
+                    text, sid = claude(self.material + '\n\n' + task, self.effort, keep=True, purpose=self.purpose)
+                self.sid = sid or self.sid
+                return text
+            except Exception as e:                           # noqa: BLE001
+                with _lock:
+                    _state['last_error'] = f'{type(e).__name__}: {e}'[:300]
+        return ask(self.material + '\n\n' + task, route='cheap')
+
+
+def _call(prompt, model=None, fallback=True, effort='medium', route='auto', purpose=''):
+    """先 Claude（route='auto' 且能用时）；Claude 失败 / 撞上限 / route='cheap'（一次性的大批量活）走下面原来的路线。
+    fallback=False：不涉政、又有 DeepSeek 的路时，DeepSeek 失败就当失败，不回 Gemini。
     给证据卡这种大批量的用：并发高的时候限流一来，悄悄全回 Gemini 会贵 3～5 倍；失败的块下次再做就是了。
     例外：被内容审核拦了的照样回 Gemini（那是词表漏掉的涉政内容，重试也没用；10-12 全量做卡时遇到）。"""
     if _override:
         return _override(prompt)
+    if route == 'auto' and claude_on():
+        try:
+            return claude(prompt, effort, purpose=purpose)[0]
+        except Exception as e:                               # noqa: BLE001  接着走原来的路线
+            with _lock:
+                _state['last_error'] = f'{type(e).__name__}: {e}'[:300]
     b = backend()
     if b == 'verbatim':
         return _verbatim(prompt, model)
@@ -418,13 +549,13 @@ def stray(text, source=''):
     return [w for w in _STRAY.findall(text or '') if w not in (source or '')]
 
 
-def ask(prompt, model=None, fallback=True):
+def ask(prompt, model=None, fallback=True, effort='medium', route='auto', purpose=''):
     """调一次模型，返回文本；失败返回 None，原因记在 status() 里（界面能看到）。
     输出里冒出材料里没有的外文词：重来一次；还这样就照收（总比没有强），次数记在 status()['stray']。"""
     with _lock:
         _state['calls'] += 1
     try:
-        text = _call(prompt, model, fallback)
+        text = _call(prompt, model, fallback, effort, route, purpose)
     except Exception as e:                                   # noqa: BLE001
         with _lock:
             _state['failures'] += 1
@@ -434,7 +565,7 @@ def ask(prompt, model=None, fallback=True):
         with _lock:
             _state['stray'] += 1
         try:
-            again = _call(prompt, model, fallback)
+            again = _call(prompt, model, fallback, effort, route, purpose)
         except Exception:                                    # noqa: BLE001  重来失败就用第一次的
             again = None
         if again and not stray(again, prompt):
@@ -474,10 +605,10 @@ def parse_json(text, want=None):
     return None
 
 
-def ask_json(prompt, want=dict, tries=2, model=None, ok=None, fallback=True):
+def ask_json(prompt, want=dict, tries=2, model=None, ok=None, fallback=True, effort='medium', route='auto', purpose=''):
     """调模型并解析 JSON；解析失败或 ok(结果) 不满意就重来，最多 tries 次。"""
     for _ in range(tries):
-        out = parse_json(ask(prompt, model, fallback), want)
+        out = parse_json(ask(prompt, model, fallback, effort, route, purpose), want)
         if out is not None and (ok is None or ok(out)):
             return out
     return None
@@ -490,7 +621,9 @@ def use(fn):
 
 
 def status():
-    return {'backend': backend(), **_state, 'cheap': {'on': cheap_on(), **_cheap_state,
+    return {'backend': backend(), **_state,
+            'claude': {'on': claude_on(), 'model': CLAUDE_MODEL, 'paused_until': _paused.get('claude'), 'week': claude_week()},
+            'cheap': {'on': cheap_on(), **_cheap_state,
             'routes': [r[0] for r in _cheap_routes()], 'paused': [n for n, t in _paused.items() if t > time.time()],
         'usable': bool(_cheap_routes())}}
 

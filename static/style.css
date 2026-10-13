@@ -207,7 +207,7 @@ button { font-family:inherit; }
 .msg.target { background:var(--mark); margin:0 -8px; padding:7px 8px; border-radius:var(--r-xs); border-top:0; }
 .msg.target mark { background:transparent; color:var(--coral-deep); font-weight:600; box-shadow:inset 0 -2px 0 var(--coral); border-radius:0; padding:0; }   /* 整条已经是黄底：搜的词换成珊瑚色下划线 */
 .msg .msg-time { font-size:11px; color:var(--muted); flex:none; width:34px; padding-top:3px; }
-.msg .msg-text { flex:1; white-space:pre-wrap; word-break:break-word; font-size:13.5px; line-height:1.7; }
+.msg .msg-text { flex:1; min-width:0; white-space:pre-wrap; word-break:break-word; font-size:13.5px; line-height:1.7; }   /* min-width:0：AI 回复里的代码块（pre 不换行）只在自己里面横着滚，不把整条消息撑宽 —— 撑宽了窗口列表 / 整页能左右滚，触控板一划就左右抖 */
 .msg.ai { display:none; }
 .thread-body.showai .msg.ai { display:flex; }
 .msg.ai .msg-text { color:var(--muted); font-size:12.5px; }
@@ -219,7 +219,7 @@ button { font-family:inherit; }
 .msg .msg-md h4:first-child { margin-top:0; }
 .msg .msg-md hr { margin:8px 0; }
 .msg .msg-md code { font-size:.92em; }
-.msg .msg-md pre { margin:4px 0 6px; padding:8px 10px; background:var(--code-bg); border-radius:var(--r-xs); overflow-x:auto; white-space:pre; font-size:12px; line-height:1.55; }
+.msg .msg-md pre { margin:4px 0 6px; padding:8px 10px; background:var(--code-bg); border-radius:var(--r-xs); white-space:pre-wrap; word-break:break-word; font-size:12px; line-height:1.55; }   /* 折行不横滚：这里的代码块多半是整段英文 / 提示词，横滚的块在触控板斜着划时会左右晃 */
 .msg .msg-md pre code { background:none; padding:0; font-size:inherit; }
 .msg .msg-md .msg-more { margin-left:0; }
 

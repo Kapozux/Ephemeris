@@ -3,7 +3,7 @@
 //   calendar 侧栏日历 · batch 补全日记 · day 某一天 · search 搜索 · flashback 回忆卡 · windows 按窗口回顾
 //   panel 浮层（reflect 回顾/数据 · themes 主题 · river 河流 · convs 数据来源 · notion）
 // 共用的状态在 state.js（S），路由约定在 nav.js 开头。
-import { $, typing, topLayer } from './util.js';
+import { $, typing, topLayer, toContent } from './util.js';
 import { S, setDays, daysChanged } from './state.js';
 import { navigate, setRouter, closeLayer } from './nav.js';
 import { buildCalendar } from './calendar.js';
@@ -29,6 +29,7 @@ function setMode(mode) {
   document.querySelectorAll('.sb-mode').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
   const win = mode === 'win';
   $('#cal').classList.toggle('hidden', win);
+  $('#calBar').classList.toggle('hidden', win);
   $('#batch').classList.toggle('hidden', win || !$('#batch').dataset.want);
   document.querySelector('.sb-legend').classList.toggle('hidden', win);
   $('#winpane').classList.toggle('hidden', !win);
@@ -44,11 +45,18 @@ document.querySelectorAll('.sb-mode').forEach(b => b.onclick = () =>
 // 今天还没打卡，侧栏「打卡」上亮个小点。打开页面时看一次，切回这个标签页时再看一次。
 // （以前只在补全日记的进度轮询里顺手刷新，平时根本不亮。）
 
+// 小点有两个：侧栏「打卡」上一个，窄屏顶栏 / 底栏的「打卡」上一个
 async function refreshCkDot() {
   const r = await fetch('/api/checkin').then(r => r.json());
-  $('#ckDot').classList.toggle('hidden', r.items.length > 0);
+  document.querySelectorAll('.sb-ck-dot').forEach(d => d.classList.toggle('hidden', r.items.length > 0));
 }
 $('#ckOpen').onclick = () => { location.href = '/checkin'; };
+// 窄屏主导航的「日记」：就是这一页。按窗口模式下点它回到按天（看着的那天），已经在按天就回到日记开头
+document.querySelector('.sb-nav-item[href="#/day"]').onclick = e => {
+  e.preventDefault();
+  if (S.mode === 'day' && S.sel) toContent($('#day'));
+  else navigate(S.sel ? 'day/' + S.sel : 'day');
+};
 window.addEventListener('focus', () => { refreshCkDot(); refreshJournal(); });
 
 // ---------------------------------------------------------------- 数据变了（补全跑完、导入了新文件）

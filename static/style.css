@@ -115,6 +115,9 @@ button { font-family:inherit; }
 .cal-day.nodiary { opacity:.42; }
 .cal-day.sel { box-shadow:0 0 0 1.5px var(--ink); z-index:3; }
 
+/* 窄屏才出现的两样：去别的页的主导航（sb-nav）、日历的月份条（cal-bar）。样式都在下面 1079 / 700 的断点里，宽屏一律不显示 */
+.sb-nav, .cal-bar { display:none; }
+
 .sb-bottom { margin-top:auto; padding-top:6px; border-top:1px solid var(--line); }
 .sb-legend { display:flex; align-items:center; gap:3px; font-size:11px; color:var(--faint); padding:8px 6px 4px; }
 .sb-legend span { white-space:nowrap; }
@@ -227,15 +230,46 @@ button { font-family:inherit; }
     padding:12px var(--gutter); gap:8px; }
   .sb-brand { padding:0; }
   .cal { flex:none; max-height:none; grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); }
-  .sb-bottom { display:flex; gap:4px; border-top:0; padding-top:0; }
-  .sb-bottom .sb-item { width:auto; margin:0; }
+  .sb-bottom { display:flex; flex-wrap:wrap; gap:4px; border-top:0; padding-top:0; }
+  .sb-bottom .sb-item { width:auto; margin:0; white-space:nowrap; }
+  .sb-bottom #ckOpen, .sb-bottom #qaOpen { display:none; }        /* 窄屏这两项在 sb-nav 里 */
   .sb-legend { display:none; }
+  /* 主导航：顶栏右上角一排 */
+  .sidebar { position:relative; }
+  .sb-nav { display:flex; gap:2px; position:absolute; top:9px; right:var(--gutter); }
+  .sb-nav-item { display:flex; align-items:center; gap:6px; padding:4px 10px; border-radius:var(--r-sm);
+    font-size:13px; color:var(--ink-soft); white-space:nowrap; }
+  .sb-nav-item svg { color:var(--muted); flex:none; }
+  .sb-nav-item:hover { background:var(--card); color:var(--ink); }
+  .sb-nav-item.on { color:var(--coral-deep); background:var(--coral-soft); }
+  .sb-nav-item.on svg { color:inherit; }
+  .sb-nav-item .sb-ck-dot { margin-left:0; }
+  /* 日历：默认只摊开一个月（calendar.js 的 viewMonth），点月份摊开全部 */
+  .cal-bar { display:flex; align-items:center; gap:2px; width:210px; padding:0 2px; }
+  .cal-bar-step { flex:none; width:30px; height:30px; border:0; border-radius:var(--r-sm); background:transparent;
+    color:var(--muted); font-size:18px; line-height:1; cursor:pointer; }
+  .cal-bar-step:hover:not(:disabled) { background:var(--card); color:var(--ink); }
+  .cal-bar-step:disabled { color:var(--line-2); cursor:default; }
+  .cal-bar-m { flex:1; min-width:0; height:30px; border:0; border-radius:var(--r-sm); background:transparent;
+    font-size:13px; font-weight:600; color:var(--ink-soft); cursor:pointer; white-space:nowrap; }
+  .cal-bar-m span { font-weight:400; font-size:11.5px; color:var(--muted); margin-left:8px; }
+  .cal-bar-m:hover { background:var(--card); }
+  .cal.folded { grid-template-columns:minmax(0,210px); padding-top:0; }
+  .cal.folded .cal-month:not(.cur) { display:none; }
+  .cal.folded .cal-month h4 { display:none; }                      /* 月份已经写在 cal-bar 上 */
   .day-cols { grid-template-columns:1fr; }
   .threads-card { position:static; max-height:none; }
   .threads-body { overflow:visible; }
 }
 @media (max-width: 700px) {
   :root { --gutter:16px; }
+  /* 主导航变成固定底栏，跟打卡页手机底栏一样：58px 高、上边一条线、当前页上边描一道 */
+  .sb-nav { position:fixed; top:auto; left:0; right:0; bottom:0; z-index:150; height:calc(58px + env(safe-area-inset-bottom));
+    padding-bottom:env(safe-area-inset-bottom); gap:0; justify-content:center; background:var(--paper); border-top:1px solid var(--line); }
+  .sb-nav-item { flex:0 1 120px; justify-content:center; border-radius:0; border-top:2px solid transparent; }
+  .sb-nav-item:hover, .sb-nav-item.on { background:transparent; }
+  .sb-nav-item.on { border-top-color:var(--coral); }
+  .app { padding-bottom:58px; }
   .pagehead { flex-direction:column; align-items:flex-start; }
   .diary .diary-lists { grid-template-columns:1fr; }
 }

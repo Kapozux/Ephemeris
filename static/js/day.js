@@ -2,7 +2,7 @@
 import { $, esc, rel, feelColor, toContent, scrollWithin, markHits, usd, ask } from './util.js';
 import { S } from './state.js';
 import { navigate } from './nav.js';
-import { markDiary } from './calendar.js';
+import { markDiary, viewMonth } from './calendar.js';
 import { refreshBatchButton } from './batch.js';
 import { journalHtml, imageCount, mdBlocks } from './md.js';
 
@@ -233,6 +233,7 @@ export async function openDay(date, focus) {
   const first = !S.sel, moved = date !== S.sel;     // 数据变了重开同一天：别把人滚走
   S.sel = date;
   document.querySelectorAll('.cal-day.sel').forEach(c => c.classList.remove('sel'));
+  viewMonth(date);                                   // 窄屏日历只摊开一个月：跟着这天走
   const c = document.querySelector(`.cal-day[data-d="${date}"]`);
   if (c) { c.classList.add('sel'); scrollWithin($('#cal'), c, first); }      // 刚打开：选中的那天摆在日历中间
 
@@ -261,8 +262,17 @@ export async function openDay(date, focus) {
     const card = document.querySelector('.threads-card');
     if (card) card.style.setProperty('--list-top', card.getBoundingClientRect().top + 'px');
   });
-  if (!focus && moved && !first) toContent($('#day'));
+  if (!focus && moved && (!first || coldScroll())) toContent($('#day'));
   if (r.generating) poll(date);
+}
+
+// 冷启动要不要滚到正文。宽屏本来就在顶上。窄屏侧栏叠在正文上面：
+// 主导航是固定底栏（≤700，看 CSS 算出来的 position，不在 JS 里再写一遍断点）时滚了也看得见「问 / 打卡」，直接滚；
+// 主导航在顶栏（701–1079）时，日记开头（日期下面约 300px）已经在首屏就不滚，免得把顶栏的「问 / 打卡」滚走
+function coldScroll() {
+  if (innerWidth >= 1080) return false;
+  if (getComputedStyle(document.querySelector('.sb-nav')).position === 'fixed') return true;
+  return $('#day').getBoundingClientRect().top > innerHeight - 300;
 }
 
 $('#prevBtn').onclick = () => NAV.prev && navigate('day/' + NAV.prev);

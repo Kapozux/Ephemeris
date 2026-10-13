@@ -57,10 +57,13 @@ export function ask(btn, text, yes) {
   if (btn.nextElementSibling?.classList.contains('ask')) return;
   const box = document.createElement('span');
   box.className = 'ask';
-  box.innerHTML = `${text}<a class="ask-yes">确定</a><a class="ask-no">算了</a>`;
+  box.innerHTML = `${text}<button type="button" class="ask-yes">确定</button><button type="button" class="ask-no">算了</button>`;
   btn.classList.add('hidden');
   btn.after(box);
-  const done = () => { box.remove(); btn.classList.remove('hidden'); };
-  box.querySelector('.ask-no').onclick = e => { e.stopPropagation(); done(); };
+  // 原按钮藏起来了，焦点挪到「算了」（键盘用户连按两下回车也不会误花钱）；收起后还给原按钮
+  const no = box.querySelector('.ask-no');
+  no.focus();
+  const done = () => { box.remove(); btn.classList.remove('hidden'); btn.focus(); };
+  no.onclick = e => { e.stopPropagation(); done(); };
   box.querySelector('.ask-yes').onclick = e => { e.stopPropagation(); done(); yes(); };
 }

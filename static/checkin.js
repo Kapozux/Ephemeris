@@ -67,9 +67,9 @@ async function loadNow(date) {
   syncUrl();
 }
 
+// 一共记了多少：日期行右边一行小字（以前是三张大统计卡，压在选词上面）
 function renderProgress(p) {
-  $('#prog').innerHTML = [['光球', p.moments], ['打卡天数', p.days], ['连续', p.streak + ' 天']]
-    .map(([k, v]) => `<div class="ck-pcard"><div class="ck-pcard-k">${k}</div><div class="ck-pcard-v">${v}</div></div>`).join('');
+  $('#prog').textContent = p.moments ? `记了 ${p.moments} 次 · ${p.days} 天${p.streak > 1 ? ` · 连着 ${p.streak} 天` : ''}` : '';
 }
 
 function renderNow() {
@@ -84,7 +84,7 @@ function renderNow() {
   $('#record').disabled = !S.word;
   const dt = new Date(S.date + 'T12:00:00');
   $('#record').textContent = !S.word ? '先点一个词' : S.editing ? '改好了 →' : isToday ? '记下 →' : `记到 ${dt.getMonth() + 1} 月 ${dt.getDate()} 日 →`;
-  $('#note').placeholder = isToday ? '此刻在发生什么……（可以不写）' : '那天发生了什么……（可以不写）';
+  $('#note').placeholder = isToday ? '此刻在发生什么……' : '那天发生了什么……';
   $('#cancelEdit').classList.toggle('hidden', !S.editing);
 
   $('#todayList').innerHTML = S.items.length
@@ -159,13 +159,16 @@ $('#dPrev').onclick = () => shiftDay(-1);
 $('#dNext').onclick = () => { if (S.date < S.today) shiftDay(1); };
 $('#dToday').onclick = () => { $('#oracle').classList.add('hidden'); loadNow(); };
 
-// 光球管：最近记的一刻一颗
+// 最近记的：一刻一颗，只摆最近 14 颗；更早的去「这个月」看
+const TUBE_N = 14;
 function orbStyle(v, word) {
   const c = vcol(v, word);
   return `background:radial-gradient(circle at 34% 30%, #ffffffcc 0%, ${c} 26%, ${c} 58%, #00000066 100%);box-shadow:0 0 18px ${c}55, inset -4px -6px 10px #0005;`;
 }
-function renderTube(orbs) {
-  $('#tubeHead').textContent = orbs.length ? `你的光球 · ${orbs.length >= 60 ? '最近 60' : orbs.length} 颗` : '记下第一刻，这里就会多一颗光球';
+function renderTube(all) {
+  const orbs = all.slice(0, TUBE_N);
+  $('#tubeHead').textContent = orbs.length ? `最近记的 ${orbs.length} 次` : '记下第一刻，这里就会亮一颗';
+  $('#tubeMonth').classList.toggle('hidden', !orbs.length);
   $('#tube').innerHTML = orbs.map((o, i) => `<div class="ck-orb" data-i="${i}" style="${orbStyle(WV[o.word] ?? 0, o.word)}"></div>`).join('');
   $('#tube').querySelectorAll('.ck-orb').forEach(el => {
     const o = orbs[+el.dataset.i];
@@ -221,7 +224,7 @@ function renderMonth() {
   $('#cal').querySelectorAll('.ck-cell[data-d]').forEach(el => {
     const s = by[el.dataset.d];
     if (s) tipOn(el, () => `<b>${s.date.slice(5)}　${esc(s.words || s.word)}</b>${s.note ? esc(s.note.slice(0, 120)) : ''}<em>${s.src === 'checkin' ? (s.n > 1 ? `打卡 ${s.n} 条` : '自己打卡') : '从手写日记读出来的'}</em>`);
-    el.onclick = () => { if (el.classList.contains('future')) return; S.selDay = el.dataset.d; renderMonth(); };
+    el.onclick = () => { if (el.classList.contains('future')) return; S.selDay = el.dataset.d; renderMonth(); showDayBig(); };
   });
 
   renderDayBig(by[S.selDay]);
@@ -236,8 +239,14 @@ function renderDayBig(s) {
   box.innerHTML = `<div class="ck-big-d">${dt.getDate()}</div>
     <div class="ck-big-meta"><div class="ck-big-wk">周${WK[dt.getDay()]}</div>
       <div class="ck-big-wd">${s ? `<span style="color:${vcol(s.v, s.words || s.word)};font-weight:600">${esc(s.words || s.word)}</span>${s.note ? ' · ' + esc(s.note.slice(0, 40)) : ''}` : '还没记'}</div></div>
-    <button type="button" class="ck-link ck-big-go">${s && s.src === 'checkin' ? '看 / 改这天 →' : S.selDay === S.today ? '记今天 →' : '给这天补一个 →'}</button>`;
+    <button type="button" class="ck-big-go">${s && s.src === 'checkin' ? '看 / 改这天 →' : S.selDay === S.today ? '记今天 →' : '给这天补一个 →'}</button>`;
   box.querySelector('.ck-big-go').onclick = () => { setView('now'); loadNow(S.selDay); };
+}
+
+// 点了一天：详情不在视野里（窄屏单栏时它在日历下面）就滚过去；宽屏两栏本来就看得见，不动
+function showDayBig() {
+  const b = $('#dayBig').getBoundingClientRect();
+  if (b.top < 0 || b.bottom > innerHeight) $('#dayBig').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
 // 星座：一天一颗星，高度 = 过得怎么样，挨着的日子连成线
@@ -269,9 +278,11 @@ function renderStars() {
   box.querySelectorAll('.ck-star').forEach(g => {
     const p = pts[+g.dataset.i];
     tipOn(g, () => `<b>${p.date.slice(5)}　${esc(p.words || p.word)}</b>${p.note ? esc(p.note.slice(0, 120)) : ''}<em>${p.src === 'checkin' ? '自己打卡' : '从手写日记读出来的'}</em>`);
-    g.onclick = () => { S.selDay = p.date; renderMonth(); };
+    g.onclick = () => { S.selDay = p.date; renderMonth(); showDayBig(); };
   });
 }
+
+$('#tubeMonth').onclick = () => { setView('month'); window.scrollTo({ top: 0 }); };
 
 const shiftMonth = n => { let [y, m] = S.month.split('-').map(Number); m += n;
   if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; } loadMonth(`${y}-${String(m).padStart(2, '0')}`); };
@@ -304,5 +315,5 @@ function tipOn(el, html) {
   const p = new URLSearchParams(location.search);
   await loadNow(p.get('date'));
   if (p.get('v') === 'month') { S.month = p.get('m'); setView('month'); }
-  else $('#note').focus();
+  // 不自动聚焦备注：先选词，手机上也不会一打开就弹键盘
 })();

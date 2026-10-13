@@ -154,6 +154,13 @@ CREATE TABLE IF NOT EXISTS qa_chat (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, role TEXT, text TEXT, cites TEXT
 );
 
+-- ---------------------------------------------------------------- Claude 用量（llm.claude，2026-10-13）
+-- 每次 claude -p 一行：token（缓存读 / 写分开）、等值美元（订阅里不实扣，看额度用得快不快）
+CREATE TABLE IF NOT EXISTS claude_usage (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, purpose TEXT, model TEXT, effort TEXT,
+  input INTEGER, output INTEGER, cache_read INTEGER, cache_write INTEGER, usd REAL, secs REAL, ok INTEGER
+);
+
 -- ---------------------------------------------------------------- 心情分（mood.py）
 -- src：hand（手写日记读出的「过得怎么样」，-2..+2）| friction（聊天里「卡得多狠」，0..4）| 实验留下的 ai / both
 CREATE TABLE IF NOT EXISTS mood_scores (

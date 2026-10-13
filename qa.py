@@ -204,7 +204,8 @@ def answer(question):
         raise ValueError('问题是空的')
     turns = history(HISTORY_TURNS * 2)
     htext = _history_text(turns)
-    plan = llm.ask_json(PLAN_PROMPT.format(today=days.today(), history=htext, question=question), want=dict) or {}
+    plan = llm.ask_json(PLAN_PROMPT.format(today=days.today(), history=htext, question=question), want=dict,
+                         effort='low', purpose='qa-plan') or {}
     plan.setdefault('keywords', [question])
     follow = [c['id'] for t in turns[-1:] if t['role'] == 'assistant' for c in t['cites']][:FOLLOW_UP]
     picked = select(plan, follow)
@@ -216,7 +217,7 @@ def answer(question):
         alias = {i: c for i, c in enumerate(picked, 1)}
         raw = llm.ask(ANSWER_PROMPT.format(history=htext, question=plan.get('q') or question,
                                            cards='\n'.join(_card_line(i, c) for i, c in alias.items()),
-                                           summaries=_summaries(picked)))
+                                           summaries=_summaries(picked)), effort='high', purpose='qa')
         if not raw:
             raise RuntimeError('模型没回（看「窗口」栏里的模型状态）')
         text, used = clean(raw.strip(), alias)

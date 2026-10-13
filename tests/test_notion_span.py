@@ -44,5 +44,17 @@ class FindOurSpan(unittest.TestCase):
         self.assertIsNone(tn.find_our_span(page))
 
 
+class StatusDates(unittest.TestCase):
+    """面板的一览除了每类几天，还要给出是哪几天（同步前的确认里点开看），已同步的不列。"""
+    def test_dates_per_action(self):
+        from unittest import mock
+        acts = {'2026-01-02': 'append', '2026-01-01': 'create', '2026-01-03': 'skip', '2026-01-04': 'create'}
+        with mock.patch.object(tn, 'token', return_value='x'), mock.patch.object(tn, 'whoami', return_value='E'), \
+                mock.patch.object(tn, 'plan', return_value=(acts, {'total': 9}, {})):
+            s = tn.status()
+        self.assertEqual(s['create'], 2)
+        self.assertEqual(s['dates'], {'create': ['2026-01-01', '2026-01-04'], 'append': ['2026-01-02']})
+
+
 if __name__ == '__main__':
     unittest.main()

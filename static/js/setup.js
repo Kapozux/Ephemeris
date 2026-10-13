@@ -5,12 +5,13 @@ import { $, esc } from './util.js';
 let POLL = null;
 
 const STEP = (n, done, title, body) => `
-  <section class="su-step${done ? ' done' : ''}">
+  <section class="su-step${done ? ' done' : ''}" data-step="${n}">
     <div class="su-num">${done ? '✓' : n}</div>
     <div class="su-main"><h3>${title}</h3>${body}</div>
   </section>`;
 
-function field(id, name, placeholder, type = 'password') {
+// 一个「贴进来 → 保存」的框。设置栏的「账号与密钥」也用它（settings.js）
+export function field(id, name, placeholder, type = 'password') {
   return `<div class="su-field"><input id="${id}" type="${type}" placeholder="${placeholder}" autocomplete="off" spellcheck="false">
     <button class="btn-secondary btn-small" data-save="${id}" data-name="${name}">保存</button><span class="su-msg" id="${id}Msg"></span></div>`;
 }
@@ -22,6 +23,8 @@ function render(s) {
     ? `<span class="pulse"></span> ${esc(j.stage || '在拉')}${j.total ? ` ${j.done} / ${j.total}` : ''}…`
     : last && !last.ok ? `<span class="su-bad">上次没拉成：${esc(last.note || last.error || '不知道为什么')}</span>`
     : s.msgs ? `已经有 ${s.msgs.toLocaleString()} 条聊天了。` : '';
+  // 拉的时候每 3 秒重画一次：贴了还没存的值先记下，画完放回去
+  const keep = [...$('#setup').querySelectorAll('.su-field input')].map(i => [i.id, i.value]);
   $('#setup').innerHTML = `
     <header class="pagehead"><div class="pagehead-l">
       <h1 class="serif">开始用 Ephemeris</h1>
@@ -54,18 +57,35 @@ function render(s) {
         <span class="su-msg">${syncLine}</span></div>`)}
     </div>`;
 
-  $('#setup').querySelectorAll('[data-save]').forEach(b => b.onclick = async () => {
+  keep.forEach(([id, v]) => { const i = document.getElementById(id); if (i) i.value = v; });
+  bindSave($('#setup'), (r, name) => {
+    if (!r.need) return show(r);       // 都好了：show 会刷新回正常的样子
+    // 只更新存的这一步和「开始下载」能不能点 —— 不整页重画，别的框里贴了没存的值还在
+    const n = { GEMINI_API_KEY: 1, CLAUDE_SESSION_KEY: 2, DIARY_NAME: 3 }[name];
+    const done = { 1: r.gemini, 2: r.claude, 3: !!r.name }[n];
+    const step = $('#setup').querySelector(`.su-step[data-step="${n}"]`);
+    if (step) { step.classList.toggle('done', !!done); step.querySelector('.su-num').textContent = done ? '✓' : n; }
+    const go = $('#suSync'); if (go) go.disabled = !r.gemini || !r.claude || !!r.sync?.running;
+  });
+  const go = $('#suSync');
+  if (go) go.onclick = async () => { go.disabled = true; await fetch('/api/claude/sync', { method: 'POST' }); refresh(); };
+}
+
+// 给 root 里所有 [data-save] 按钮接上保存：只走 /api/setup（setup.save 写 .env），存好了清空框、说一声，再交给 onSaved(新状态, 存的是哪个)
+export function bindSave(root, onSaved) {
+  root.querySelectorAll('[data-save]').forEach(b => b.onclick = async () => {
     const input = $('#' + b.dataset.save), msg = $('#' + b.dataset.save + 'Msg'), v = input.value.trim();
+    msg.classList.remove('su-bad');
     if (!v) { msg.textContent = '先贴进来再保存'; return; }
     b.disabled = true; msg.textContent = '在存…';
     const r = await fetch('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ [b.dataset.name]: v }) }).then(r => r.json()).catch(() => null);
-    if (!r) { b.disabled = false; msg.textContent = '没存上：Ephemeris 还开着吗？'; return; }
-    if (r.gemini_error) { b.disabled = false; msg.textContent = r.gemini_error; msg.classList.add('su-bad'); return; }
-    show(r);
+    b.disabled = false;
+    if (!r) { msg.textContent = '没存上：Ephemeris 还开着吗？'; msg.classList.add('su-bad'); return; }
+    if (r.gemini_error) { msg.textContent = r.gemini_error; msg.classList.add('su-bad'); return; }
+    input.value = ''; msg.textContent = '存好了';
+    onSaved(r, b.dataset.name);
   });
-  const go = $('#suSync');
-  if (go) go.onclick = async () => { go.disabled = true; await fetch('/api/claude/sync', { method: 'POST' }); refresh(); };
 }
 
 function show(s) {

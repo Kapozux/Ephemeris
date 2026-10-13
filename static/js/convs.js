@@ -1,6 +1,7 @@
-// 浮层「数据来源」栏（以前叫窗口与导入）：claude.ai 同步和备份的状态、导入新文件、全部窗口一览、导入历史。
-import { $, esc, rel, fmtW } from './util.js';
-import { daysChanged } from './state.js';
+// 浮层「数据来源」栏（以前叫窗口与导入）：顶上一条紧凑的状态（claude.ai 同步、备份、各来源新到哪天），
+// 「导入…」点开才是拖放区、Gemini 步骤和导入历史；下面是全部窗口一览。
+import { $, esc, rel, fmtW, ask, usd } from './util.js';
+import { S, daysChanged } from './state.js';
 import { navigate } from './nav.js';
 
 let CONVS = [], CONV_SHOWN = 120;
@@ -32,21 +33,26 @@ function renderConvs() {
 async function loadConvs() {
   const d = await fetch('/api/conversations').then(r => r.json());
   CONVS = d.conversations;
-  // 每个来源新到哪天。太久没新数据的提醒一句怎么补（账号要是没了就导不出来了）
-  const HOW = { gemini: '用下面「复制导出脚本」在 gemini.google.com 导一份拖进来', claude: '看看上面的 claude.ai 同步是不是坏了' };
-  const src = Object.entries(d.by_source).map(([k, v]) => {
+  // 每个来源新到哪天：小标签。太久没新数据的标红，提示怎么补（账号要是没了就导不出来了）
+  const HOW = { gemini: '用「导入…」里的「复制导出脚本」在 gemini.google.com 导一份拖进来', claude: '看看上面的 claude.ai 同步是不是坏了' };
+  const NAME = { claude: 'Claude', gemini: 'Gemini', ask: '问', cc: 'Claude Code' };
+  $('#cvSrcs').innerHTML = Object.entries(d.by_source).map(([k, v]) => {
     const last = (d.latest || {})[k], ago = last ? Math.round((Date.now() - new Date(last + 'T12:00:00')) / 864e5) : null;
-    const name = k === 'claude' ? 'Claude' : k === 'gemini' ? 'Gemini' : k === 'ask' ? '问' : k === 'cc' ? 'Claude Code' : k;
-    return `${name} ${v}` + (last ? `（最新 ${last.slice(5)}${ago > 30 ? `，${ago} 天前 · ${HOW[k] || '导一份新的补上'}` : ''}）` : '');
-  }).join(' · ');
-  $('#convSub').textContent = `${d.total} 个窗口（${src}），其中 ${d.multi_day} 个横跨多天。最新的在上面。`;
+    const stale = ago > 30, tip = `${v} 个窗口${stale ? ` · ${HOW[k] || '导一份新的补上'}` : ''}`;
+    return `<button type="button" class="cv-src${stale ? ' stale' : ''}" data-k="${esc(k)}" title="${esc(tip)}">${esc(NAME[k] || k)}<span>${last ? last.slice(5) : '—'}${stale ? ` · ${ago} 天前` : ''}</span></button>`;
+  }).join('');
+  $('#cvSrcs').querySelectorAll('.cv-src.stale').forEach(b => b.onclick = () => showImport(true));   // 过期的：点了打开导入
+  $('#convSub').textContent = `${d.total.toLocaleString()} 个窗口 · ${d.multi_day} 个横跨多天`;
   renderConvs();
   const h = await fetch('/api/imports').then(r => r.json());
-  $('#importHist').innerHTML = h.imports.map(x => `<div class="pane-row">
+  const HIST = 6, all = h.imports, more = all.length - HIST;
+  $('#importHist').innerHTML = all.map((x, i) => `<div class="pane-row${i >= HIST ? ' hidden' : ''}">
       <span class="pane-row-title">${esc(x.file)}</span>
       <span class="pane-row-meta">${(x.imported_at || '').replace('T', ' ').slice(0, 16)}</span>
       <span class="pane-row-meta">${x.n_convs} 窗口 / 新 ${x.n_convs_new} · ${x.n_msgs.toLocaleString()} 条 / 新 ${x.n_msgs_new.toLocaleString()}${x.diaries_invalidated ? ` · 作废日记 ${x.diaries_invalidated}` : ''}</span>
-    </div>`).join('') || '<div class="pane-sub">还没有导入记录</div>';
+    </div>`).join('') + (more > 0 ? `<a class="cv-more" id="importHistMore">还有 ${more} 次，全部显示</a>` : '') || '<div class="pane-sub">还没有导入记录</div>';
+  const hm = $('#importHistMore');
+  if (hm) hm.onclick = () => { $('#importHist').querySelectorAll('.pane-row.hidden').forEach(r => r.classList.remove('hidden')); hm.remove(); };
 }
 $('#convFilter').addEventListener('input', () => {
   CONV_SHOWN = 120;
@@ -82,6 +88,19 @@ async function doImport(files) {
   daysChanged();                     // 日历、日记状态、回顾指纹都可能变了：全部重拉
   loadConvs();
 }
+// 「导入…」：拖放区、Gemini 步骤、导入历史平时收着
+function showImport(open) {
+  const box = $('#importBox'), t = $('#importToggle');
+  open = open ?? box.classList.contains('hidden');
+  box.classList.toggle('hidden', !open);
+  t.setAttribute('aria-expanded', open);
+  t.classList.toggle('on', open);
+}
+$('#importToggle').onclick = () => showImport();
+// 收着的时候直接把文件拖进这一栏：先展开，再落到拖放区里
+$('.modal-pane[data-pane=convs]').addEventListener('dragenter', e => {
+  if ([...(e.dataTransfer?.types || [])].includes('Files')) showImport(true);
+});
 $('#importPick').onclick = () => $('#importFile').click();
 // Gemini 导出脚本（export_gemini.js）：复制到剪贴板，用户自己去 gemini.google.com 的控制台粘贴
 $('#geminiCopy').onclick = async () => {
@@ -113,7 +132,7 @@ function renderCSync(s) {
 
   if (!s.configured) {
     box.innerHTML = `<div class="cv-sync-row"><span class="cv-sync-dot off"></span>
-      <span>没配 claude.ai 自动同步。在 <code>ephemeris/.env</code> 里设 <code>CLAUDE_SESSION_KEY</code> 就能每天自动拉新对话。</span></div>`;
+      <span>没配 claude.ai 自动同步：贴上 sessionKey 就能每天自动拉新对话。</span><a href="#/panel/settings">去设置</a></div>`;
     return;
   }
   if (j.running) {
@@ -134,15 +153,31 @@ function renderCSync(s) {
     : (L.failures && L.last_error) ? `最近有 ${L.failures} 次调模型失败（${esc(L.backend)}）：${esc(L.last_error)}` : '';
   box.innerHTML = (llmWarn ? `<div class="cv-sync-row"><span class="cv-sync-dot bad"></span><span><b>模型</b>　${llmWarn}</span></div>` : '') + `<div class="cv-sync-row">
       <span class="cv-sync-dot ${bad ? 'bad' : 'ok'}"></span>
-      <span><b>claude.ai 自动同步</b>　每天 ${s.at}，拉完自动写日记 · 上次 ${when} · ${detail}</span>
+      <span><b>claude.ai 同步</b>　上次 ${when} · ${detail} · 每天 ${s.at} 自动</span>
+      ${bad ? '<a href="#/panel/settings" title="sessionKey 过期了最常见：去设置里贴一个新的">去设置换 sessionKey</a>' : ''}
       <a id="csyncNow">${bad ? '重试' : '立刻同步'}</a>
     </div>`;
-  $('#csyncNow').onclick = async () => {
-    $('#csyncNow').closest('.cv-sync-row').innerHTML = '<span class="pulse"></span><span>起来了…</span>';   // 上面可能还有一行模型警告
-    await fetch('/api/claude/sync', { method: 'POST' });
+  const now = $('#csyncNow');
+  // 立刻跑一遍早上那一串：会补写最近几天缺的日记、做卡、整理，都要调模型 —— 先说清楚
+  now.onclick = () => { const n = recentMissing(); ask(now, `会拉新对话，补写最近 7 天缺的日记（${n ? `现在缺 ${n} 天，${usd(n * 0.01)}` : '现在不缺'}，新拉到的天另算），再做卡、整理，都要调模型`, async () => {
+    const row = now.closest('.cv-sync-row');
+    row.innerHTML = '<span class="pulse"></span><span>起来了…</span>';   // 上面可能还有一行模型警告
+    const ok = await fetch('/api/claude/sync', { method: 'POST' }).then(r => r.ok).catch(() => false);
+    if (!ok) {                       // 没起来：说原因，给重试，别一直转圈
+      row.innerHTML = '<span class="cv-sync-dot bad"></span><span>没起来：连不上 Ephemeris</span><a>重试</a>';
+      row.querySelector('a').onclick = pollCSync;
+      return;
+    }
     pollCSync();
-  };
+  }); };
   clearTimeout(CSPOLL);
+}
+
+// 最近 7 天（不含今天）聊够了、还没日记的天数：跟早上那一串（daily.AUTO_DAYS）补的是同一批
+function recentMissing() {
+  const iso = t => new Date(t - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+  const today = iso(Date.now()), since = iso(Date.now() - 7 * 864e5);
+  return S.days.filter(d => d.date >= since && d.date < today && !d.has_diary && (d.chars || 0) >= 800).length;
 }
 
 export async function pollCSync() {
@@ -167,15 +202,30 @@ async function pollBackup() {
   const where = (b.dest || '').replace(/^.*\/My Drive\//, 'Google Drive / ');
   const kb = n => n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`;
   // 备份只增不减：本地少了的行在备份里留着、改掉的旧版本另存（backup.py）。有这种情况就顺带说一句
-  const extra = ok && /留着|旧版本/.test(ok.note || '') ? ' · ' + esc(ok.note.split(' · ').slice(1).join(' · ')) : '';
+  const extra = ok && /留着|旧版本/.test(ok.note || '') ? ok.note.split(' · ').slice(1).join(' · ') : '';
   const detail = bad ? esc(last.note || '失败')
-    : ok ? `上次 ${rel(ok.finished_at)} · 只增不减，只传有变化的 · 这次写了 ${ok.files_written ?? '?'} / ${ok.files_total ?? '?'} 个文件（${kb(ok.bytes_written || 0)}）${extra}` : '还没备份过';
+    : ok ? `上次 ${rel(ok.finished_at)} · 写了 ${ok.files_written ?? '?'} / ${ok.files_total ?? '?'} 个文件（${kb(ok.bytes_written || 0)}）` : '还没备份过';
+  // 只增不减的细节（本地少了的行留在备份里、改掉的旧版本另存）放进悬停提示，状态条只占一行
+  const tip = `只增不减，只传有变化的${extra ? ' · ' + extra : ''}`;
   const warn = !bad && ok?.warning;
   box.innerHTML = `<div class="cv-sync-row">
       <span class="cv-sync-dot ${bad || warn ? 'bad' : ok ? 'ok' : 'off'}"></span>
-      <span><b>数据备份</b>　${b.every_days === 1 ? '每天' : `每 ${b.every_days} 天`}一次 → ${esc(where || '（没找到 Google Drive）')} · ${detail}</span>
+      <span title="${esc(tip)}"><b>备份</b>　${detail} → ${esc(where || '（没找到 Google Drive）')} · ${b.every_days === 1 ? '每天' : `每 ${b.every_days} 天`}一次</span>
       <a id="backupNow">${bad ? '重试' : '立刻备份'}</a></div>` +
     (warn ? `<div class="cv-sync-row"><span class="cv-sync-dot bad"></span><span>${esc(ok.warning)}</span></div>` : '');
-  $('#backupNow').onclick = async () => { await fetch('/api/backup', { method: 'POST' }); setTimeout(pollBackup, 300); };
+  // 点了马上变灰、转起来；没起来就说原因
+  const now = $('#backupNow');
+  now.onclick = async () => {
+    const row = now.closest('.cv-sync-row');
+    row.classList.add('busy');
+    now.replaceWith(Object.assign(document.createElement('span'), { className: 'pulse' }));
+    const ok = await fetch('/api/backup', { method: 'POST' }).then(r => r.ok).catch(() => false);
+    if (!ok) {
+      row.classList.remove('busy');
+      row.lastElementChild.replaceWith(Object.assign(document.createElement('a'), { textContent: '没起来（连不上 Ephemeris）· 重试', onclick: pollBackup }));
+      return;
+    }
+    setTimeout(pollBackup, 300);
+  };
 }
 

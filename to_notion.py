@@ -489,11 +489,14 @@ def status():
     except NotionError as e:
         return {'connected': False, 'error': str(e)}
     n = {'create': 0, 'append': 0, 'update': 0, 'replace': 0, 'skip': 0}
-    for a in actions.values():
+    dates = {}                    # 待办的每类是哪几天：同步前的确认里能点开看
+    for date, a in sorted(actions.items()):
         n[a] = n.get(a, 0) + 1
+        if a != 'skip':
+            dates.setdefault(a, []).append(date)
     return {'connected': True, 'integration': who,
             'remote_pages': remote['total'],
-            'diaries': len(actions), **n}
+            'diaries': len(actions), **n, 'dates': dates}
 
 
 # -------------------------------------------------------------------- 后台（Notion 面板）

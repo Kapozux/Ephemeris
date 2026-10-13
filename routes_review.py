@@ -1,8 +1,9 @@
 """回顾：一段时间在聊什么（回顾面板、话题河流、主题账本），和按窗口回顾。"""
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, render_template, request
 
 import cards
 import conv_review
+import index as idx
 import ledger
 import llm
 import qa
@@ -120,6 +121,19 @@ def api_qa_ask():
             return jsonify({'error': f'{type(e).__name__}: {e}'[:300]}), 500
     # 后台问、边写边看：进度在 /api/qa/live
     return jsonify({'started': qa.start_ask(q, bool(body.get('deep')), body.get('thread')), 'live': qa.live()})
+
+
+@bp.route('/api/qa/stop', methods=['POST'])
+def api_qa_stop():
+    """停下正在写的回答（聊天页的停止按钮）：写出来的那段留在对话里。"""
+    return jsonify({'stopped': qa.stop()})
+
+
+@bp.route('/chat')
+@bp.route('/chat/<int:thread>')
+def chat_page(thread=None):
+    """「问」单独一个全屏聊天页（2026-10-13 用户：独立网址，像 claude.ai）。一段对话一个网址：/chat/<id>。"""
+    return render_template('chat.html', thread=thread or '', name=idx.who())
 
 
 @bp.route('/api/qa/new', methods=['POST'])

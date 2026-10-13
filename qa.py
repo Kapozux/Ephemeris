@@ -17,6 +17,7 @@ import math
 import os
 import re
 import sys
+import threading
 import time
 from datetime import datetime
 
@@ -294,8 +295,16 @@ def answer(question, on_text=None, thread=None):
         prompt = ANSWER_PROMPT.format(history=htext, question=plan.get('q') or question,
                                       cards='\n'.join(_card_line(i, c) for i, c in alias.items()),
                                       summaries=_summaries(picked))
-        raw = llm.ask_stream(prompt, on_text, effort='high', purpose='qa') if on_text else \
-            llm.ask(prompt, effort='high', purpose='qa')
+        buf = []
+        try:
+            raw = llm.ask_stream(prompt, lambda x: (buf.append(x), on_text(x)), effort='high', purpose='qa') if on_text else \
+                llm.ask(prompt, effort='high', purpose='qa')
+        except llm.Cancelled:                                       # 写到一半点了停止：留下写出来的那段
+            text, used = clean(''.join(buf).strip(), alias)
+            by_id = {c['id']: c for c in picked}
+            cites = [{k: by_id[i][k] for k in ('id', 'date', 'who', 'kind', 'text', 'quote', 'conv_id', 'msg_id', 'title')} for i in used]
+            _say(thread, 'assistant', text, cites)
+            return {'answer': text, 'cites': cites, 'stopped': True, 'thread': thread}
         if not raw:
             raise RuntimeError('模型没回（看「窗口」栏里的模型状态）')
         text, used = clean(raw.strip(), alias)
@@ -403,21 +412,34 @@ def answer_deep(question, progress=None, on_text=None, thread=None):
         time.time() - datetime.fromisoformat(last['ts']).timestamp() < DEEP_TTL else None
     turns = history(HISTORY_TURNS * 2, thread)
     _say(thread, 'user', question)
+    buf = []
+
     def say(kind, text):
         if kind == 'tool' and progress and _step(kind, text):
             progress(_step(kind, text))
-        elif kind == 'message' and on_text:
-            on_text(None)
-        elif kind == 'delta' and on_text:
-            on_text(text)
+        elif kind == 'message':
+            buf.clear()
+            if on_text:
+                on_text(None)
+        elif kind == 'delta':
+            buf.append(text)
+            if on_text:
+                on_text(text)
     fresh = DEEP_PROMPT.format(name=idx.who(), today=days.today(), look=LOOK, history=_history_text(turns), question=question)
     try:
-        text, new_sid = llm.claude_agent(FOLLOW_PROMPT.format(question=question) if sid else fresh, LOOK,
-                                         session=sid, on_event=say, purpose='qa-deep')
-    except RuntimeError:
-        if not sid:
+        try:
+            text, new_sid = llm.claude_agent(FOLLOW_PROMPT.format(question=question) if sid else fresh, LOOK,
+                                             session=sid, on_event=say, purpose='qa-deep')
+        except llm.Cancelled:
             raise
-        text, new_sid = llm.claude_agent(fresh, LOOK, on_event=say, purpose='qa-deep')    # 会话接不上：从头问
+        except RuntimeError:
+            if not sid:
+                raise
+            text, new_sid = llm.claude_agent(fresh, LOOK, on_event=say, purpose='qa-deep')    # 会话接不上：从头问
+    except llm.Cancelled:                                           # 写到一半点了停止：留下写出来的那段
+        body, cites = _deep_cites(''.join(buf).strip())
+        _say(thread, 'assistant', body, cites)
+        return {'answer': body, 'cites': cites, 'deep': True, 'stopped': True, 'thread': thread}
     body, cites = _deep_cites(text)
     _say(thread, 'assistant', body, cites, new_sid)
     return {'answer': body, 'cites': cites, 'deep': True, 'thread': thread}
@@ -432,12 +454,23 @@ def start_ask(question, deep=False, thread=None):
     thread = thread or current()
 
     def run(job, q, deep):
+        job['tid'] = threading.get_ident()
+        llm.uncancel()
         def text(piece):
             job['partial'] = '' if piece is None else job['partial'] + piece
         job['result'] = answer_deep(q, progress=job['steps'].append, on_text=text, thread=thread) if deep \
             else answer(q, on_text=text, thread=thread)
     return jobs.start(QA_JOB, run, question, deep, steps=[], partial='', result=None, question=question, deep=deep,
                       thread=thread)
+
+
+def stop():
+    """停下正在问的那一个（聊天页的停止按钮）：写出来的那段留在对话里。没在问返回 False。"""
+    st = jobs.state(QA_JOB)
+    if not st.get('running') or not st.get('tid'):
+        return False
+    llm.cancel(st['tid'])
+    return True
 
 
 def live():

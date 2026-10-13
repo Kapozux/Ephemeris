@@ -451,6 +451,31 @@ def claude(prompt, effort='medium', session=None, keep=False, purpose=''):
     return text, d.get('session_id')
 
 
+# 停下（聊天页的停止按钮，2026-10-13）：cancel(线程) 把那个线程正在跑的 claude 进程当场关掉，之后它抛 Cancelled——
+# 调用方（qa）留下已经写出来的那段；ask_stream 不会把它当成「Claude 失败了」再换别的模型重写一遍。
+class Cancelled(RuntimeError):
+    pass
+
+
+_procs = {}                 # 线程 id → 正在跑的 claude 进程
+_cancelled = set()
+
+
+def cancel(tid):
+    _cancelled.add(tid)
+    p = _procs.get(tid)
+    if p and p.poll() is None:
+        p.kill()
+
+
+def cancelled():
+    return threading.get_ident() in _cancelled
+
+
+def uncancel():
+    _cancelled.discard(threading.get_ident())
+
+
 def _claude_events(args, prompt, on_event, timeout):
     """跑 claude -p --output-format stream-json，边读边报：on_event(kind, text)
       kind = 'message'（新的一段回复开始）| 'delta'（一小段字）| 'tool'（它要跑的命令）| 'text'（一整段话写完了）
@@ -475,16 +500,30 @@ def _claude_events(args, prompt, on_event, timeout):
     if _claude_runner:
         d = _claude_runner(args, prompt)
         for ev in d.get('events', []):
+            if cancelled():
+                raise Cancelled('停下了')
             seen(ev)
+        if cancelled():
+            raise Cancelled('停下了')
         return d
     os.makedirs(CLAUDE_CWD, exist_ok=True)
     t = time.time()
     p = subprocess.Popen(['claude'] + args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                          text=True, cwd=CLAUDE_CWD, env=_env(args))
-    p.stdin.write(prompt)
-    p.stdin.close()
+    _procs[threading.get_ident()] = p
+    try:
+        p.stdin.write(prompt)
+        p.stdin.close()
+        return _claude_read(p, seen, t, timeout)
+    finally:
+        _procs.pop(threading.get_ident(), None)
+
+
+def _claude_read(p, seen, t, timeout):
     d = {'is_error': True, 'result': ''}
     for line in p.stdout:
+        if cancelled():
+            break
         try:
             ev = json.loads(line)
         except ValueError:
@@ -497,6 +536,10 @@ def _claude_events(args, prompt, on_event, timeout):
             p.kill()
             d = {'is_error': True, 'result': f'超过 {timeout} 秒没写完'}
             break
+    if cancelled():
+        p.kill()
+        p.wait()
+        raise Cancelled('停下了')
     p.wait()
     if not d.get('result') and d.get('is_error'):
         d['result'] = (p.stderr.read() or '')[:300]
@@ -547,6 +590,8 @@ def ask_stream(prompt, on_text, effort='medium', purpose=''):
         sent = []
         try:
             return claude_stream(prompt, lambda x: (sent.append(x), on_text(x)), effort, purpose)[0]
+        except Cancelled:
+            raise                                            # 用户点了停止：不换模型重写
         except Exception as e:                               # noqa: BLE001
             with _lock:
                 _state['last_error'] = f'{type(e).__name__}: {e}'[:300]

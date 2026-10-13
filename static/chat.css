@@ -1,0 +1,139 @@
+/* 聊天页（/chat）：照 claude.ai 的样子——左边对话列表，中间一栏对话，底下一个圆角输入框；写的时候发送键变成圆圈停止键。
+   类名都带 ch- 前缀（style.css 开头的约定）。颜色只在 :root 里定，深浅两套跟系统走。 */
+:root {
+  --bg: #faf9f5; --side: #f3f1ea; --box: #ffffff; --line: #e2dfd5; --line2: #d3cfc3;
+  --text: #1f1e1d; --muted: #77746c; --faint: #a19d93; --hover: #ebe8df; --bubble: #efece4;
+  --accent: #d97757; --accent-text: #fff; --cite: #e9e5da; --hl: #f6ead9;
+  --serif: "Tiempos Text", Georgia, "Songti SC", "STSong", serif;
+  --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1a1a19; --side: #1f1f1e; --box: #262624; --line: #33332f; --line2: #44433f;
+    --text: #ece9e2; --muted: #9c9890; --faint: #6f6c66; --hover: #2c2c2a; --bubble: #2f2f2c;
+    --accent: #d97757; --accent-text: #fff; --cite: #34342f; --hl: #3a3127;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { display: flex; background: var(--bg); color: var(--text); font: 15px/1.6 var(--sans); overflow: hidden; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+svg { display: block; }
+
+/* ---- 左栏 ---- */
+.ch-side { width: 272px; flex: none; display: flex; flex-direction: column; background: var(--side); border-right: 1px solid var(--line);
+  padding: 10px 8px; transition: margin-left .2s ease; }
+body.ch-folded .ch-side { margin-left: -272px; }
+.ch-side-top { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px 10px; }
+.ch-brand { display: flex; align-items: center; gap: 8px; color: var(--text); text-decoration: none; font: 500 21px/1 var(--serif); }
+.ch-brand svg { width: 24px; height: 24px; color: var(--muted); }
+.ch-icon { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: var(--muted); }
+.ch-icon:hover { background: var(--hover); color: var(--text); }
+.ch-icon svg { width: 20px; height: 20px; }
+.ch-new { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 10px; background: var(--hover);
+  font-weight: 500; }
+.ch-new:hover { background: var(--line); }
+.ch-new svg, .ch-links svg { width: 18px; height: 18px; }
+.ch-links { display: flex; flex-direction: column; margin: 6px 0 4px; }
+.ch-links a { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 10px; color: var(--text); text-decoration: none; }
+.ch-links a:hover { background: var(--hover); }
+.ch-links svg { color: var(--muted); }
+.ch-sec { padding: 16px 10px 6px; font-size: 13px; color: var(--muted); }
+.ch-threads { flex: 1; overflow-y: auto; min-height: 0; }
+.ch-thread { display: block; width: 100%; text-align: left; padding: 7px 10px; border-radius: 10px; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; font-size: 14px; color: var(--text); }
+.ch-thread:hover { background: var(--hover); }
+.ch-thread.on { background: var(--line); }
+.ch-thread.live::after { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+  margin-left: 8px; vertical-align: middle; animation: ch-pulse 1.2s ease-in-out infinite; }
+.ch-side-foot { display: flex; align-items: center; gap: 10px; padding: 10px 8px 2px; border-top: 1px solid var(--line); font-size: 14px; }
+.ch-avatar { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--accent-text);
+  font-size: 13px; font-weight: 600; flex: none; }
+.ch-cards { margin-left: auto; font-size: 12px; color: var(--faint); }
+
+/* ---- 中间 ---- */
+.ch-main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+.ch-head { height: 52px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 14px; }
+.ch-open { display: none; }
+body.ch-folded .ch-open { display: grid; }
+.ch-title { font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch-scroll { flex: 1; overflow-y: auto; padding: 8px 16px 24px; }
+.ch-log { max-width: 760px; margin: 0 auto; }
+
+/* 空的时候：问候 + 输入框在正中 */
+.ch-hello { display: none; }
+body.ch-empty .ch-hello { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 26vh; }
+body.ch-empty .ch-composer { position: absolute; top: calc(26vh + 132px); left: 0; right: 0; }
+body.ch-empty .ch-note { visibility: hidden; }
+.ch-mark { width: 44px; height: 44px; color: var(--muted); }
+.ch-hello h1 { margin: 0; font: 400 40px/1.2 var(--serif); letter-spacing: -.01em; }
+
+/* 一问一答 */
+.ch-q { display: flex; justify-content: flex-end; margin: 22px 0 6px; }
+.ch-q > div { max-width: 82%; background: var(--bubble); padding: 10px 16px; border-radius: 18px; white-space: pre-wrap; word-break: break-word; }
+.ch-a { margin: 10px 0 20px; font: 16.5px/1.75 var(--serif); word-break: break-word; }
+.ch-a p { margin: 0 0 .85em; }
+.ch-a ul { margin: 0 0 .85em; padding-left: 1.3em; }
+.ch-a b { font-weight: 600; }
+.ch-a.stopped::after { content: "（已停止）"; display: block; font: 13px var(--sans); color: var(--faint); }
+.ch-a.bad { font: 14px var(--sans); color: var(--accent); }
+sup .ch-cite, sup.ch-cite { display: inline-block; min-width: 17px; padding: 0 4px; margin: 0 1px; border-radius: 6px; background: var(--cite);
+  font: 600 11px/17px var(--sans); text-align: center; color: var(--muted); cursor: pointer; vertical-align: 2px; }
+sup .ch-cite:hover { color: var(--text); }
+.ch-src { margin-top: 4px; font: 13px/1.55 var(--sans); }
+.ch-src summary { color: var(--muted); cursor: pointer; list-style: none; display: inline-flex; gap: 6px; align-items: center;
+  padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; }
+.ch-src summary::-webkit-details-marker { display: none; }
+.ch-src summary:hover { color: var(--text); border-color: var(--line2); }
+.ch-src-row { display: flex; gap: 10px; padding: 8px 10px; border-radius: 10px; margin-top: 4px; }
+.ch-src-row.hl { background: var(--hl); }
+.ch-src-n { flex: none; width: 18px; color: var(--faint); font-weight: 600; }
+.ch-src-main { flex: 1; min-width: 0; }
+.ch-src-meta { display: block; color: var(--faint); font-size: 12px; }
+.ch-src-q { color: var(--muted); }
+.ch-go { flex: none; color: var(--accent); cursor: pointer; white-space: nowrap; text-decoration: none; }
+
+/* 写的时候：查找进度 + 一个慢慢转的小星轨 */
+.ch-wait-head { display: flex; align-items: center; gap: 10px; font: 14px var(--sans); color: var(--muted); }
+.ch-spin { width: 22px; height: 22px; color: var(--faint); animation: ch-turn 2.4s linear infinite; }
+.ch-steps { list-style: none; margin: 6px 0 10px; padding: 0 0 0 32px; font: 13px/1.7 var(--sans); color: var(--faint); }
+@keyframes ch-turn { to { transform: rotate(360deg); } }
+@keyframes ch-pulse { 50% { opacity: .3; } }
+
+/* ---- 输入框 ---- */
+.ch-composer { flex: none; padding: 0 16px 10px; }
+.ch-box { max-width: 760px; margin: 0 auto; background: var(--box); border: 1px solid var(--line2); border-radius: 20px;
+  padding: 14px 14px 10px 18px; box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 18px rgba(0,0,0,.05); }
+.ch-box:focus-within { border-color: var(--faint); }
+.ch-box textarea { width: 100%; resize: none; border: 0; outline: 0; background: none; color: var(--text); font: 16px/1.5 var(--sans);
+  max-height: 40vh; min-height: 26px; padding: 0; }
+.ch-box textarea::placeholder { color: var(--faint); }
+.ch-tools { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.ch-modes { display: flex; padding: 3px; border-radius: 10px; background: var(--hover); }
+.ch-mode { padding: 3px 12px; border-radius: 8px; font-size: 14px; color: var(--muted); }
+.ch-mode.on { background: var(--box); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.ch-model { margin-left: auto; font-size: 14px; color: var(--text); white-space: nowrap; }
+.ch-model i { font-style: normal; color: var(--faint); margin-left: 3px; }
+.ch-send { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--accent); color: var(--accent-text); flex: none; }
+.ch-send:disabled { opacity: .35; cursor: default; }
+.ch-send svg { width: 18px; height: 18px; }
+.ch-send .ch-stop { display: none; width: 26px; height: 26px; }
+body.ch-busy .ch-send { background: none; color: var(--text); border-radius: 50%; }
+body.ch-busy .ch-send:hover { background: var(--hover); }
+body.ch-busy .ch-send .ch-up { display: none; }
+body.ch-busy .ch-send .ch-stop { display: block; }
+.ch-note { max-width: 760px; margin: 8px auto 0; padding: 0 18px; font-size: 12.5px; color: var(--faint); text-align: center; }
+
+/* ---- 窄屏：左栏变成盖在上面的抽屉 ---- */
+@media (max-width: 760px) {
+  .ch-side { position: fixed; z-index: 5; inset: 0 auto 0 0; box-shadow: 0 0 40px rgba(0,0,0,.25); }
+  body:not(.ch-side-open) .ch-side { margin-left: -272px; }
+  .ch-open { display: grid; }
+  body.ch-empty .ch-hello { margin-top: 18vh; }
+  body.ch-empty .ch-composer { top: calc(18vh + 110px); }
+  .ch-hello h1 { font-size: 30px; }
+  .ch-mark { width: 34px; height: 34px; }
+  .ch-q > div { max-width: 90%; }
+  .ch-model { display: none; }
+  .ch-tools .ch-send { margin-left: auto; }
+}

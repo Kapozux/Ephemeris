@@ -14,6 +14,7 @@ function renderSignals(sg) {
   const f = sg.mood, k = sg.friction, out = [];
   if (f) out.push(`<span class="day-sig" title="${esc(f.note || '')}"><i style="background:${feelColor(f.v)}"></i>过得 <b>${f.v > 0 ? '+' : ''}${+f.v.toFixed(1)}</b> ${esc(f.words || '')}<em>${f.src === 'checkin' ? '打卡' : '手写'}</em></span>`);
   if (k) out.push(`<span class="day-sig" title="${esc(k.evidence || '')}"><i style="background:var(--s${k.valence})"></i>卡得 <b>${k.valence}/4</b> ${esc(k.label || '')}<em>聊天</em></span>`);
+  // 去打卡页的链接前面隔一道竖线（style.css）：「卡得」是聊天里卡没卡住，「打卡」是自己记的心情，别挨在一起读成一回事
   out.push(`<a class="day-sig day-sig-add" href="/checkin?date=${S.sel}">${(sg.checkins || []).length ? '改打卡' : '补打卡'}</a>`);
   $('#daySig').innerHTML = out.join('');
 }
@@ -152,8 +153,15 @@ function aiMsgHtml(m, text, isTarget, q) {
             <span class="msg-time">${m.hhmm}</span><div class="msg-text msg-md j-body">${body}</div></div>`;
 }
 
+const SRC_NAME = { claude: 'Claude', gemini: 'Gemini', cc: 'Claude Code', ask: '问' };
+// 跨了几天（按日历天算，首尾都算）
+const spanDays = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5) + 1;
+
 function renderThreads(threads, focus) {
   $('#threadCount').textContent = `${threads.length}`;
+  // 来源图例只列这天真出现了的
+  const srcs = [...new Set(threads.map(t => t.source))].filter(s => SRC_NAME[s]);
+  $('#threadSrcs').innerHTML = srcs.map(s => `<span><i class="src ${s}"></i>${SRC_NAME[s]}</span>`).join('');
   if (!threads.length) { $('#threads').innerHTML = '<div class="threads-empty">这天没有和 AI 聊天</div>'; return; }
   $('#threads').innerHTML = threads.map((t, i) => {
     const open = focus && t.conv_id === focus.conv;
@@ -162,7 +170,7 @@ function renderThreads(threads, focus) {
         <span class="thread-time">${t.first}</span>
         <span class="src ${t.source}"></span>
         <span class="thread-title">${esc(t.title)}</span>
-        <span class="thread-right">${t.multi_day ? `<span class="thread-span" data-conv="${t.conv_id}" title="这个窗口横跨了 ${t.span_from} → ${t.span_to}">${t.span_from.slice(5)} → ${t.span_to.slice(5)}</span>` : ''}<span class="thread-count">${t.n_msgs} 条 · ${(t.chars || 0).toLocaleString()} 字</span></span>
+        <span class="thread-right">${t.multi_day ? `<button type="button" class="thread-span" data-conv="${t.conv_id}" title="这个窗口横跨了 ${t.span_from} → ${t.span_to}，点开看是哪几天">跨 ${spanDays(t.span_from, t.span_to)} 天</button>` : ''}<span class="thread-count">${t.n_msgs} 条 · ${(t.chars || 0).toLocaleString()} 字</span></span>
       </div>
       <div class="thread-body ${open ? '' : 'hidden'}" id="tb${i}">
         <div class="thread-bar"><label><input type="checkbox" class="thread-aitog"> 显示 AI 回复</label>

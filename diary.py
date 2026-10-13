@@ -141,7 +141,7 @@ def session_for(date, day=None):
     hit = _sessions.get(date)
     if hit and hit[1] == body and time.time() - hit[0] < SESSION_TTL:
         return hit[2]
-    s = llm.Session(f'--- {date} 当天记录：{idx.who()} 这一天发给 AI 的全部消息 ---\n{body}', effort='medium',
+    s = llm.Session(f'--- {date} 当天记录：{idx.who()} 这一天发给 AI 的全部消息 ---\n{body}', effort='high',   # 日记用 Opus 的 high 档（10-13：日记要给力点）
                     purpose=f'day {date}')
     _sessions[date] = (time.time(), body, s)
     return s

@@ -93,6 +93,14 @@ class Cards(unittest.TestCase):
         self.assertEqual(r['failed'], 1)
         self.assertEqual(cards.due(['c1']), [('c1', 'full')])                # 下次还会重做
 
+    def test_flaky_segment_is_retried_on_the_spot(self):
+        calls = []
+        good = out([{'m': 1, 'k': '决定', 't': '我决定 ED 交 MIT', 'q': 'ED 交 MIT'}])
+        llm.use(lambda p: (calls.append(1), 'oops' if len(calls) <= 2 else good)[1])   # 头两次（ask_json 的两次）都坏
+        r = cards.build_conv('c1')
+        self.assertEqual((r['n'], r['failed']), (1, 0))
+        self.assertEqual(cards.due(['c1']), [])
+
     def test_only_first_good_segments_advance(self):
         """外面做好的（Claude workflow）也走 apply：第二段没拿到，做到哪只推进到第一段。"""
         mode, segs = cards.segments('c1', size=60)

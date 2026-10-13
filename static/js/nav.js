@@ -13,6 +13,7 @@
 //   #/panel/reflect|qa|themes|river|data|convs|notion|settings  浮层里的面板
 //   #/panel/themes/<id>                     展开某个主题
 //   /checkin[?date=]                         打卡：单独的全屏页（旧的 #/panel/checkin 会跳过去）
+//   /（没有 hash）                            从问 / 打卡点主导航的「日记」回来：main.js 恢复上次看的那天 / 那个窗口（localStorage 的 main-route）；直接打开还是最新一天
 import { S } from './state.js';
 
 let apply = () => {};

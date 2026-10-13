@@ -33,7 +33,7 @@ function syncUrl() {
 
 function setView(v) {
   S.view = v;
-  document.querySelectorAll('.ck-tab').forEach(t => t.classList.toggle('on', t.dataset.v === v));
+  document.querySelectorAll('.ck-tab').forEach(t => { t.classList.toggle('on', t.dataset.v === v); t.setAttribute('aria-selected', t.dataset.v === v); });
   $('#vNow').classList.toggle('hidden', v !== 'now');
   $('#vMonth').classList.toggle('hidden', v !== 'month');
   if (v === 'month') loadMonth(S.month || (S.date || S.today).slice(0, 7));
@@ -89,7 +89,7 @@ function renderNow() {
         <span class="ck-item-t">${(x.created_at || '').slice(11, 16)}</span>
         <span class="ck-item-w" style="color:${vcol(x.valence, x.word)}">${esc(x.word)}</span>
         <span class="ck-item-n">${esc(x.note || '')}</span>
-        <span class="ck-item-ops"><a data-e="${x.id}">改</a><a data-d="${x.id}">删</a></span>
+        <span class="ck-item-ops"><button type="button" class="ck-link" data-e="${x.id}">改</button><button type="button" class="ck-link" data-d="${x.id}">删</button></span>
         ${x.reply && x.id !== S.oracleId ? `<div class="ck-item-r">${esc(x.reply)}</div>` : ''}
       </div>`).join('')
     : '';
@@ -232,7 +232,7 @@ function renderDayBig(s) {
   box.innerHTML = `<div class="ck-big-d">${dt.getDate()}</div>
     <div class="ck-big-meta"><div class="ck-big-wk">周${WK[dt.getDay()]}</div>
       <div class="ck-big-wd">${s ? `<span style="color:${vcol(s.v, s.words || s.word)};font-weight:600">${esc(s.words || s.word)}</span>${s.note ? ' · ' + esc(s.note.slice(0, 40)) : ''}` : '还没记'}</div></div>
-    <a class="ck-big-go">${s && s.src === 'checkin' ? '看 / 改这天 →' : S.selDay === S.today ? '记今天 →' : '给这天补一个 →'}</a>`;
+    <button type="button" class="ck-link ck-big-go">${s && s.src === 'checkin' ? '看 / 改这天 →' : S.selDay === S.today ? '记今天 →' : '给这天补一个 →'}</button>`;
   box.querySelector('.ck-big-go').onclick = () => { setView('now'); loadNow(S.selDay); };
 }
 

@@ -9,7 +9,7 @@ import { ensureConvs, pollCSync } from './convs.js';
 import { ensureNotion } from './notion.js';
 import { pollExport } from './settings.js';
 
-// 「问」2026-10-13 起是单独的全屏聊天页（/chat，做证据卡也在那里）：侧栏按钮、老链接 #/panel/qa 都跳过去
+// 「问」2026-10-13 起是单独的全屏聊天页（/chat，做证据卡也在那里），入口在主导航；老链接 #/panel/qa 跳过去
 const toChat = () => { location.href = '/chat'; };
 
 export function openModal(pane, arg) {
@@ -28,7 +28,6 @@ $('#reflectOpen').onclick = () => navigate('panel/reflect');
 $('#convsOpen').onclick = () => navigate('panel/convs');
 $('#notionOpen').onclick = () => navigate('panel/notion');
 $('#settingsOpen').onclick = () => navigate('panel/settings');
-$('#qaOpen').onclick = toChat;
 $('#modalClose').onclick = closeLayer;
 $('#overlay').addEventListener('click', e => { if (e.target.id === 'overlay') closeLayer(); });
 // 面板切换本身只管样式；进哪个面板由路由决定（下面 .modal-nav-item 的 onclick 走 navigate）

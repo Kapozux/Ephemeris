@@ -13,6 +13,7 @@
        modal- 浮层   pane- 浮层里各栏共用的骨架   reflect- chart- data- 回顾和数据   th- 主题   rv- 河流
        cv- 数据来源（窗口一览与导入）   nt- Notion   set- 设置   su- 开始用（新装时的引导页）   fb- 回忆卡
        （聊天页 /chat 单独一份 chat.css，类名 ch-）
+       nav- 三页共用的主导航（日记 / 问 / 打卡）：templates/_nav.html + static/nav.css，颜色由各页 :root 的 --nav-* 给
    - 新加类之前先 grep 一下有没有重名。踩过两次：.k 撞了打卡页，.fb 让窗口列表每一行都变成全屏灰罩
    ============================================================ */
 :root {
@@ -27,6 +28,9 @@
   --claude:#D97757; --gemini:#4A7DB5;
   /* 日历热度：珊瑚 ramp，编码「窗口数」 */
   --h0:#F1EFE8; --h1:#F6E3D8; --h2:#EFC4AE; --h3:#E5997A; --h4:#D97757;
+  /* 三页共用的主导航（static/nav.css）在这一页的颜色 */
+  --nav-ink:var(--ink-soft); --nav-icon:var(--muted); --nav-hover:var(--card); --nav-on:var(--coral-deep); --nav-on-bg:var(--coral-soft);
+  --nav-bar:var(--paper); --nav-line:var(--line); --nav-dot:var(--coral); --nav-fs:13px;
 
   --r-xs:6px; --r-sm:8px; --r-md:9px; --r-lg:12px;
   --e1:0 1px 2px rgba(50,42,28,.04);
@@ -115,8 +119,16 @@ button { font-family:inherit; }
 .cal-day.nodiary { opacity:.42; }
 .cal-day.sel { box-shadow:0 0 0 1.5px var(--ink); z-index:3; }
 
-/* 窄屏才出现的两样：去别的页的主导航（sb-nav）、日历的月份条（cal-bar）。样式都在下面 1079 / 700 的断点里，宽屏一律不显示 */
-.sb-nav, .cal-bar { display:none; }
+/* 主导航（日记 / 问 / 打卡，三页共用，长相在 nav.css）：宽屏在搜索框下面；701–1079 挪到顶栏右上角；≤700 是 nav.css 的固定底栏。
+   三段各写各的、不叠加：这里的选择器比 nav.css 的 .nav-bottom 具体，叠到 ≤700 上会把底栏顶掉 */
+@media (min-width:1080px) { .sidebar > .nav { margin:2px 0; } }
+@media (min-width:701px) and (max-width:1079.98px) {
+  .sidebar > .nav { flex-direction:row; gap:2px; position:absolute; top:9px; right:var(--gutter); }
+  .sidebar > .nav .nav-item { gap:6px; padding:4px 10px; }
+  .sidebar > .nav .nav-item svg { width:17px; height:17px; }
+}
+/* 窄屏才出现：日历的月份条（cal-bar）。样式在下面 1079 的断点里 */
+.cal-bar { display:none; }
 
 .sb-bottom { margin-top:auto; padding-top:6px; border-top:1px solid var(--line); }
 .sb-legend { display:flex; align-items:center; gap:3px; font-size:11px; color:var(--faint); padding:8px 6px 4px; }
@@ -232,18 +244,9 @@ button { font-family:inherit; }
   .cal { flex:none; max-height:none; grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); }
   .sb-bottom { display:flex; flex-wrap:wrap; gap:4px; border-top:0; padding-top:0; }
   .sb-bottom .sb-item { width:auto; margin:0; white-space:nowrap; }
-  .sb-bottom #ckOpen, .sb-bottom #qaOpen { display:none; }        /* 窄屏这两项在 sb-nav 里 */
   .sb-legend { display:none; }
-  /* 主导航：顶栏右上角一排 */
-  .sidebar { position:relative; }
-  .sb-nav { display:flex; gap:2px; position:absolute; top:9px; right:var(--gutter); }
-  .sb-nav-item { display:flex; align-items:center; gap:6px; padding:4px 10px; border-radius:var(--r-sm);
-    font-size:13px; color:var(--ink-soft); white-space:nowrap; }
-  .sb-nav-item svg { color:var(--muted); flex:none; }
-  .sb-nav-item:hover { background:var(--card); color:var(--ink); }
-  .sb-nav-item.on { color:var(--coral-deep); background:var(--coral-soft); }
-  .sb-nav-item.on svg { color:inherit; }
-  .sb-nav-item .sb-ck-dot { margin-left:0; }
+  .sidebar { position:relative; }          /* 主导航在顶栏右上角（上面 701–1079 那段） */
+  .sb-bottom .sb-sep { width:1px; height:18px; margin:auto 4px; }
   /* 日历：默认只摊开一个月（calendar.js 的 viewMonth），点月份摊开全部 */
   .cal-bar { display:flex; align-items:center; gap:2px; width:210px; padding:0 2px; }
   .cal-bar-step { flex:none; width:30px; height:30px; border:0; border-radius:var(--r-sm); background:transparent;
@@ -263,12 +266,7 @@ button { font-family:inherit; }
 }
 @media (max-width: 700px) {
   :root { --gutter:16px; }
-  /* 主导航变成固定底栏，跟打卡页手机底栏一样：58px 高、上边一条线、当前页上边描一道 */
-  .sb-nav { position:fixed; top:auto; left:0; right:0; bottom:0; z-index:150; height:calc(58px + env(safe-area-inset-bottom));
-    padding-bottom:env(safe-area-inset-bottom); gap:0; justify-content:center; background:var(--paper); border-top:1px solid var(--line); }
-  .sb-nav-item { flex:0 1 120px; justify-content:center; border-radius:0; border-top:2px solid transparent; }
-  .sb-nav-item:hover, .sb-nav-item.on { background:transparent; }
-  .sb-nav-item.on { border-top-color:var(--coral); }
+  /* 主导航是 nav.css 的固定底栏（nav-bottom），这里给它让出位置 */
   .app { padding-bottom:58px; }
   .pagehead { flex-direction:column; align-items:flex-start; }
   .diary .diary-lists { grid-template-columns:1fr; }
@@ -279,6 +277,7 @@ button { font-family:inherit; }
   border:0; background:transparent; border-radius:var(--r-sm); font-size:13px; color:var(--ink-soft); cursor:pointer; text-align:left; }
 .sb-item svg { color:var(--muted); }
 .sb-item:hover { background:var(--card); color:var(--ink); }
+.sb-sep { display:block; height:1px; background:var(--line); margin:4px 10px 6px; flex:none; }   /* 回顾 | 管（数据来源 Notion 设置） */
 
 .modal-overlay { position:fixed; inset:0; z-index:400; background:rgba(20,20,19,.32); display:flex; align-items:center; justify-content:center; padding:24px; }
 .modal { width:min(1040px, 100%); height:min(86vh, 900px); background:var(--card); border:1px solid var(--line); border-radius:var(--r-lg);
@@ -614,7 +613,6 @@ button { font-family:inherit; }
 #rvTableBox { overflow-x:auto; }
 .rv-gap { fill:var(--paper); stroke:var(--line); stroke-dasharray:3 3; }
 
-.sb-ck-dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--coral); margin-left:6px; vertical-align:2px; }
 .day-sig-add { color:var(--muted); text-decoration:none; border-style:dashed; cursor:pointer; }
 .day-sig-add:hover { color:var(--coral-deep); border-color:var(--coral-line); }
 .tl-stale { display:inline-block; margin-left:8px; font-size:11px; color:var(--coral-deep); border:1px solid var(--coral-line); border-radius:4px; padding:0 5px; }

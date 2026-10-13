@@ -155,6 +155,12 @@ CREATE TABLE IF NOT EXISTS qa_chat (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, role TEXT, text TEXT, cites TEXT
 );
 
+-- ---------------------------------------------------------------- 重复窗口的存档（dedup.py，2026-10-13）
+-- 同一个窗口手动导入一份（指纹 id）、自动同步又一份（uuid）：多出来的那份整份挪到这里（JSON 原样），正常的表里看不到。
+CREATE TABLE IF NOT EXISTS conversations_dup (id TEXT PRIMARY KEY, dup_of TEXT, archived_at TEXT, row TEXT);
+CREATE TABLE IF NOT EXISTS messages_dup (id TEXT PRIMARY KEY, conv_id TEXT, row TEXT);
+CREATE INDEX IF NOT EXISTS messages_dup_conv ON messages_dup(conv_id);
+
 -- ---------------------------------------------------------------- Claude 用量（llm.claude，2026-10-13）
 -- 每次 claude -p 一行：token（缓存读 / 写分开）、等值美元（订阅里不实扣，看额度用得快不快）
 CREATE TABLE IF NOT EXISTS claude_usage (

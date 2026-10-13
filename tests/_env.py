@@ -10,3 +10,4 @@ if ROOT not in sys.path:
 if 'DIARY_DB' not in os.environ:
     os.environ['DIARY_DB'] = os.path.join(tempfile.mkdtemp(prefix='ephemeris-test-'), 'test.db')
 os.environ['EPHEMERIS_NO_USAGE'] = '1'          # 别往旁边 Verbatim 的真账本（usage.db）里记测试的假调用
+os.environ['EPHEMERIS_CC_DIR'] = tempfile.mkdtemp(prefix='ephemeris-cc-')   # Claude Code 的对话：测试里是空目录，不读真的 ~/.claude

@@ -95,9 +95,13 @@ def _size(r):
 
 # ---------------------------------------------------------------- 哪些窗口要做
 
+# 哪些消息做卡：「问」的对话不做（回答本来就是从卡里写的，qa.SOURCE）；Claude Code 只做他说的（Claude 的回复多是代码和长解释）
+_CARDABLE = "source <> 'ask' AND NOT (source = 'cc' AND role = 'assistant')"
+
+
 def _all_rows(conv_ids=None):
     """{窗口: [消息（不取正文）]}，按时间。一条 SQL，不取正文（全量正文 7000 多万字）。"""
-    rows = store.q("SELECT conv_id, id, ts, chars, role FROM messages WHERE chars > 0 AND source <> 'ask' ORDER BY conv_id, ts, id")   # 「问」的对话不做卡（qa.SOURCE）
+    rows = store.q(f"SELECT conv_id, id, ts, chars, role FROM messages WHERE chars > 0 AND {_CARDABLE} ORDER BY conv_id, ts, id")
     out = {}
     for r in rows:
         if conv_ids is None or r['conv_id'] in conv_ids:
@@ -139,7 +143,7 @@ def _rows(ids):
 def segments(conv_id, mode=None, size=SEG_CHARS):
     """→ (mode, 段)：这一趟要做的消息（带正文），切成段（每段不超过 size 字）。
     mode='full' 强制整窗；别的都按库里现在的情况重新判断（排队时判断的可能已经过时了）。"""
-    rs = store.q("SELECT conv_id, id, ts, chars, role FROM messages WHERE conv_id=? AND chars > 0 AND source <> 'ask' ORDER BY ts, id", conv_id)
+    rs = store.q(f"SELECT conv_id, id, ts, chars, role FROM messages WHERE conv_id=? AND chars > 0 AND {_CARDABLE} ORDER BY ts, id", conv_id)
     made = store.one('SELECT fp, upto, upto_id FROM card_convs WHERE conv_id=?', conv_id)
     m, todo = _plan(rs, made)
     if mode == 'full':
@@ -325,6 +329,11 @@ def due_since(date):
     return [(c, m) for c, m in due(recent)]
 
 
+def route_for(todo):
+    """一次要做的窗口多（一下导进来一大批，比如第一次接 Claude Code）：走 DeepSeek，不撞 Claude 的 5 小时上限。"""
+    return 'cheap' if len(todo) > BULK_CONVS else ROUTE
+
+
 def estimate(todo):
     """todo：[(窗口, mode)] → 大概多少美元。"""
     by = _all_rows({c for c, _ in todo})
@@ -387,7 +396,7 @@ def make(job, todo, route=None):
 def start(todo):
     """「做上」按钮。窗口多（一次性补一大批，比如导入了旧聊天）就走 DeepSeek：10-13 用 Claude 全量做卡，
     一个小时撞了 5 小时上限；平常一天几个窗口的走 Claude。"""
-    route = 'cheap' if len(todo) > BULK_CONVS else ROUTE
+    route = route_for(todo)
     jobs.start(JOB, make, list(todo), route, stop=False, done=0, total=len(todo), cost=0.0, cards=0, failed=0)
     return status()
 

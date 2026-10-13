@@ -146,12 +146,9 @@
     <div class="modal-body">
       <section class="modal-pane active" data-pane="reflect">
         <div class="pane-top">
-          <div><div class="pane-title">回顾</div><div class="pane-sub">基于按天生成的日记，不是聊天原文。</div></div>
+          <div><div class="pane-title">回顾</div><div class="pane-sub" id="reflectSub"></div></div>
           <div class="pane-ctl">
-            <select id="reflectRange" class="btn-secondary btn-small">
-              <option value="1w">最近 7 天</option><option value="1m" selected>最近 30 天</option>
-              <option value="3m">最近 90 天</option><option value="all">全部</option>
-            </select>
+            <div class="pane-seg" id="reflectRange" role="group" aria-label="时间范围"></div>
             <button id="reflectRefresh" class="btn-secondary btn-small" title="平时有新东西才写，每周最多一次">重写这段</button>
           </div>
         </div>
@@ -198,8 +195,8 @@
         <div class="pane-top">
           <div><div class="pane-title">河流</div><div class="pane-sub" id="rvSub">每周各类事情占了多少：一件事做了一天算一份，AI 聊天和手写日记都算。</div></div>
           <div class="pane-ctl">
-            <div class="rv-seg" id="rvScale"><button data-v="share" class="on">占比</button><button data-v="count">数量</button></div>
-            <div class="rv-seg" id="rvRange"><button data-v="year" class="on">近一年</button><button data-v="2022-01-01">全部</button></div>
+            <div class="pane-seg" id="rvScale" role="group" aria-label="怎么算"></div>
+            <div class="pane-seg" id="rvRange" role="group" aria-label="时间范围"></div>
             <button class="btn-secondary btn-small" id="rvTable">表格</button>
           </div>
         </div>
@@ -209,7 +206,8 @@
         <div id="rvTableBox" class="hidden"></div>
       </section>
       <section class="modal-pane" data-pane="data">
-        <div class="pane-top"><div><div class="pane-title">数据</div><div class="pane-sub">同一个时间范围，纯统计，没有模型参与。</div></div></div>
+        <div class="pane-top"><div><div class="pane-title">数据</div><div class="pane-sub" id="dataSub"></div></div>
+          <div class="pane-ctl"><div class="pane-seg" id="dataRange" role="group" aria-label="时间范围"></div></div></div>
         <div id="dataBody" class="pane-body"></div>
       </section>
       <section class="modal-pane" data-pane="settings">

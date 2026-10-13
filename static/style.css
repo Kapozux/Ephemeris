@@ -351,9 +351,11 @@ button { font-family:inherit; }
 .pane-two > .pane-sec, .pane-two > .pane-sec + .pane-sec { margin-top:0; }   /* 并排的两栏：顶端对齐，间距交给 grid 的 gap */
 .pane-sec-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .pane-sec-label { font-size:12px; letter-spacing:.1em; color:var(--muted); }
-.reflect-seg { display:inline-flex; background:var(--code-bg); border-radius:10px; padding:3px; }
-.reflect-seg button { border:0; background:transparent; padding:4px 12px; border-radius:8px; font-size:12px; color:var(--muted); cursor:pointer; }
-.reflect-seg button.active { background:var(--card); color:var(--ink); box-shadow:var(--e1); }
+/* 浮层里的分段控件（回顾的范围和指标、数据的范围、河流的占比 / 范围）只有这一套；按钮由 util.paneSeg 画 */
+.pane-seg { display:inline-flex; background:var(--code-bg); border-radius:10px; padding:3px; }
+.pane-seg button { border:0; background:transparent; padding:4px 12px; border-radius:8px; font:inherit; font-size:12px; color:var(--muted); cursor:pointer; white-space:nowrap; }
+.pane-seg button:hover { color:var(--ink-soft); }
+.pane-seg button.on { background:var(--card); color:var(--ink); box-shadow:var(--e1); }
 .reflect-chart { width:100%; height:250px; display:block; margin-top:10px; }
 .reflect-chart .chart-grid { stroke:var(--line-2); stroke-dasharray:4 5; }
 .reflect-chart .chart-base { stroke:var(--line-2); }
@@ -572,26 +574,40 @@ button { font-family:inherit; }
 .diary-chip.new em { color:var(--faint); }
 
 .th-list { margin-top:6px; }
-.th { border-top:1px solid var(--line); padding:10px 0; }
-.th:first-child { border-top:0; }
-.th-row { display:grid; grid-template-columns:minmax(0,200px) 48px minmax(0,1fr) 64px; gap:14px; align-items:center; cursor:pointer; }
+.th { border-top:1px solid var(--line); padding:4px 0; }
+.th:first-child, .th-axis + .th { border-top:0; }
+/* 行首箭头 + 主题名 + 天数 + 半年横条 + 多久前；th-axis 用同一套列，日期刻度跟横条对齐 */
+.th-row, .th-axis { display:grid; grid-template-columns:12px minmax(0,200px) 48px minmax(0,1fr) 64px; gap:14px; align-items:center; }
+.th-row { cursor:pointer; padding:6px 8px; margin:0 -8px; border-radius:var(--r-sm); }
+.th-row:hover { background:var(--code-bg); }
+.th-row:focus-visible { outline:2px solid var(--coral-line); outline-offset:-2px; }
+.th-caret { color:var(--faint); font-size:15px; line-height:1; transition:transform .15s; justify-self:center; }
+.th.open .th-caret { transform:rotate(90deg); color:var(--ink-soft); }
+.th-axis { padding:0 0 6px; border-bottom:1px solid var(--line); }
+.th-axis-strip { grid-column:4; position:relative; display:flex; justify-content:space-between; font-size:11px; color:var(--faint); font-variant-numeric:tabular-nums; padding-left:18px; }
+.th-axis-strip em { position:absolute; left:0; font-style:normal; transform:translateX(-100%); white-space:nowrap; padding-right:4px; }
 .th-row b { font-weight:500; font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .th-n { font-size:12px; color:var(--muted); text-align:right; }
 .th-strip { position:relative; height:12px; border-bottom:1px solid var(--line); }
+.th-strip .th-track { position:absolute; left:18px; right:0; top:0; bottom:0; }   /* 左边 18px 留给「更早 ←」 */
 .th-strip i { position:absolute; bottom:0; width:2px; height:10px; margin-left:-1px; background:var(--coral); border-radius:1px; }
+.th-strip .th-early { position:absolute; left:0; bottom:-1px; font-style:normal; font-size:11px; line-height:1; color:var(--faint); }
 .th-last { font-size:12px; color:var(--muted); text-align:right; }
-.th-state { font-size:12.5px; color:var(--muted); margin-top:3px; padding-right:78px; }
+.th-state { font-size:12.5px; color:var(--muted); margin-top:1px; padding:0 78px 4px 26px; }
 .th:hover .th-row b { color:var(--coral-deep); }
 .th-more { display:block; padding:14px 0 4px; border-top:1px solid var(--line); font-size:12.5px; color:var(--muted); cursor:pointer; }
 .th-more:hover { color:var(--coral-deep); }
-.th-days { list-style:none; margin:10px 0 4px; padding:10px 0 0 14px; border-left:2px solid var(--coral-line); }
+.th-days { list-style:none; margin:10px 0 8px 26px; padding:10px 0 0 14px; border-left:2px solid var(--coral-line); }
 .th-days li { display:grid; grid-template-columns:86px minmax(0,1fr); gap:12px; font-size:13px; padding:3px 0; color:var(--ink-soft); }
 .th-days a { cursor:pointer; color:var(--muted); font-variant-numeric:tabular-nums; }
 .th-days a:hover { color:var(--coral-deep); }
 @media (max-width: 700px) {
-  .th-row { grid-template-columns:minmax(0,1fr) auto auto; }
-  .th-strip { grid-column:1 / -1; order:3; }
+  .th-row, .th-axis { grid-template-columns:12px minmax(0,1fr) auto auto; }
+  .th-strip { grid-column:2 / -1; order:3; }
+  .th-axis-strip { grid-column:2 / -1; }
+  .th-axis-strip em { display:none; }          /* 左边没地方放「更早 ←」：各行横条左端的 ← 还在 */
   .th-state { padding-right:0; }
+  .th-days { margin-left:0; }
   .th-days li { grid-template-columns:1fr; gap:0; }
 }
 
@@ -649,10 +665,6 @@ button { font-family:inherit; }
 
 /* 话题河流 */
 .modal-pane[data-pane="river"] { position:relative; }
-.rv-seg { display:inline-flex; border:1px solid var(--line-2); border-radius:var(--r-sm); overflow:hidden; }
-.rv-seg button { border:0; background:var(--card); padding:5px 10px; font:inherit; font-size:12px; color:var(--muted); cursor:pointer; }
-.rv-seg button + button { border-left:1px solid var(--line-2); }
-.rv-seg button.on { background:var(--ink); color:var(--paper); }
 .rv-legend { display:flex; flex-wrap:wrap; gap:6px 14px; margin:14px 0 8px; font-size:12px; color:var(--ink-soft); }
 .rv-li { display:inline-flex; align-items:center; gap:6px; cursor:default; }
 .rv-li i { width:10px; height:10px; border-radius:2px; }

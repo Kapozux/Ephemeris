@@ -1,12 +1,12 @@
 // 浮层里的「回顾」和「数据」两栏：同一个时间范围（/api/reflect），一个有模型写的叙事，一个纯统计。
-import { $, esc, fmtW, ask } from './util.js';
+import { $, esc, fmtW, ask, paneSeg, RANGE_LABEL } from './util.js';
 import { S } from './state.js';
 import { navigate } from './nav.js';
 
 // 主题占比的颜色：从珊瑚到灰，第一名最显眼。色值在 style.css 的 :root（--t0…--t8，深浅两套）
 const SHADES = Array.from({ length: 9 }, (_, i) => `var(--t${i})`);
 const WD = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-let RDATA = null, RMETRIC = 'msgs', RPOLL = null, RREQ = 0;
+let RDATA = null, RMETRIC = 'msgs', RPOLL = null, RREQ = 0, RRANGE = '1m';
 
 function niceCeil(v) {
   if (v <= 0) return 1;
@@ -33,6 +33,14 @@ function monotonePath(xs, ys) {
   return p;
 }
 const rDate = iso => { const [y, m, d] = iso.split('-').map(Number); return `${m}月${d}日`; };
+// 副标题：具体是哪几天（跨年才写年份）
+function rangeText(p) {
+  if (!p) return '';
+  const ys = p.start.slice(0, 4), ye = p.end.slice(0, 4), cross = ys !== ye || ye !== String(new Date().getFullYear());
+  const f = iso => (cross ? iso.slice(0, 4) + '年' : '') + rDate(iso);
+  const n = Math.round((Date.parse(p.end) - Date.parse(p.start)) / 864e5) + 1;
+  return `${f(p.start)} – ${f(p.end)} · ${n} 天`;
+}
 
 // 长区间按周汇总：90 天按天画是一排锯齿，看不出走势（Claude 自己的 Reflect 也是按周）
 const WEEKLY_AFTER = 60;
@@ -53,7 +61,8 @@ const chartWeekly = series => series.length > WEEKLY_AFTER;
 function reflectChart(series, prev, metric) {
   const weekly = chartWeekly(series);
   if (weekly) { series = toWeeks(series); prev = toWeeks(prev); }
-  const W = 900, H = 250, L = 46, R = 12, T = 18, B = 34;
+  // 按容器实际宽度出 viewBox，字不会被拉扁（栏还没显示时量不到宽度，先按 900 画，显示出来再重画）
+  const W = Math.max(320, $('#reflectBody').clientWidth || 900), H = 250, L = 46, R = 12, T = 18, B = 34;
   const cur = series.map(p => p[metric]); const pv = prev.map(p => p[metric]);
   if (cur.length < 2) return '<div class="pane-empty">数据不够画图</div>';
   const maxV = niceCeil(Math.max(...cur, ...pv, 1));
@@ -64,7 +73,7 @@ function reflectChart(series, prev, metric) {
   const n = cur.length - 1, idxs = [0, Math.round(n / 3), Math.round(n * 2 / 3), n];
   const xl = idxs.map((i, k) => `<text class="chart-xlab" x="${X(i).toFixed(1)}" y="${H - 8}" text-anchor="${k === 0 ? 'start' : k === 3 ? 'end' : 'middle'}">${rDate(series[i].date)}${weekly ? '那周' : ''}</text>`).join('');
   const pp = pv.length >= 2 ? `<path class="chart-prev" d="${monotonePath(pxs, pv.map(Y))}"/>` : '';
-  return `<svg class="reflect-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${grid}${base}${xl}${pp}<path class="chart-cur" d="${monotonePath(xs, cur.map(Y))}"/></svg>`;
+  return `<svg class="reflect-chart" viewBox="0 0 ${W} ${H}" data-w="${W}">${grid}${base}${xl}${pp}<path class="chart-cur" d="${monotonePath(xs, cur.map(Y))}"/></svg>`;
 }
 
 function delta(cur, prev) {
@@ -88,7 +97,7 @@ function renderReflect() {
     ${d.regenerating ? '<div class="reflect-updating"><i></i>正在重写这段时间的回顾，先给你看上一版</div>' : ''}
     <div class="reflect-headline">${esc(headline)}</div>
     ${narrative ? `<p class="reflect-narrative${d.generated ? '' : ' draft'}">${esc(narrative)}</p>` : ''}
-    ${d.generated && d.generated_at ? `<div class="reflect-when">这段话写于 ${rDate(d.generated_at.slice(0, 10))}；有新东西的话每周重写一次，下面的数字和图是实时的</div>` : ''}
+    ${d.generated && d.generated_at ? `<div class="reflect-when" title="有新东西的话每周重写一次；下面的数字和图是实时的">基于日记写的 · 写于 ${rDate(d.generated_at.slice(0, 10))}</div>` : ''}
     <div class="pane-kpis">
       <div class="pane-kpi"><b class="text">${d.most_active_weekday == null ? '—' : WD[d.most_active_weekday]}</b><span>最常聊的一天</span></div>
       <div class="pane-kpi"><b>${d.peak_hour == null ? '—' : d.peak_hour + ':00'}</b><span>最活跃的钟点</span></div>
@@ -99,17 +108,21 @@ function renderReflect() {
     </div>
     <div class="pane-sec">
       <div class="pane-sec-head"><span class="pane-sec-label">${chartWeekly(d.series) ? '每周的量' : '每天的量'}</span>
-        <span class="reflect-seg">${['msgs', 'chars', 'threads'].map(k => `<button type="button" data-m="${k}" class="${RMETRIC === k ? 'active' : ''}">${{ msgs: '消息', chars: '字数', threads: '窗口' }[k]}</button>`).join('')}</span></div>
+        <span class="pane-seg" id="reflectMetric"></span></div>
       <div id="rchart">${reflectChart(d.series, d.prev_series || [], RMETRIC)}</div>
       <div class="pane-legend"><span><i></i>这段时间</span>${(d.prev_series || []).length ? '<span><i class="prev"></i>上一段同长</span>' : ''}</div>
     </div>
     ${topics.length ? `<div class="pane-sec"><div class="pane-sec-head"><span class="pane-sec-label">在忙什么</span><span class="pane-sub">按日记里的话题标签算</span></div><div class="reflect-bar">${bar}</div><div class="reflect-topics">${list}</div></div>` : ''}`;
-  box.querySelectorAll('.reflect-seg button').forEach(b => b.onclick = () => {
-    RMETRIC = b.dataset.m;
-    box.querySelectorAll('.reflect-seg button').forEach(x => x.classList.toggle('active', x === b));
-    $('#rchart').innerHTML = reflectChart(d.series, d.prev_series || [], RMETRIC);
-  });
+  paneSeg($('#reflectMetric'), [['msgs', '消息'], ['chars', '字数'], ['threads', '窗口']], RMETRIC, v => { RMETRIC = v; redrawChart(true); });
 }
+
+// 宽度变了（窗口缩放、从「数据」栏切过来时第一次量到宽度）才重画
+function redrawChart(force) {
+  const c = $('#rchart'), svg = c?.querySelector('svg');
+  if (!RDATA || !c || (!force && svg && +svg.dataset.w === Math.max(320, $('#reflectBody').clientWidth || 900))) return;
+  c.innerHTML = reflectChart(RDATA.series, RDATA.prev_series || [], RMETRIC);
+}
+window.addEventListener('resize', () => redrawChart());
 
 function renderData() {
   const d = RDATA, box = $('#dataBody'); if (!d) return;
@@ -149,16 +162,25 @@ function renderData() {
 
 async function loadReflect(refresh) {
   const my = ++RREQ; clearTimeout(RPOLL);
-  const rk = $('#reflectRange').value;
+  const rk = RRANGE;
   const d = await fetch(`/api/reflect?range=${rk}${refresh ? '&refresh=1' : ''}`).then(r => r.json());
   if (my !== RREQ) return;
   RDATA = d; renderReflect(); renderData();
+  $('#reflectSub').textContent = rangeText(d.period);
+  $('#dataSub').textContent = d.period ? rangeText(d.period) + ' · 纯统计，不调模型' : '';
   if (d.regenerating) RPOLL = setTimeout(() => loadReflect(false), 4000);
 }
 
-export const ensureReflect = () => { if (!RDATA) loadReflect(false); };
+export const ensureReflect = () => { if (!RDATA) loadReflect(false); else redrawChart(); };
 export const invalidateReflect = () => { RDATA = null; };       // 数据变了：下次打开重拿
 export const stopReflect = () => clearTimeout(RPOLL);            // 浮层关了就别再轮询
 
-$('#reflectRange').onchange = () => { RDATA = null; loadReflect(false); };
+// 回顾、数据两栏是同一个范围：两处各一排同样的按钮，点哪个都两边一起变
+const RANGES = ['1w', '1m', '3m', 'all'].map(k => [k, RANGE_LABEL[k]]);
+function pickRange(v) {
+  RRANGE = v; RDATA = null;
+  for (const id of ['#reflectRange', '#dataRange']) paneSeg($(id), RANGES, RRANGE, pickRange);
+  loadReflect(false);
+}
+for (const id of ['#reflectRange', '#dataRange']) paneSeg($(id), RANGES, RRANGE, pickRange);
 $('#reflectRefresh').onclick = e => ask(e.currentTarget, '现在就重写这段话？调一次模型（不到 $0.01），旧的那段会被替换', () => loadReflect(true));

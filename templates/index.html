@@ -13,6 +13,13 @@
 <aside class="sidebar" id="side">
   <div class="sb-brand"><svg class="sb-logo" viewBox="0 0 24 24" fill="none" aria-hidden="true"><ellipse cx="12" cy="12" rx="9.4" ry="5.4" stroke="currentColor" stroke-width="1.7" transform="rotate(-32 12 12)"/><circle cx="17.4" cy="7.2" r="3.1" fill="var(--coral)"/></svg>Ephemeris</div>
 
+  <!-- 窄屏（≤1079）才出现：去别的页的三项。701–1079 在顶栏右上角，≤700 是固定底栏（跟打卡页手机底栏一样）。宽屏还在下面的 sb-bottom 里 -->
+  <nav class="sb-nav" aria-label="去别的页">
+    <a class="sb-nav-item on" href="#/day" aria-current="page"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h11"/><path d="M9 8h6"/></svg>日记</a>
+    <a class="sb-nav-item" href="/chat"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8.5 8.5 0 0 1-12.4 7.6L3 21l1.5-5.2A8.5 8.5 0 1 1 21 12z"/><path d="M9.6 9.5a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.6"/><path d="M12 17h.01"/></svg>问</a>
+    <a class="sb-nav-item" href="/checkin"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6-5.3-3-5.3 3 1.2-6L3.4 9.3l6-.7z"/></svg>打卡<i class="sb-ck-dot hidden" title="今天还没打卡"></i></a>
+  </nav>
+
   <div class="sb-search">
     <input id="q" type="search" placeholder="搜我说过的话…" autocomplete="off">
     <button id="fbOpen" class="fb-dice" type="button" title="翻一张回忆（R）"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="4"/><circle cx="8.5" cy="8.5" r="1.3" fill="currentColor" stroke="none"/><circle cx="15.5" cy="15.5" r="1.3" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="15.5" cy="8.5" r="1.3" fill="currentColor" stroke="none"/><circle cx="8.5" cy="15.5" r="1.3" fill="currentColor" stroke="none"/></svg></button>
@@ -33,6 +40,12 @@
     <button class="sb-color active" data-c="act" type="button" title="颜色 = 当天开了几个窗口">活跃</button>
     <button class="sb-color" data-c="feel" type="button" title="颜色 = 那天过得怎么样（从手写日记来，没手写的天空着）">过得</button>
     <button class="sb-color" data-c="stuck" type="button" title="颜色 = 那天和 AI 打交道时卡得多狠（从聊天原文来）">卡得</button>
+  </div>
+  <!-- 窄屏（≤1079）才出现：日历只摊开一个月，‹ › 换月，点月份摊开全部 -->
+  <div id="calBar" class="cal-bar">
+    <button class="cal-bar-step" data-step="-1" type="button" title="上个月" aria-label="上个月">‹</button>
+    <button class="cal-bar-m tnum" id="calBarM" type="button"></button>
+    <button class="cal-bar-step" data-step="1" type="button" title="下个月" aria-label="下个月">›</button>
   </div>
   <div id="cal" class="cal"></div>
 

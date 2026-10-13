@@ -34,6 +34,42 @@ document.querySelectorAll('.sb-color').forEach(b => {
   };
 });
 
+// ---------------------------------------------------------------- 窄屏（≤1079）：只摊开一个月
+// 侧栏在窄屏叠在正文上面，整本日历摊开要一千多像素，日记被压到很下面。
+// 所以窄屏默认只摊开一个月（正看着的那天所在的月），‹ › 换月，点月份摊开全部 / 收起。
+// 宽屏不受影响：.cal.folded、.cal-month.cur、.cal-bar 的样式都只写在 1079 的断点里。
+// 摊开还是收着是每个人自己的界面偏好，记在 localStorage（读写都包 try）。
+let MONTHS = [];          // 有数据的月，从早到晚
+let VIEW = null;          // 收着时摊开的是哪个月
+let ALL = false;
+try { ALL = localStorage.getItem('cal-all') === '1'; } catch (e) { /* 无痕模式 */ }
+
+function renderBar() {
+  $('#cal').classList.toggle('folded', !ALL);
+  document.querySelectorAll('.cal-month').forEach(m => m.classList.toggle('cur', m.id === 'm-' + VIEW));
+  const i = MONTHS.indexOf(VIEW);
+  $('#calBarM').innerHTML = ALL ? `${MONTHS.length} 个月<span>收起</span>` : `${VIEW || ''}<span>全部月份</span>`;
+  $('#calBarM').title = ALL ? '只摊开一个月' : '摊开全部月份';
+  document.querySelectorAll('.cal-bar-step').forEach(b => {
+    b.hidden = ALL;                                  // 全部摊开时没有「上个月 / 下个月」可言
+    b.disabled = b.dataset.step < 0 ? i <= 0 : i < 0 || i >= MONTHS.length - 1;
+  });
+}
+// 收着时摊开哪个月：打开某天时跟着那天走
+export function viewMonth(date) {
+  const ym = date && date.slice(0, 7);
+  if (ym && MONTHS.includes(ym) && ym !== VIEW) { VIEW = ym; renderBar(); }
+}
+$('#calBar').onclick = e => {
+  const b = e.target.closest('button'); if (!b || b.disabled) return;
+  if (b.dataset.step) VIEW = MONTHS[MONTHS.indexOf(VIEW) + Number(b.dataset.step)] || VIEW;
+  else {
+    ALL = !ALL;
+    try { localStorage.setItem('cal-all', ALL ? '1' : '0'); } catch (e) { /* 无痕模式 */ }
+  }
+  renderBar();
+};
+
 export function buildCalendar() {
   renderLegend();
   const months = [];
@@ -41,6 +77,8 @@ export function buildCalendar() {
     const ym = d.date.slice(0, 7);
     if (!months.length || months[months.length - 1] !== ym) months.push(ym);
   });
+  MONTHS = [...months].sort();
+  if (!MONTHS.includes(VIEW)) VIEW = (S.sel && MONTHS.includes(S.sel.slice(0, 7))) ? S.sel.slice(0, 7) : MONTHS[MONTHS.length - 1] || null;
   $('#cal').innerHTML = months.map(ym => {
     const [y, mo] = ym.split('-').map(Number);
     const pad = (new Date(y, mo - 1, 1).getDay() + 6) % 7;   // 周一开头
@@ -63,9 +101,10 @@ export function buildCalendar() {
       cells += `<i class="cal-day on ${cls}" data-d="${date}"
                    style="background:${cellColor(info)}" title="${esc(tip + sig)}"></i>`;
     }
-    return `<div class="cal-month" id="m-${ym}"><h4>${ym.slice(2).replace('-', '.')}</h4>
+    return `<div class="cal-month${ym === VIEW ? ' cur' : ''}" id="m-${ym}"><h4>${ym.slice(2).replace('-', '.')}</h4>
               <div class="cal-grid">${cells}</div></div>`;
   }).join('');
+  renderBar();
   $('#cal').onclick = e => { const c = e.target.closest('.cal-day.on'); if (c) navigate('day/' + c.dataset.d); };
 }
 

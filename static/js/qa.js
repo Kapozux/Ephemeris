@@ -3,7 +3,7 @@
 import { $, esc, usd, ask } from './util.js';
 import { navigate } from './nav.js';
 
-let POLL = null, DEEP_POLL = null, BUSY = false;
+let POLL = null, LIVE_POLL = null, BUSY = false;
 
 // 回答正文：先转义，再认 [[id]]、**粗体**、换行和「- 」列表
 function body(text, cites) {
@@ -55,24 +55,42 @@ function renderCards(c) {
   });
 }
 
-// 问 Claude（深挖）：后台查，一两分钟。每 2 秒看一眼进度，把它在干什么列在等待的气泡里
-function deepWait(steps) {
-  return `<span class="pulse"></span> Claude 在查…` + (steps.length ? `<ul class="qa-steps">${steps.slice(-6).map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : '');
+// 问（快的 / 问 Claude）都在后台跑：每 0.6 秒看一眼 /api/qa/live，把查找进度和写到一半的回答画进等待的气泡；
+// 写到一半时出处还是模型的记号（[c12]、[[c:id]]），按出现先后临时编号；写完换成认好出处的最终版
+function draftHtml(text) {
+  const n = new Map(), cite = /\[\[[^\]]*\]\]|\[c\d+[^\[\]\n]{0,80}\]/g;
+  const t = (text || '').replace(/\[\[?[^\]\n]*$/, '');      // 正写到一半的记号先不显示
+  let html = '', at = 0;
+  for (const m of t.matchAll(cite)) {
+    if (!n.has(m[0])) n.set(m[0], n.size + 1);
+    html += esc(t.slice(at, m.index)) + `<sup class="qa-cite">${n.get(m[0])}</sup>`;
+    at = m.index + m[0].length;
+  }
+  html += esc(t.slice(at));
+  return html.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').split(/\n{2,}/).map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
 }
 
-function pollDeep() {
-  clearTimeout(DEEP_POLL);
-  DEEP_POLL = setTimeout(async () => {
-    const r = await fetch('/api/qa').then(r => r.json()).catch(() => null);
-    const d = r && r.deep, wait = $('#qaLog .qa-wait');
-    if (!d) return pollDeep();
+function waitHtml(live) {
+  const steps = live.steps || [], text = live.partial || '';
+  const head = text ? '' : `<span class="pulse"></span> ${live.deep ? 'Claude 在查…' : '在翻卡…'}`;
+  return head + (steps.length && !text ? `<ul class="qa-steps">${steps.slice(-6).map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : '')
+    + (text ? draftHtml(text) : '');
+}
+
+function pollLive() {
+  clearTimeout(LIVE_POLL);
+  LIVE_POLL = setTimeout(async () => {
+    const d = await fetch('/api/qa/live').then(r => r.json()).catch(() => null);
+    const wait = $('#qaLog .qa-wait');
+    if (!d) return pollLive();
     if (d.running) {
-      if (wait) wait.innerHTML = deepWait(d.steps || []);
-      return pollDeep();
+      if (wait) wait.innerHTML = waitHtml(d);
+      return pollLive();
     }
-    if (wait) wait.outerHTML = d.error ? `<div class="qa-a qa-bad">没答上：${esc(d.error)}</div>` : turnHtml({ role: 'assistant', ...d.result, text: d.result.answer });
+    if (wait) wait.outerHTML = d.error || !d.result ? `<div class="qa-a qa-bad">没答上：${esc(d.error || '没有结果')}</div>`
+      : turnHtml({ role: 'assistant', text: d.result.answer, cites: d.result.cites });
     doneSending();
-  }, 2000);
+  }, 600);
 }
 
 function doneSending() {
@@ -85,11 +103,11 @@ export async function loadQA() {
   const r = await fetch('/api/qa').then(r => r.json()).catch(() => null);
   if (!r) return;
   renderCards(r.cards);
-  if (r.deep && r.deep.running && !BUSY) {           // 关掉浮层再打开时还在查：接着显示进度
+  if (r.live && r.live.running && !BUSY) {           // 关掉浮层再打开时还在写：接着显示
     BUSY = true;
     $('#qaSend').disabled = true;
-    $('#qaLog').innerHTML = r.history.map(turnHtml).join('') + `<div class="qa-a qa-wait">${deepWait(r.deep.steps || [])}</div>`;
-    pollDeep();
+    $('#qaLog').innerHTML = r.history.map(turnHtml).join('') + `<div class="qa-a qa-wait">${waitHtml(r.live)}</div>`;
+    pollLive();
     return;
   }
   if (!BUSY) {
@@ -106,22 +124,15 @@ async function send(e) {
   $('#qaSend').disabled = true;
   $('#qaLog').querySelector('.qa-empty')?.remove();
   const deep = $('#qaDeep').checked;
-  $('#qaLog').insertAdjacentHTML('beforeend', `<div class="qa-q">${esc(q)}</div><div class="qa-a qa-wait">${deep ? deepWait([]) : '<span class="pulse"></span> 在翻卡…'}</div>`);
+  $('#qaLog').insertAdjacentHTML('beforeend', `<div class="qa-q">${esc(q)}</div><div class="qa-a qa-wait">${waitHtml({ deep })}</div>`);
   $('#qaInput').value = '';
   $('#qaLog').lastElementChild.scrollIntoView({ block: 'nearest' });
   const r = await fetch('/api/qa/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q, deep }) })
     .then(r => r.json()).catch(() => ({ error: '连不上 Ephemeris' }));
-  const wait = $('#qaLog .qa-wait');
-  if (deep && !r.error) {
-    if (!r.started) r.error = '上一个问题 Claude 还在查';
-    else return pollDeep();
-  }
-  if (r.error) {
-    wait.outerHTML = `<div class="qa-a qa-bad">没答上：${esc(r.error)}</div>`;
-    $('#qaInput').value = q;                         // 问题还给你，改一下再问
-  } else {
-    wait.outerHTML = turnHtml({ role: 'assistant', text: r.answer, cites: r.cites });
-  }
+  if (!r.error && !r.started) r.error = '上一个问题还没答完';
+  if (!r.error) return pollLive();
+  $('#qaLog .qa-wait').outerHTML = `<div class="qa-a qa-bad">没答上：${esc(r.error)}</div>`;
+  $('#qaInput').value = q;                         // 问题还给你，改一下再问
   doneSending();
 }
 

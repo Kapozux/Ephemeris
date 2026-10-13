@@ -184,13 +184,34 @@ async function loadMonth(m) {
   if (!S.selDay || S.selDay.slice(0, 7) !== m) S.selDay = m === S.today.slice(0, 7) ? S.today : null;
   renderMonth();
   syncUrl();
-  const my = m;
-  $('#mNote').textContent = S.M.note || (S.M.stars.length ? '' : '');
-  if (S.M.stars.length) {       // 数据变了才真去调模型；没变就是缓存
-    const n = await fetch('/api/stars/note?month=' + m, { method: 'POST' }).then(r => r.json());
-    if (my === S.month) $('#mNote').textContent = n.note || '';
-  }
+  renderNote();
 }
+
+// 星座图下面那一句：只显示存着的；没有就给个按钮，点了才调模型写（2026-10-14：以前一打开「这个月」就自动写，没点也花额度）
+function renderNote(st = '') {
+  const note = S.M.note || '';
+  $('#mNote').textContent = note;
+  $('#mNoteAsk').classList.toggle('hidden', !!note || !S.M.stars.length);
+  const go = $('#mNoteGo'), busy = S.noteBusy === S.month;      // 翻走又翻回来：还在写就别让再点一次
+  go.disabled = busy;
+  go.textContent = busy ? '在写' : st ? '重试' : '写一句这个月';
+  $('#mNoteSt').textContent = st;
+}
+
+$('#mNoteGo').onclick = async () => {
+  const m = S.month, go = $('#mNoteGo');
+  S.noteBusy = m; go.disabled = true; go.textContent = '在写'; $('#mNoteSt').textContent = '';
+  let n;
+  try {
+    n = await fetch('/api/stars/note?month=' + m, { method: 'POST' }).then(r => r.json());
+  } catch (e) {
+    n = { error: '连不上 Ephemeris' };
+  }
+  S.noteBusy = null;
+  if (m !== S.month) return;               // 写的时候翻到别的月了：那个月下次打开自己显示存着的
+  if (n.note) { S.M.note = n.note; renderNote(); }
+  else renderNote('没写成：' + (n.error || '不知道为什么'));
+};
 
 function star4(c, hollow) {
   const d = 'M12 1.5 L14.2 9.8 L22.5 12 L14.2 14.2 L12 22.5 L9.8 14.2 L1.5 12 L9.8 9.8 Z';

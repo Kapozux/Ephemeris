@@ -1,4 +1,6 @@
 """打卡页（/checkin，单独一个全屏页）：点心情、补前几天、星座图。"""
+import re
+
 from flask import Blueprint, jsonify, render_template, request
 
 import checkin
@@ -78,5 +80,14 @@ def api_stars():
 
 @bp.route('/api/stars/note', methods=['POST'])
 def api_stars_note():
+    """用户点了「写一句这个月」才来：打开月视图只读缓存（month_view），从不自动调模型。
+    点了就是手动（规矩 5 的手动按钮）：强制写；写不出来带上原因，按钮那边好说。"""
     month = request.args.get('month') or days.today()[:7]
-    return jsonify({'note': checkin.month_note(month, llm.ask, refresh=request.args.get('refresh') == '1')})
+    if not checkin.month_stats(month):
+        return jsonify({'note': '', 'error': '这个月还没有打卡，也没有手写日记读出来的心情'})
+    failed = llm.status()['failures']
+    note = checkin.month_note(month, llm.ask, refresh=True)
+    if note:
+        return jsonify({'note': note})
+    why = llm.status()['last_error'] if llm.status()['failures'] > failed else ''
+    return jsonify({'note': '', 'error': re.sub(r'^\w+(Error|Exception): ', '', why or '') or '模型回了空'})

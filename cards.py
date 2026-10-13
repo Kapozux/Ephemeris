@@ -390,7 +390,7 @@ def status():
 
 # ---------------------------------------------------------------- 向量（qa 按意思找，2026-10-13，照 Verbatim ask.py）
 # 只按字面找：问「那阵子我状态怎么样」，卡里写的是「我好累」「不想动」就找不到。每张卡一个向量，存 card_vecs；
-# 卡的内容（话题 / 要点 / 原话）变了指纹对不上就重算那一张。全量约 4 万张，不到一美元。
+# 卡的内容（话题 / 要点 / 原话）变了指纹对不上就重算那一张。全量约 4 万张，不到一美元（llm.embed：OpenRouter 上 Google 的模型）。
 _vec_cache = {}
 
 
@@ -404,7 +404,7 @@ def _vec_h(c):
 
 def embed_todo():
     """还没向量、或者内容变了的卡。"""
-    have = {r['id']: r['h'] for r in store.q('SELECT id, h FROM card_vecs WHERE model=?', llm.EMBED_MODEL)}
+    have = {r['id']: r['h'] for r in store.q('SELECT id, h FROM card_vecs WHERE model=?', llm.embed_model())}
     rows = store.q('SELECT c.id, c.topic, c.text, c.quote, v.title FROM cards c LEFT JOIN conversations v ON v.id = c.conv_id')
     return [r for r in rows if have.get(r['id']) != _vec_h(r)]
 
@@ -412,7 +412,8 @@ def embed_todo():
 def embed_missing(progress=None, parallel=4):
     """补向量；删掉卡已经没了的向量。返回补了几张。"""
     import numpy as np
-    store.run('DELETE FROM card_vecs WHERE id NOT IN (SELECT id FROM cards) OR model <> ?', llm.EMBED_MODEL)
+    model = llm.embed_model()
+    store.run('DELETE FROM card_vecs WHERE id NOT IN (SELECT id FROM cards) OR model <> ?', model)
     todo = embed_todo()
     batches = [todo[i:i + 100] for i in range(0, len(todo), 100)]
     done = [0]
@@ -421,7 +422,7 @@ def embed_missing(progress=None, parallel=4):
         mat = llm.embed([_vec_text(c) for c in batch]).astype(np.float16)
         with store.tx() as db:
             db.executemany('INSERT OR REPLACE INTO card_vecs (id, h, model, vec) VALUES (?,?,?,?)',
-                           [(c['id'], _vec_h(c), llm.EMBED_MODEL, mat[i].tobytes()) for i, c in enumerate(batch)])
+                           [(c['id'], _vec_h(c), model, mat[i].tobytes()) for i, c in enumerate(batch)])
         done[0] += 1
         if progress:
             progress(done[0], len(batches))
@@ -434,9 +435,9 @@ def embed_missing(progress=None, parallel=4):
 def _vectors():
     """(卡 id 列表, float32 矩阵)；按表的行数和最大 rowid 缓存，有新向量才重读。"""
     import numpy as np
-    key = tuple(store.one('SELECT COUNT(*) n, MAX(rowid) m FROM card_vecs WHERE model=?', llm.EMBED_MODEL).values())
+    key = tuple(store.one('SELECT COUNT(*) n, MAX(rowid) m FROM card_vecs WHERE model=?', llm.embed_model()).values())
     if _vec_cache.get('key') != key:
-        rows = store.q('SELECT id, vec FROM card_vecs WHERE model=?', llm.EMBED_MODEL)
+        rows = store.q('SELECT id, vec FROM card_vecs WHERE model=?', llm.embed_model())
         mat = (np.frombuffer(b''.join(r['vec'] for r in rows), dtype=np.float16).reshape(len(rows), llm.EMBED_DIM)
                .astype(np.float32) if rows else np.zeros((0, llm.EMBED_DIM), np.float32))
         _vec_cache.update(key=key, ids=[r['id'] for r in rows], mat=mat)

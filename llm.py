@@ -112,34 +112,66 @@ def _gemini(prompt, model=None):
     raise err or RuntimeError('没有可用的模型')
 
 
-# 向量（证据卡按意思找，2026-10-13，照 Verbatim ask.py 的 _embed_texts）：只走 Gemini，私密内容不给别家
-EMBED_MODEL = 'gemini-embedding-001'
+# 向量（证据卡按意思找，2026-10-13，照 Verbatim ask.py 的 _embed_texts）：只给 Google 的模型，私密内容不给别家。
+# 有 OpenRouter key 就走它上面的 google/gemini-embedding-2（10-13 用户：AI Studio 那个月度上限满了，走 OR；
+# 实测比 001 分得开：「我好累」对「状态很差」0.68、对「CMU 文书」0.39，001 是 0.70 / 0.53）；没有才直连 Gemini 的 001。
+# 两个模型的向量不能混着比：存的时候记模型名（embed_model()），查的时候只用同一个模型的。
 EMBED_DIM = 768
-EMBED_PRICE = 0.15 / 1e6                         # 每 token 美元
+OR_EMBED = 'google/gemini-embedding-2'
+GEMINI_EMBED = 'gemini-embedding-001'
+
+
+def embed_model():
+    return OR_EMBED if openrouter_key() else GEMINI_EMBED
+
+
+def _embed_openrouter(texts):
+    import requests
+    last = None
+    for attempt in range(3):
+        try:
+            r = requests.post('https://openrouter.ai/api/v1/embeddings', timeout=120,
+                              headers={'Authorization': f'Bearer {openrouter_key()}'},
+                              json={'model': OR_EMBED, 'input': list(texts), 'dimensions': EMBED_DIM})
+            if r.status_code != 200:
+                raise RuntimeError(f'{r.status_code}: {r.text[:200]}')
+            data = sorted(r.json()['data'], key=lambda d: d['index'])
+            if len(data) != len(texts):
+                raise RuntimeError(f'回来 {len(data)} 条，送了 {len(texts)} 条')
+            return [d['embedding'] for d in data]
+        except Exception as e:                           # noqa: BLE001  限流 / 断线：等等再试
+            last = e
+            time.sleep(4 * (attempt + 1))
+    raise RuntimeError(f'embedding 失败：{last}')
+
+
+def _embed_gemini(texts, task):
+    from google.genai import types
+    client, last = _client(), None
+    for attempt in range(3):
+        try:
+            r = client.models.embed_content(model=GEMINI_EMBED, contents=list(texts),
+                                            config=types.EmbedContentConfig(task_type=task, output_dimensionality=EMBED_DIM))
+            return [e.values for e in r.embeddings]
+        except Exception as e:                           # noqa: BLE001
+            last = e
+            time.sleep(4 * (attempt + 1))
+    raise RuntimeError(f'embedding 失败：{last}')
 
 
 def embed(texts, task='RETRIEVAL_DOCUMENT'):
-    """→ 每条一个行归一化的 float32 向量（numpy 矩阵）。一次最多 100 条（接口上限）；限流 / 断线等等再试，三次不行抛异常。
-    task：存卡用 RETRIEVAL_DOCUMENT，问的时候用 RETRIEVAL_QUERY。"""
+    """→ 每条一个行归一化的 float32 向量（numpy 矩阵），模型是 embed_model()。一次最多 100 条；三次不行抛异常。
+    task（存卡 RETRIEVAL_DOCUMENT / 问的时候 RETRIEVAL_QUERY）只有直连 Gemini 时用得上。"""
     import numpy as np
     if _embed_override:
-        mat = np.array([_embed_override(t) for t in texts], dtype=np.float32)
-    elif _override:                                  # 测试换了假模型、没给假向量：别真去调 Gemini
+        rows = [_embed_override(t) for t in texts]
+    elif _override:                                  # 测试换了假模型、没给假向量：别真去调
         raise RuntimeError('测试里没给假向量（llm.use_embed）')
+    elif embed_model() == OR_EMBED:
+        rows = _embed_openrouter(texts)
     else:
-        from google.genai import types
-        client, last = _client(), None
-        for attempt in range(3):
-            try:
-                r = client.models.embed_content(model=EMBED_MODEL, contents=list(texts),
-                                                config=types.EmbedContentConfig(task_type=task, output_dimensionality=EMBED_DIM))
-                break
-            except Exception as e:                       # noqa: BLE001
-                last = e
-                time.sleep(4 * (attempt + 1))
-        else:
-            raise RuntimeError(f'embedding 失败：{last}')
-        mat = np.array([e.values for e in r.embeddings], dtype=np.float32)
+        rows = _embed_gemini(texts, task)
+    mat = np.array(rows, dtype=np.float32)
     return mat / np.maximum(np.linalg.norm(mat, axis=1, keepdims=True), 1e-9)   # 截到 768 维后要自己归一化
 
 

@@ -150,8 +150,8 @@
       </section>
       <section class="modal-pane" data-pane="qa">
         <div class="pane-top">
-          <div><div class="pane-title">问</div><div class="pane-sub">只凭证据卡回答（勾上「问 Claude」：它自己去翻原文）：每句话都能点回那天那条消息。</div></div>
-          <div class="pane-ctl"><a id="qaClear" class="qa-clear">清空对话</a></div>
+          <div><div class="pane-title">问</div><div class="pane-sub">默认「问 Claude」：它自己去翻原文和证据卡再答；去掉勾只看证据卡、快一些。每句话都能点回那天那条消息，问过的也记进当天的日记。</div></div>
+          <div class="pane-ctl"><select id="qaThreads" class="qa-threads" title="以前的对话"></select><a id="qaNew" class="qa-clear">新对话</a></div>
         </div>
         <div class="qa-cards" id="qaCards"></div>
         <div class="qa-log" id="qaLog"></div>

@@ -3,7 +3,7 @@
 import { $, esc, usd, ask } from './util.js';
 import { navigate } from './nav.js';
 
-let POLL = null, LIVE_POLL = null, BUSY = false;
+let POLL = null, LIVE_POLL = null, BUSY = false, THREAD = null;
 
 // 回答正文：先转义，再认 [[id]]、**粗体**、换行和「- 」列表
 function body(text, cites) {
@@ -90,6 +90,7 @@ function pollLive() {
     if (wait) wait.outerHTML = d.error || !d.result ? `<div class="qa-a qa-bad">没答上：${esc(d.error || '没有结果')}</div>`
       : turnHtml({ role: 'assistant', text: d.result.answer, cites: d.result.cites });
     doneSending();
+    loadQA();                                              // 下拉框里这段对话的标题 / 时间跟着更新
   }, 600);
 }
 
@@ -99,10 +100,19 @@ function doneSending() {
   $('#qaInput').focus();
 }
 
-export async function loadQA() {
-  const r = await fetch('/api/qa').then(r => r.json()).catch(() => null);
+// 以前的对话：下拉框里列出来（第一个问题 · 日期），选一段就打开它、接着问
+function renderThreads(r) {
+  THREAD = r.thread;
+  const list = r.threads.some(t => t.id === r.thread) ? r.threads : [{ id: r.thread, title: '', updated: '' }, ...r.threads];
+  $('#qaThreads').innerHTML = list.map(t => `<option value="${t.id}"${t.id === r.thread ? ' selected' : ''}>`
+    + `${esc((t.title || '新对话').slice(0, 24))}${t.updated ? ' · ' + t.updated.slice(5, 10) : ''}</option>`).join('');
+}
+
+export async function loadQA(thread) {
+  const r = await fetch('/api/qa' + (thread || THREAD ? `?thread=${thread || THREAD}` : '')).then(r => r.json()).catch(() => null);
   if (!r) return;
   renderCards(r.cards);
+  renderThreads(r);
   if (r.live && r.live.running && !BUSY) {           // 关掉浮层再打开时还在写：接着显示
     BUSY = true;
     $('#qaSend').disabled = true;
@@ -127,7 +137,7 @@ async function send(e) {
   $('#qaLog').insertAdjacentHTML('beforeend', `<div class="qa-q">${esc(q)}</div><div class="qa-a qa-wait">${waitHtml({ deep })}</div>`);
   $('#qaInput').value = '';
   $('#qaLog').lastElementChild.scrollIntoView({ block: 'nearest' });
-  const r = await fetch('/api/qa/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q, deep }) })
+  const r = await fetch('/api/qa/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q, deep, thread: THREAD }) })
     .then(r => r.json()).catch(() => ({ error: '连不上 Ephemeris' }));
   if (!r.error && !r.started) r.error = '上一个问题还没答完';
   if (!r.error) return pollLive();
@@ -137,15 +147,19 @@ async function send(e) {
 }
 
 $('#qaForm').addEventListener('submit', send);
-try { $('#qaDeep').checked = localStorage.getItem('qaDeep') === '1'; } catch { /* 隐私模式：不记 */ }
+$('#qaDeep').checked = true;                               // 默认问 Claude；去掉过勾就记住
+try { if (localStorage.getItem('qaDeep') === '0') $('#qaDeep').checked = false; } catch { /* 隐私模式：不记 */ }
 $('#qaDeep').addEventListener('change', e => { try { localStorage.setItem('qaDeep', e.target.checked ? '1' : '0'); } catch { /* 同上 */ } });
 $('#qaInput').addEventListener('keydown', e => {           // 回车发送，Shift+回车换行（输入法选字时不算）
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('#qaForm').requestSubmit(); }
 });
-$('#qaClear').onclick = e => ask(e.currentTarget, '把这段对话清掉（证据卡不动）', async () => {
-  await fetch('/api/qa/clear', { method: 'POST' });
-  loadQA();
-});
+$('#qaNew').onclick = async () => {                       // 开一段新的；以前的在下拉框里，不删
+  if (BUSY) return;
+  const r = await fetch('/api/qa/new', { method: 'POST' }).then(r => r.json()).catch(() => null);
+  if (r) loadQA(r.thread);
+  $('#qaInput').focus();
+};
+$('#qaThreads').addEventListener('change', e => { if (!BUSY) loadQA(+e.target.value); });
 $('#qaLog').addEventListener('click', e => {
   const sup = e.target.closest('.qa-cite');
   if (sup) {                                                 // 点上标：展开出处，标出那一条

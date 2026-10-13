@@ -1,8 +1,8 @@
 """「问」：一个聊天窗口，只凭证据卡（cards.py）回答，每句带出处，点了回到那天那条消息。2026-10-11，照 Verbatim 的 ask.answer。
 
-    answer(question)   → {answer, cites, cost}；问和答都记进 qa_chat
-    history()          → 最近的对话
-    clear()
+    answer(question)   → {answer, cites, cost}；问和答都记进 qa_chat（也进 messages，来源 ask，算进日记）
+    answer_deep(question) → 问 Claude：它自己查（look.py）再答
+    threads() / current() / new_thread() / history(thread)   一段一段的对话
 
 一轮问答：
   1. 改写（便宜模型）：结合上几轮，把问题改成能单独看懂的一句 + 关键词（中英都要）+ 能看出来的时间范围
@@ -202,30 +202,91 @@ def clean(text, alias):
     return CITE_RE.sub(rep, text or ''), used
 
 
-def history(n=60):
-    rows = store.q('SELECT id, ts, role, text, cites FROM qa_chat ORDER BY id DESC LIMIT ?', n)[::-1]
+# ---------------------------------------------------------------- 对话（2026-10-13）
+# 「问」也当聊天记录 —— 一段一段存着能翻回去看、接着问（以前是一条记录、清空就没了），
+# 而且也算进日记：每问一句、每答一句都同时写进 messages（来源 ask，一段对话一个窗口，标题是第一个问题），
+# 日记、搜索、窗口页都看得到。做证据卡、找重复窗口、问 Claude 自己的搜原文（look.py）都跳过 ask：
+# 「问」的回答本来就是从卡里写的，再做成卡就是卡的复述。
+SOURCE = 'ask'
+
+
+def threads(n=50):
+    """以前的对话，最近的在前：id、标题（第一个问题）、几句、最后一次问的时间。"""
+    return store.q("""SELECT t.id, t.title, t.created, t.updated, COUNT(q.id) n FROM qa_threads t
+                       LEFT JOIN qa_chat q ON q.thread_id = t.id GROUP BY t.id HAVING n > 0
+                       ORDER BY t.updated DESC, t.id DESC LIMIT ?""", n)
+
+
+def new_thread():
+    now = datetime.now().isoformat(timespec='seconds')
+    return store.run('INSERT INTO qa_threads (title, created, updated) VALUES (?,?,?)', '', now, now)
+
+
+def current():
+    """正在用的那段对话：最近问过的那段；最新开的那段还没问过也算它。一段都没有就开一段。"""
+    r = store.one('SELECT id FROM qa_threads ORDER BY updated DESC, id DESC LIMIT 1')
+    return r['id'] if r else new_thread()
+
+
+def history(n=60, thread=None):
+    rows = store.q('SELECT id, ts, role, text, cites FROM qa_chat WHERE thread_id=? ORDER BY id DESC LIMIT ?',
+                   thread or current(), n)[::-1]
     for r in rows:
         r['cites'] = json.loads(r['cites'] or '[]')
     return rows
 
 
 def clear():
-    store.run('DELETE FROM qa_chat')
+    """「新对话」：开一段新的，以前的留着（能从「以前的对话」里翻回去）。"""
+    return new_thread()
 
 
-def answer(question, on_text=None):
+def _say(thread, role, text, cites=(), sid=None):
+    """记一句：进 qa_chat（界面、追问用），也进 messages（日记、搜索、窗口页用）。"""
+    now = datetime.now(days.LOCAL_TZ)
+    qid = store.run('INSERT INTO qa_chat (ts, role, text, cites, sid, thread_id) VALUES (?,?,?,?,?,?)',
+                    now.strftime('%Y-%m-%dT%H:%M:%S'), role, text, json.dumps(list(cites), ensure_ascii=False), sid, thread)
+    if role == 'user':
+        store.run("UPDATE qa_threads SET title = CASE WHEN title = '' THEN ? ELSE title END, updated=? WHERE id=?",
+                  ' '.join(text.split())[:40], now.strftime('%Y-%m-%dT%H:%M:%S'), thread)   # 跟 new_thread 同一个格式（不带时区），才比得了先后
+    _mirror(qid, thread, role, text, now)
+
+
+def _mirror(qid, thread, role, text, when):
+    cid = f'{SOURCE}-{thread}'
+    date, hhmm = days.bucket(when)
+    plain = re.sub(r'\[\[[^\]]*\]\]', '', text or '').strip()       # 出处记号不进聊天记录
+    title = (store.one('SELECT title FROM qa_threads WHERE id=?', thread) or {}).get('title') or '问'
+    with store.tx() as db:
+        db.execute("""INSERT INTO conversations (id, source, title, title_fallback, first_import, last_import)
+                      VALUES (?,?,?,0,'ask','ask') ON CONFLICT(id) DO UPDATE SET title=excluded.title""",
+                   (cid, SOURCE, f'问：{title}'))
+        # 不用 INSERT OR REPLACE：rowid 会变，全文索引对不上（CLAUDE.md 搜索那一行）
+        db.execute('INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING',
+                   (f'{SOURCE}-{qid}', cid, SOURCE, when.isoformat(), date, hhmm,
+                    'human' if role == 'user' else 'assistant', plain, len(plain)))
+        db.execute("""UPDATE conversations SET
+            first_ts = (SELECT MIN(ts) FROM messages m WHERE m.conv_id = conversations.id),
+            last_ts  = (SELECT MAX(ts) FROM messages m WHERE m.conv_id = conversations.id),
+            n_msgs   = (SELECT COUNT(*) FROM messages m WHERE m.conv_id = conversations.id AND m.role='human'),
+            chars    = (SELECT COALESCE(SUM(chars),0) FROM messages m WHERE m.conv_id = conversations.id AND m.role='human'),
+            n_days   = (SELECT COUNT(DISTINCT date) FROM messages m WHERE m.conv_id = conversations.id AND m.role='human')
+            WHERE id = ?""", (cid,))
+
+
+def answer(question, on_text=None, thread=None):
     question = (question or '').strip()
     if not question:
         raise ValueError('问题是空的')
-    turns = history(HISTORY_TURNS * 2)
+    thread = thread or current()
+    turns = history(HISTORY_TURNS * 2, thread)
     htext = _history_text(turns)
     plan = llm.ask_json(PLAN_PROMPT.format(today=days.today(), history=htext, question=question), want=dict,
                          effort='low', purpose='qa-plan') or {}
     plan.setdefault('keywords', [question])
     follow = [c['id'] for t in turns[-1:] if t['role'] == 'assistant' for c in t['cites']][:FOLLOW_UP]
     picked = select(plan, follow)
-    now = datetime.now().isoformat(timespec='seconds')
-    store.run('INSERT INTO qa_chat (ts, role, text, cites) VALUES (?,?,?,?)', now, 'user', question, '[]')
+    _say(thread, 'user', question)
     if not picked:
         text, cites = '卡里没找到跟这个有关的。可能是那段时间的卡还没做（看上面的「证据卡」那一行），或者换个说法再问。', []
     else:
@@ -240,9 +301,8 @@ def answer(question, on_text=None):
         text, used = clean(raw.strip(), alias)
         by_id = {c['id']: c for c in picked}
         cites = [{k: by_id[i][k] for k in ('id', 'date', 'who', 'kind', 'text', 'quote', 'conv_id', 'msg_id', 'title')} for i in used]
-    store.run('INSERT INTO qa_chat (ts, role, text, cites) VALUES (?,?,?,?)', now, 'assistant', text,
-              json.dumps(cites, ensure_ascii=False))
-    return {'answer': text, 'cites': cites, 'considered': len(picked), 'plan': plan}
+    _say(thread, 'assistant', text, cites)
+    return {'answer': text, 'cites': cites, 'considered': len(picked), 'plan': plan, 'thread': thread}
 
 
 # ---------------------------------------------------------------- 问 Claude（深挖，2026-10-13）
@@ -329,7 +389,7 @@ def _step(kind, text):
     return f'🔎 {label}：{rest[:100]}'
 
 
-def answer_deep(question, progress=None, on_text=None):
+def answer_deep(question, progress=None, on_text=None, thread=None):
     """让 Claude 自己查着回答。progress(一行文字) 报进度；on_text(一小段字) 是正在写的回答，on_text(None) = 这段作废、重新开始
     （它查一步说一句再查，每段话开头都会重置，最后留下的就是回答）。追问（DEEP_TTL 以内）接着上一轮的会话。"""
     question = (question or '').strip()
@@ -337,12 +397,12 @@ def answer_deep(question, progress=None, on_text=None):
         raise ValueError('问题是空的')
     if not llm.claude_on():
         raise RuntimeError('Claude 现在用不了（没装 / 没登录 / 额度用完停着），先用普通的「问」')
-    last = store.one("SELECT sid, ts FROM qa_chat WHERE role='assistant' ORDER BY id DESC LIMIT 1")
+    thread = thread or current()
+    last = store.one("SELECT sid, ts FROM qa_chat WHERE role='assistant' AND thread_id=? ORDER BY id DESC LIMIT 1", thread)
     sid = last['sid'] if last and last['sid'] and \
         time.time() - datetime.fromisoformat(last['ts']).timestamp() < DEEP_TTL else None
-    turns = history(HISTORY_TURNS * 2)
-    now = datetime.now().isoformat(timespec='seconds')
-    store.run('INSERT INTO qa_chat (ts, role, text, cites) VALUES (?,?,?,?)', now, 'user', question, '[]')
+    turns = history(HISTORY_TURNS * 2, thread)
+    _say(thread, 'user', question)
     def say(kind, text):
         if kind == 'tool' and progress and _step(kind, text):
             progress(_step(kind, text))
@@ -359,23 +419,26 @@ def answer_deep(question, progress=None, on_text=None):
             raise
         text, new_sid = llm.claude_agent(fresh, LOOK, on_event=say, purpose='qa-deep')    # 会话接不上：从头问
     body, cites = _deep_cites(text)
-    store.run('INSERT INTO qa_chat (ts, role, text, cites, sid) VALUES (?,?,?,?,?)', datetime.now().isoformat(timespec='seconds'),
-              'assistant', body, json.dumps(cites, ensure_ascii=False), new_sid)
-    return {'answer': body, 'cites': cites, 'deep': True}
+    _say(thread, 'assistant', body, cites, new_sid)
+    return {'answer': body, 'cites': cites, 'deep': True, 'thread': thread}
 
 
 QA_JOB = 'qa'
 
 
-def start_ask(question, deep=False):
+def start_ask(question, deep=False, thread=None):
     """后台问（快的十来秒，问 Claude 一两分钟）。前端 / ask.py 轮询 live()：steps 是查找进度，partial 是正在写的回答，
     result 是写完、出处认好的最终版；问答照样记进 history()。同一时间只问一个。"""
+    thread = thread or current()
+
     def run(job, q, deep):
         def text(piece):
             job['partial'] = '' if piece is None else job['partial'] + piece
-        job['result'] = answer_deep(q, progress=job['steps'].append, on_text=text) if deep else answer(q, on_text=text)
-    return jobs.start(QA_JOB, run, question, deep, steps=[], partial='', result=None, question=question, deep=deep)
+        job['result'] = answer_deep(q, progress=job['steps'].append, on_text=text, thread=thread) if deep \
+            else answer(q, on_text=text, thread=thread)
+    return jobs.start(QA_JOB, run, question, deep, steps=[], partial='', result=None, question=question, deep=deep,
+                      thread=thread)
 
 
 def live():
-    return jobs.get(QA_JOB, steps=[], partial='', result=None, question=None, deep=False)
+    return jobs.get(QA_JOB, steps=[], partial='', result=None, question=None, deep=False, thread=None)

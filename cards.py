@@ -97,7 +97,7 @@ def _size(r):
 
 def _all_rows(conv_ids=None):
     """{窗口: [消息（不取正文）]}，按时间。一条 SQL，不取正文（全量正文 7000 多万字）。"""
-    rows = store.q('SELECT conv_id, id, ts, chars, role FROM messages WHERE chars > 0 ORDER BY conv_id, ts, id')
+    rows = store.q("SELECT conv_id, id, ts, chars, role FROM messages WHERE chars > 0 AND source <> 'ask' ORDER BY conv_id, ts, id")   # 「问」的对话不做卡（qa.SOURCE）
     out = {}
     for r in rows:
         if conv_ids is None or r['conv_id'] in conv_ids:
@@ -139,7 +139,7 @@ def _rows(ids):
 def segments(conv_id, mode=None, size=SEG_CHARS):
     """→ (mode, 段)：这一趟要做的消息（带正文），切成段（每段不超过 size 字）。
     mode='full' 强制整窗；别的都按库里现在的情况重新判断（排队时判断的可能已经过时了）。"""
-    rs = store.q('SELECT conv_id, id, ts, chars, role FROM messages WHERE conv_id=? AND chars > 0 ORDER BY ts, id', conv_id)
+    rs = store.q("SELECT conv_id, id, ts, chars, role FROM messages WHERE conv_id=? AND chars > 0 AND source <> 'ask' ORDER BY ts, id", conv_id)
     made = store.one('SELECT fp, upto, upto_id FROM card_convs WHERE conv_id=?', conv_id)
     m, todo = _plan(rs, made)
     if mode == 'full':

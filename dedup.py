@@ -46,7 +46,7 @@ def find(conn, ids=None):
     """→ (sure, unsure)。sure：[(dup, keep, 比例)]；unsure：两份都有真编号、内容也几乎一样的 [(a, b, 比例)]。"""
     first = {}
     for cid, src, text in conn.execute("""SELECT m.conv_id, m.source, m.text FROM messages m
-                                           WHERE m.role='human' ORDER BY m.conv_id, m.ts, m.id"""):
+                                           WHERE m.role='human' AND m.source <> 'ask' ORDER BY m.conv_id, m.ts, m.id"""):   # 「问」的两段对话问了同一句不是重复
         first.setdefault(cid, (src, _key(text)))
     groups = {}
     for cid, k in first.items():

@@ -178,6 +178,15 @@ h1 .ck-spark { font-size:.6em; margin-left:10px; vertical-align:.25em; color:var
 .ck-m-note { margin-top:22px; font-size:16.5px; line-height:1.85; color:var(--ink); }
 .ck-m-note::before { content:'“'; color:var(--gold); margin-right:2px; } .ck-m-note::after { content:'”'; color:var(--gold); }
 .ck-m-note:empty::before, .ck-m-note:empty::after { content:none; }
+/* 还没有那一句：点了才写（调一次模型，不自动写） */
+.ck-m-note-ask { margin-top:22px; display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; }
+.ck-m-note-go { border:1px solid var(--line-2); background:none; border-radius:999px; padding:6px 14px; font-size:13px;
+  color:var(--gold); cursor:pointer; }
+.ck-m-note-go:hover:not(:disabled) { border-color:var(--gold); }
+.ck-m-note-go:disabled { color:var(--muted); cursor:default; }
+.ck-m-note-go:disabled::after { content:'…'; animation:blink 1s infinite; }
+.ck-m-note-go:focus-visible { outline:2px solid var(--gold-deep); outline-offset:2px; }
+.ck-m-note-st { font-size:12.5px; color:var(--muted); }
 
 .ck-tip { position:fixed; z-index:10; max-width:280px; background:var(--panel-2); border:1px solid var(--line-2); border-radius:10px;
   padding:9px 12px; font-size:12.5px; line-height:1.6; pointer-events:none; box-shadow:var(--tip-shadow); }

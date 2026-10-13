@@ -14,7 +14,8 @@
 
 一张卡只说一件事：我想的 / 决定的 / 感受 / 计划 / 经历，或者 AI 的建议 / 解释 / 判断；带一个话题（p），同一件事跨窗口串得起来。
 **原话必须逐字在那条消息里找得到**，找不到的卡直接丢（模型改写过的「原话」不算出处）；核对不花钱。
-不做卡的：我粘贴进来的长文（单条超过 PASTE_CHARS 字）——给模型看开头当上下文，但不许拿它做卡。
+我发的长文（单条超过 LONG_CHARS 字）标出来，让模型自己分：我自己写的（文书、长段想法）照常做全；
+贴进来的别人的文章 / 日志只记一两张「我贴了什么、为什么」。（10-13 之前是一律当粘贴不做卡，我自己写的文书也漏了。）
 卡的 id =「消息 id·序号」。重做一条消息会先删掉它的旧卡；问答记录里存了卡的快照，旧回答照样能看。
 10-13 之前按天做的卡（id 是「日期·序号」）在 cards_v1 里留了一份。
 """
@@ -32,8 +33,7 @@ import store
 
 MODEL = 'gemini-3.1-flash-lite'                    # 只在不走 DeepSeek 时用（涉政、或者没有 DeepSeek 的路）
 OUT_RATIO = 0.08                                   # 输出大约是输入的这么多（多了话题和小结）
-PASTE_CHARS = 2000                                 # 我发的单条超过这么多字：当粘贴，不做卡
-PASTE_SHOW = 600                                   # 粘贴的长文给模型看开头这么多字
+LONG_CHARS = 2000                                  # 我发的单条超过这么多字：标成「长文」，让模型分是自己写的还是贴的
 SEG_CHARS = 40000                                  # 一段送多少字
 MSG_CHARS = 20000                                  # AI 单条回复太长时只看前这么多字
 CTX_MSGS, CTX_CHARS = 8, 8000                      # 每段前面带同一窗口的上几条当前文
@@ -58,7 +58,9 @@ PROMPT = """下面是「我」和 AI 在聊天窗口「{title}」里的一段记
 - t：直白的一句话，不超过 60 字，看 t 就能懂（指代要写明：别写「这个方案」，写「把 Purdue 放 EA 的方案」）。
   「我」说的用「我……」，AI 说的用「AI ……」开头。不评价、不修饰。
 - q：从那条消息里**一字不差地抄**一段（10～80 字），能支撑这张卡。不能改字、不能拼接、不能省略。
-- 只给带编号的消息做卡。「前文」和标着「粘贴」的只是让你看懂上下文，不做卡。
+- 标着「长文」的是我发的长消息：先分清是我自己写的（文书、草稿、长段想法），还是贴进来的别人的东西（文章、别人的评论、日志、报错、
+  别的聊天导出）。自己写的照常做全；贴进来的只做 1～2 张，记「我贴了什么、为了什么」，q 抄我自己加的那句话或标题。
+- 只给带编号的消息做卡。「前文」只是让你看懂上下文，不做卡。
 - 打招呼、只有一两个字、代码本身不做卡。没什么可记的就少做。
 - summary：2～4 句，写清楚这段在聊哪件事、我的处境 / 态度 / 决定，以及结论。具体，别写「讨论了一些问题」。
 - 只输出 JSON 对象。
@@ -80,12 +82,8 @@ def _fp(rows):
     return hashlib.sha1('|'.join(f"{r['id']}:{r['chars']}" for r in rows).encode()).hexdigest()[:16]
 
 
-def _paste(r):
-    return r['role'] == 'human' and r['chars'] > PASTE_CHARS
-
-
 def _size(r):
-    return (PASTE_SHOW if _paste(r) else min(r['chars'], MSG_CHARS)) + 40
+    return min(r['chars'], MSG_CHARS) + 40
 
 
 # ---------------------------------------------------------------- 哪些窗口要做
@@ -111,13 +109,13 @@ def _plan(rs, made):
 
 
 def due(conv_ids=None):
-    """→ [(窗口 id, mode)]，老窗口在前。只有粘贴的不算。"""
+    """→ [(窗口 id, mode)]，老窗口在前。"""
     by = _all_rows(set(conv_ids) if conv_ids is not None else None)
     made = {r['conv_id']: r for r in store.q('SELECT conv_id, fp, upto, upto_id FROM card_convs')}
     out = []
     for cid, rs in by.items():
         mode, todo = _plan(rs, made.get(cid))
-        if mode and any(not _paste(r) for r in todo):
+        if mode and todo:
             out.append((rs[0]['ts'], cid, mode))
     return [(cid, mode) for _, cid, mode in sorted(out)]
 
@@ -160,16 +158,15 @@ def segments(conv_id, mode=None, size=SEG_CHARS):
 def _line(r, n=None):
     who = '我' if r['role'] == 'human' else 'AI'
     when = f"{r['date']} {r['hhmm']}"
-    if _paste(r):
-        return f"[粘贴] {who} {when}（共 {r['chars']} 字，只给开头，不做卡）：{r['text'][:PASTE_SHOW]}…"
     if not n:
         return f"[前文] {who} {when}：{r['text'][:2000]}"
-    return f"[{n}] {who} {when}：{r['text'][:MSG_CHARS]}" + ('…（后面略）' if r['chars'] > MSG_CHARS else '')
+    long = f"（长文 {r['chars']} 字）" if r['role'] == 'human' and r['chars'] > LONG_CHARS else ''
+    return f"[{n}] {who} {when}{long}：{r['text'][:MSG_CHARS]}" + ('…（后面略）' if r['chars'] > MSG_CHARS else '')
 
 
 def numbered(seg):
-    """段里能做卡的消息，按编号顺序（编号从 1 起）。粘贴的不编号。"""
-    return [r for r in seg if not _paste(r)]
+    """段里的消息按编号顺序（编号从 1 起）。"""
+    return list(seg)
 
 
 def prompt(conv_id, seg):
@@ -405,7 +402,9 @@ def _vec_h(c):
 def embed_todo():
     """还没向量、或者内容变了的卡。"""
     have = {r['id']: r['h'] for r in store.q('SELECT id, h FROM card_vecs WHERE model=?', llm.embed_model())}
-    rows = store.q('SELECT c.id, c.topic, c.text, c.quote, v.title FROM cards c LEFT JOIN conversations v ON v.id = c.conv_id')
+    # 只给按窗口做过的卡算（10-13 之前按天做的老卡很快会被替掉，算了白花）
+    rows = store.q('SELECT c.id, c.topic, c.text, c.quote, v.title FROM cards c LEFT JOIN conversations v ON v.id = c.conv_id '
+                   'WHERE c.conv_id IN (SELECT conv_id FROM card_convs)')
     return [r for r in rows if have.get(r['id']) != _vec_h(r)]
 
 

@@ -188,8 +188,31 @@ def compact(t, head=300, tail=150):
     return f"{t[:head]}…〔粘贴的长内容，共 {len(t):,} 字，已省略〕…{t[-tail:]}"
 
 
+# 一天的材料按来源分预算（2026-10-13）。
+# 哪一类当天用不满，剩下的让给 AI 聊天。日记、「卡得多狠」都吃这一份材料，所以权重一起生效。
+SOURCE_SHARE = {'chat': 0.8, 'cc': 0.1, 'ask': 0.1}
+SOURCE_HEAD = {'chat': '【AI 聊天】（claude.ai / Gemini：主线，日记主要写这部分）',
+               'cc': '【Claude Code】（做项目、写代码时对 Claude 说的话：日记里一两句带过在做什么、卡在哪）',
+               'ask': '【问】（在 Ephemeris 里查自己以前的记录：日记里最多一句）'}
+
+
+def _kind(source):
+    return source if source in ('cc', 'ask') else 'chat'
+
+
+def _fit(msgs, budget):
+    """把这些段落压进 budget 字：最长的先截，逐步降上限（最低每条留 60 字：份额小的那几类一天也可能有几十条）。"""
+    total = sum(len(x) for ms in msgs for x in ms)
+    cap = 4000
+    while total > budget and cap > 60:
+        cap = int(cap * 0.8)
+        msgs = [[x if len(x) <= cap else x[:cap] + '…〔后面省略〕' for x in ms] for ms in msgs]
+        total = sum(len(x) for ms in msgs for x in ms)
+    return msgs
+
+
 def render_day(day, char_budget=60000):
-    """把一天渲染成喂给模型的纯文本。按窗口分块。
+    """把一天渲染成喂给模型的纯文本。按来源分组（AI 聊天 / Claude Code / 问，预算 80 / 10 / 10），组里按窗口分块。
 
     **我自己打的全留，贴进来的只留头尾**（`compact`）。这样绝大多数天远在预算以内；
     真超了，才从最长的手打段落开始截。以前是「按时间顺序装到预算满为止」，
@@ -200,33 +223,37 @@ def render_day(day, char_budget=60000):
     head = (f"日期：{day['date']}\n"
             f"当天在 {day['n_threads']} 个对话窗口里发了 {day['n_user_msgs']} 条消息"
             f"（共 {day['user_chars']:,} 字，贴进来的长内容只保留了头尾）\n")
-    msgs = [[compact(m['text']) for m in t['messages']] for t in day['threads']]
-
-    # 还超预算：把最长的那些手打段落压到同一个上限，逐步降，直到装得下
-    budget = max(char_budget - len(head) - 400 * len(msgs), 1000)
-    total = sum(len(x) for ms in msgs for x in ms)
-    cap = 4000
-    while total > budget and cap > 200:
-        cap = int(cap * 0.8)
-        msgs = [[x if len(x) <= cap else x[:cap] + '…〔后面省略〕' for x in ms] for ms in msgs]
-        total = sum(len(x) for ms in msgs for x in ms)
-
+    groups = {}
+    for t in day['threads']:
+        groups.setdefault(_kind(t.get('source')), []).append(t)
+    body = max(char_budget - len(head) - 400 * len(day['threads']), 1000)
+    raw = {k: [[compact(m['text']) for m in t['messages']] for t in ts] for k, ts in groups.items()}
+    need = {k: sum(len(x) for ms in v for x in ms) for k, v in raw.items()}
+    # 小的两类先按份额拿（用不满就只拿需要的），剩下的全给 AI 聊天
+    quota = {k: min(need[k], int(body * SOURCE_SHARE[k])) for k in raw if k != 'chat'}
+    if 'chat' in raw:
+        quota['chat'] = body - sum(quota.values())
     blocks = []
-    for t, texts in zip(day['threads'], msgs):
-        lines = [f"\n【窗口】{t['conversation']}  {t['first']}–{t['last']}  {t['n_msgs']}条"]
-        p = t.get('prior')
-        if p:
-            lines.append(f"  【前情｜背景，不是今天发生的】这条线从 {p['since']} 开始，"
-                         f"今天之前已聊 {p['days']} 天 {p['n']} 条。")
-            lines.append(f"    最初问的是：{compact(p['opening'])}")
-            if p.get('recent'):
-                lines.append("    今天之前最后聊到：")
-                for r in p['recent']:
-                    lines.append(f"      [{r['date']} {r['hhmm']}] {r['text']}")
-            lines.append("  ——以上是背景，以下才是今天——")
-        for m, txt in zip(t['messages'], texts):
-            lines.append(f"  [{m['time']}] {txt}")
-        blocks.append('\n'.join(lines))
+    for kind in ('chat', 'cc', 'ask'):
+        if kind not in groups:
+            continue
+        if len(groups) > 1:
+            blocks.append(f"\n\n{SOURCE_HEAD[kind]}")
+        for t, texts in zip(groups[kind], _fit(raw[kind], max(quota[kind], 300))):
+            lines = [f"\n【窗口】{t['conversation']}  {t['first']}–{t['last']}  {t['n_msgs']}条"]
+            p = t.get('prior')
+            if p:
+                lines.append(f"  【前情｜背景，不是今天发生的】这条线从 {p['since']} 开始，"
+                             f"今天之前已聊 {p['days']} 天 {p['n']} 条。")
+                lines.append(f"    最初问的是：{compact(p['opening'])}")
+                if p.get('recent'):
+                    lines.append("    今天之前最后聊到：")
+                    for r in p['recent']:
+                        lines.append(f"      [{r['date']} {r['hhmm']}] {r['text']}")
+                lines.append("  ——以上是背景，以下才是今天——")
+            for m, txt in zip(t['messages'], texts):
+                lines.append(f"  [{m['time']}] {txt}")
+            blocks.append('\n'.join(lines))
     return head + '\n'.join(blocks)
 
 

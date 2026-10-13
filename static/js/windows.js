@@ -61,7 +61,7 @@ function renderWin(r) {
   $('#winMeta').textContent =
     `${days.length} 天 · ${days.reduce((s, d) => s + d.msgs, 0)} 条 · ` +
     `${days.reduce((s, d) => s + (d.chars || 0), 0).toLocaleString()} 字 · ` +
-    `${days[0]?.date} → ${days[days.length - 1]?.date} · ${c.source === 'ask' ? '问' : c.source}`;
+    `${days[0]?.date} → ${days[days.length - 1]?.date} · ${{ ask: '问', cc: 'Claude Code' }[c.source] || c.source}`;
 
   const missing = r.pending || 0, pNow = r.price?.now || {}, pAll = r.price?.all || {};
   const price = p => `${p.calls} 次调用，${usd(p.cost)}`;

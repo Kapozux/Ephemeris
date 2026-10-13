@@ -163,6 +163,10 @@ CREATE TABLE IF NOT EXISTS conversations_dup (id TEXT PRIMARY KEY, dup_of TEXT, 
 CREATE TABLE IF NOT EXISTS messages_dup (id TEXT PRIMARY KEY, conv_id TEXT, row TEXT);
 CREATE INDEX IF NOT EXISTS messages_dup_conv ON messages_dup(conv_id);
 
+-- ---------------------------------------------------------------- Claude Code 的对话（claude_code.py，2026-10-13）
+-- 读过的会话文件：大小、修改时间没变就不再读
+CREATE TABLE IF NOT EXISTS cc_files (path TEXT PRIMARY KEY, size INTEGER, mtime INTEGER, synced_at TEXT);
+
 -- ---------------------------------------------------------------- Claude 用量（llm.claude，2026-10-13）
 -- 每次 claude -p 一行：token（缓存读 / 写分开）、等值美元（订阅里不实扣，看额度用得快不快）
 CREATE TABLE IF NOT EXISTS claude_usage (

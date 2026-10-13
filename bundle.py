@@ -18,7 +18,7 @@ def day_bundle(date):
                  WHERE m.date = ? AND m.role='human' ORDER BY m.ts""", date)
     threads = {}
     for m in rows:
-        t = threads.setdefault(m['conv_id'], {'conv_id': m['conv_id'],
+        t = threads.setdefault(m['conv_id'], {'conv_id': m['conv_id'], 'source': m['source'],
                                               'conversation': m['conv_title'], 'messages': []})
         t['messages'].append({'time': m['hhmm'], 'role': 'human', 'text': m['text']})
     items = []

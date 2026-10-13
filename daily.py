@@ -1,4 +1,4 @@
-"""每天早上那一串：拉 claude.ai → 补写缺的日记 → 证据卡（最近一周有新消息的窗口）→ 整理。08:30 自己跑，手动点「立刻同步」也走这一条。
+"""每天早上那一串：读 Claude Code 的新对话 → 拉 claude.ai → 补写缺的日记 → 证据卡（最近一周有新消息的窗口）→ 整理。08:30 自己跑，手动点「立刻同步」也走这一条。
 
     morning(job, force)  整串（后台任务 claude-sync，进度在 job 里：stage / done / total）
     start(force)         手动点按钮
@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 
 import backup
 import cards
+import claude_code
 import claude_sync
 import days
 import diary
@@ -45,6 +46,10 @@ def morning(job, force=False):
     def prog(stage, a, b):
         job.update(stage=stage, done=a, total=b)
 
+    try:                                                     # Claude Code 的对话（本机文件，不联网）：先进来，后面写日记才看得到
+        claude_code.sync()
+    except Exception as e:                                   # noqa: BLE001
+        print(f'[claude-code] 失败：{type(e).__name__}: {e}', flush=True)
     try:
         r = claude_sync.sync(force=force, progress=prog)
     except Exception as e:                                   # noqa: BLE001
@@ -70,7 +75,7 @@ def morning(job, force=False):
     if todo:
         job.update(stage='证据卡', done=0, total=len(todo))
         try:
-            cards.make(job, todo)
+            cards.make(job, todo, cards.route_for(todo))
         except Exception as e:                               # noqa: BLE001  做卡没成不耽误后面的整理
             print(f'[cards] 早上做卡没做完：{type(e).__name__}: {e}', flush=True)
     job.update(stage='整理', done=0, total=0)

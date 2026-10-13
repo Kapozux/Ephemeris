@@ -12,6 +12,7 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
+    color-scheme: dark;
     --bg: #1a1a19; --side: #1f1f1e; --box: #262624; --line: #33332f; --line2: #44433f;
     --text: #ece9e2; --muted: #9c9890; --faint: #6f6c66; --hover: #2c2c2a; --bubble: #2f2f2c;
     --accent: #d97757; --accent-text: #fff; --cite: #34342f; --hl: #3a3127;

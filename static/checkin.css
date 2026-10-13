@@ -66,6 +66,8 @@ h1 .ck-spark { font-size:.6em; margin-left:10px; vertical-align:.25em; color:var
 .ck-capture textarea::placeholder { color:var(--faint); }
 .ck-tags-label { font-size:11px; letter-spacing:.16em; color:var(--muted); margin:10px 0 10px; }
 .ck-tags { display:flex; flex-wrap:wrap; gap:6px 4px; }
+.ck-tags.flash { animation:ck-flash .9s ease-out; border-radius:14px; }   /* 没点词就按 ⌘↩：闪一下 */
+@keyframes ck-flash { 0%, 40% { background:var(--panel-2); box-shadow:0 0 0 2px var(--gold-deep); } 100% { background:transparent; box-shadow:0 0 0 2px transparent; } }
 .ck-tag { border:1px solid transparent; background:transparent; padding:7px 13px; border-radius:999px; font-size:15px; cursor:pointer; transition:background .15s, border-color .15s; }
 .ck-tag:hover { border-color:var(--line-2); }
 .ck-tag.on { background:#ffffff12; border-color:currentColor; font-weight:600; }

@@ -4,7 +4,7 @@ import { S } from './state.js';
 import { navigate } from './nav.js';
 import { markDiary } from './calendar.js';
 import { refreshBatchButton } from './batch.js';
-import { journalHtml, imageCount } from './md.js';
+import { journalHtml, imageCount, mdBlocks } from './md.js';
 
 const CLIP = 300, CLIP_LINES = 8;   // 长消息先折到这么多字 / 这么多行（空行多的消息按字数折了还有一屏高）
 let NAV = { prev: null, next: null }, POLL = null;
@@ -23,7 +23,7 @@ function renderSignals(sg) {
 
 const J_FOLD = 700;
 
-function renderJournal(list, open) {
+function renderJournal(list, open, q) {
   const box = $('#journal');
   const pages = list.filter(j => (j.text || '').trim());
   if (!pages.length) { box.className = 'journal hidden'; box.innerHTML = ''; return; }
@@ -35,29 +35,33 @@ function renderJournal(list, open) {
         : `<a href="${j.url}" target="_blank" rel="noopener">在 Notion 打开</a>`).join(' · ')}</div>` +
     pages.map((j, i) => {
       const long = (j.chars > J_FOLD || imageCount(j.text) > 1) && !open;
-      return `<div class="j-body${long ? ' folded' : ''}" data-i="${i}">${journalHtml(j.text)}</div>` +
+      return `<div class="j-body${long ? ' folded' : ''}" data-i="${i}">${markHits(journalHtml(j.text), q)}</div>` +
              (long ? `<a class="j-more" data-i="${i}">展开全文</a>` : '');
     }).join('');
   box.querySelectorAll('.j-more').forEach(a => a.onclick = () => {
     box.querySelector(`.j-body[data-i="${a.dataset.i}"]`).classList.remove('folded'); a.remove();
   });
-  if (open) box.scrollIntoView({ block: 'start' });
+  if (!open) return;
+  // 从搜索点过来：先回到这天开头（日期标题在视野里），第一处命中还在屏幕下面才把它滚到中间
+  toContent($('#day'));
+  const hit = box.querySelector('mark');
+  if (hit && hit.getBoundingClientRect().bottom > innerHeight - 40) hit.scrollIntoView({ block: 'center' });
 }
 
 // ---------------------------------------------------------------- 日记
 
 function renderDiary(r) {
   const box = $('#diary');
-  box.className = 'diary';
+  box.className = 'diary card-shell';           // 有日记：跟右边的窗口卡同一层白卡；空的 / 正在写的换成虚线框
   if (!r.threads.length && !r.diary) { box.className = 'hidden'; box.innerHTML = ''; return; }
   if (r.generating) {
-    box.classList.add('gen');
+    box.className = 'diary gen';
     box.innerHTML = `<span class="pulse"></span>正在读这天的 ${r.threads.length} 个窗口，写日记…`;
     return;
   }
   const d = r.diary, w = r.write || {}, chars = (S.byDate[S.sel]?.chars || 0).toLocaleString();
   if (!d) {
-    box.classList.add('empty');
+    box.className = 'diary empty';
     if (w.worth === false) box.classList.add('thin');
     // 字太少的天（侧栏补全也跳过它们）：不放大按钮，只留一个小链接
     box.innerHTML = w.worth === false
@@ -113,11 +117,13 @@ function poll(date) {
 
 // ---------------------------------------------------------------- 窗口列表
 
-// 一条消息（按窗口回顾的时间轴也用）。从搜索跳过来的那条（target）不折，搜的词标出来
+// 一条消息（按窗口回顾的时间轴也用）。从搜索跳过来的那条（target）不折，搜的词标出来。
+// 我说的原样显示；AI 回的是 Markdown，按块渲染（md.js），折叠也按块切
 export function msgHtml(m, target, q) {
   const text = m.text || '';
+  if (m.role !== 'human') return aiMsgHtml(m, text, m.id && m.id === target, q);
   if (m.id && m.id === target) {
-    return `<div class="msg ${m.role === 'human' ? '' : 'ai'} target" id="msg-${m.id}">
+    return `<div class="msg target" id="msg-${m.id}">
             <span class="msg-time">${m.hhmm}</span><span class="msg-text">${markHits(esc(text), q)}</span></div>`;
   }
   let cut = CLIP;
@@ -127,6 +133,23 @@ export function msgHtml(m, target, q) {
     : esc(text);
   return `<div class="msg ${m.role === 'human' ? '' : 'ai'}" id="msg-${m.id}">
             <span class="msg-time">${m.hhmm}</span><span class="msg-text">${body}</span></div>`;
+}
+
+function aiMsgHtml(m, text, isTarget, q) {
+  const blocks = mdBlocks(text);
+  let k = blocks.length;
+  if (!isTarget) {
+    for (let i = 0, n = 0, lines = 0; i < blocks.length; i++) {
+      n += blocks[i].n; lines += blocks[i].lines;
+      if (i && (n > CLIP || lines > CLIP_LINES)) { k = i; break; }
+    }
+  }
+  const html = list => list.map(b => b.html).join('');
+  const body = k < blocks.length
+    ? `${html(blocks.slice(0, k))}<span class="msg-clip">…</span><a class="msg-more" data-full="1">展开 ${text.length} 字</a><div class="msg-full hidden">${html(blocks.slice(k))}</div>`
+    : isTarget ? markHits(html(blocks), q) : html(blocks);
+  return `<div class="msg ai${isTarget ? ' target' : ''}" id="msg-${m.id}">
+            <span class="msg-time">${m.hhmm}</span><div class="msg-text msg-md j-body">${body}</div></div>`;
 }
 
 function renderThreads(threads, focus) {
@@ -231,7 +254,7 @@ export async function openDay(date, focus) {
     : '这天还没有 AI 聊天和手写日记' + ((r.signals?.checkins || []).length ? `，只有 ${r.signals.checkins.length} 条打卡` : '');
 
   renderSignals(r.signals || {});
-  renderJournal(r.journal || [], focus && focus.journal);
+  renderJournal(r.journal || [], focus && focus.journal, focus && focus.q);
   renderDiary(r);
   renderThreads(r.threads, focus);
   requestAnimationFrame(() => {

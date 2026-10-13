@@ -3,11 +3,17 @@ import { $, esc } from './util.js';
 
 // 每周各大类占了多少「主题·天」。颜色 = 类别身份，固定顺序（已过配色校验）；叠放顺序 = 颜色顺序。
 const RV_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948', '#b3aea3'];
-let RV = null, RV_SCALE = 'share', RV_FROM = '2025-08-18', RV_HI = -1;
+let RV = null, RV_SCALE = 'share', RV_FROM = 'year', RV_HI = -1;
+// 「近一年」= 今天往前 365 天（本地日期），每次加载现算
+const fromDate = v => {
+  if (v !== 'year') return v;
+  const d = new Date(); d.setDate(d.getDate() - 365);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 export async function loadRiver() {
   $('#rvChart').innerHTML = '<div class="pane-loading">在数…</div>';
-  RV = await fetch('/api/river?from=' + RV_FROM).then(r => r.json());
+  RV = await fetch('/api/river?from=' + fromDate(RV_FROM)).then(r => r.json());
   renderRiver();
 }
 

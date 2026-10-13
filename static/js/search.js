@@ -22,7 +22,7 @@ $('#q').addEventListener('input', e => {
     box.onclick = ev => {
       if (ev.target.id === 'rclose') { closeResults(); return; }
       const el = ev.target.closest('.sb-hit');
-      if (el?.dataset.j) { closeResults(); navigate(`day/${el.dataset.d}/journal`); return; }
+      if (el?.dataset.j) { closeResults(); navigate(`day/${el.dataset.d}/journal/q/${encodeURIComponent(r.q)}`); return; }
       if (el?.dataset.d) { closeResults(); navigate(`day/${el.dataset.d}/conv/${el.dataset.c}/msg/${el.dataset.m}/q/${encodeURIComponent(r.q)}`); }
     };
   }, 240);

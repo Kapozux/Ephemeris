@@ -67,5 +67,39 @@ class ClaudeRoute(unittest.TestCase):
         self.assertIn('材料', seen[0])                             # 退回时材料和任务一起送
 
 
+class DaySession(unittest.TestCase):
+    """写日记、打「卡得多狠」共用一个会话：当天记录只送一次。"""
+    DAY = '2026-09-20'
+
+    def setUp(self):
+        import diary
+        diary._sessions.clear()
+        with store.tx() as db:
+            for t in ('messages', 'conversations', 'mood_scores'):
+                db.execute(f'DELETE FROM {t}')
+            db.execute("INSERT INTO conversations(id, source, title) VALUES ('c1', 'claude', '申请季')")
+        text = '我今天把 MIT 的文书第二段重写了三遍，越写越烦。'
+        store.run('INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?)', 'm1', 'c1', 'claude', f'{self.DAY}T10:00', self.DAY,
+                  '10:00', 'human', text, len(text))
+        self.calls = []
+        llm.use_claude(lambda args, stdin: (self.calls.append((args, stdin)),
+                                            {'result': '{"friction": 2, "evidence": "越写越烦"}', 'session_id': 'd1'})[1])
+
+    def tearDown(self):
+        llm.use_claude(None)
+
+    def test_friction_reuses_the_day_session(self):
+        import diary
+        import mood
+        diary.session_for(self.DAY).ask('写日记')
+        r = mood.score_friction(self.DAY, call_model=lambda p: self.fail('不该整段再送'))
+        self.assertEqual(r['friction'], 2)
+        (a1, in1), (a2, in2) = self.calls
+        self.assertIn('越写越烦', in1)                          # 第一次：当天记录 + 任务
+        self.assertEqual(a2[a2.index('--resume') + 1], 'd1')
+        self.assertNotIn('MIT 的文书', in2)                       # 第二次：只有打分要求
+        self.assertIs(diary.session_for(self.DAY), diary.session_for(self.DAY))
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -67,3 +67,15 @@ export function ask(btn, text, yes) {
   no.onclick = e => { e.stopPropagation(); done(); };
   box.querySelector('.ask-yes').onclick = e => { e.stopPropagation(); done(); yes(); };
 }
+
+// 浮层里的分段控件（回顾 / 数据 / 河流共用一套样子：style.css 的 .pane-seg）。
+// 时间范围也只有这一套叫法：回顾、数据用 7 天 / 30 天 / 90 天 / 全部，河流按周画，用 90 天 / 一年 / 全部
+export const RANGE_LABEL = { '1w': '7 天', '1m': '30 天', '3m': '90 天', '1y': '一年', 'all': '全部' };
+// box 里画一排按钮（items = [[值, 字], ...]），点了调 pick(值)；当前那个标 .on
+export function paneSeg(box, items, cur, pick) {
+  box.innerHTML = items.map(([v, t]) => `<button type="button" data-v="${v}" class="${v === cur ? 'on' : ''}" aria-pressed="${v === cur}">${t}</button>`).join('');
+  box.querySelectorAll('button').forEach(b => b.onclick = () => {
+    box.querySelectorAll('button').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', x === b); });
+    pick(b.dataset.v);
+  });
+}

@@ -1,14 +1,15 @@
 // 浮层「河流」栏：话题河流图。
-import { $, esc } from './util.js';
+import { $, esc, paneSeg, RANGE_LABEL } from './util.js';
 
 // 每周各大类占了多少「主题·天」。颜色 = 类别身份，固定顺序（已过配色校验）；叠放顺序 = 颜色顺序。
 // 话题的颜色：色值在 style.css 的 :root（--rv0…--rv8，深浅两套），这里只写名字
 const RV_COLORS = Array.from({ length: 9 }, (_, k) => `var(--rv${k})`);
-let RV = null, RV_SCALE = 'share', RV_FROM = 'year', RV_HI = -1;
-// 「近一年」= 今天往前 365 天（本地日期），每次加载现算
+let RV = null, RV_SCALE = 'share', RV_FROM = '1y', RV_HI = -1;
+// 范围（叫法跟回顾 / 数据同一套，util.RANGE_LABEL）：今天往前 90 / 365 天（本地日期），每次加载现算；全部从 2022 年起
+const RV_DAYS = { '3m': 90, '1y': 365 };
 const fromDate = v => {
-  if (v !== 'year') return v;
-  const d = new Date(); d.setDate(d.getDate() - 365);
+  if (!RV_DAYS[v]) return '2022-01-01';
+  const d = new Date(); d.setDate(d.getDate() - RV_DAYS[v]);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
@@ -144,11 +145,7 @@ function renderRiverTable() {
       return `<tr><td>${m}</td>${row.map(v => `<td>${v ? Math.round(v / s * 100) + '%' : ''}</td>`).join('')}</tr>`; }).join('') + '</table>';
 }
 
-document.querySelectorAll('#rvScale button').forEach(b => b.onclick = () => {
-  RV_SCALE = b.dataset.v; document.querySelectorAll('#rvScale button').forEach(x => x.classList.toggle('on', x === b)); if (RV) renderRiver();
-});
-document.querySelectorAll('#rvRange button').forEach(b => b.onclick = () => {
-  RV_FROM = b.dataset.v; document.querySelectorAll('#rvRange button').forEach(x => x.classList.toggle('on', x === b)); loadRiver();
-});
+paneSeg($('#rvScale'), [['share', '占比'], ['count', '数量']], RV_SCALE, v => { RV_SCALE = v; if (RV) renderRiver(); });
+paneSeg($('#rvRange'), ['3m', '1y', 'all'].map(k => [k, RANGE_LABEL[k]]), RV_FROM, v => { RV_FROM = v; loadRiver(); });
 $('#rvTable').onclick = () => { const t = $('#rvTableBox'); t.classList.toggle('hidden'); if (!t.classList.contains('hidden') && RV) renderRiverTable(); };
 window.addEventListener('resize', () => { if (RV && !$('#overlay').classList.contains('hidden')) renderRiver(); });

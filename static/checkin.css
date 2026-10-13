@@ -6,7 +6,6 @@
   --ink:#141413; --ink-2:#3D3A34; --muted:#79756C; --faint:#A8A398;
   --gold:#A8741F; --gold-2:#D9A04A; --gold-deep:#D9B87E;          /* 字和图标 · 小星星 · 线和描边 */
   --btn-top:#F3CD86; --btn-bot:#E9B45E; --btn-ink:#2A1D07;          /* 「记下」按钮 */
-  --pc-moments:#2F6FA8; --pc-streak:#7A52B3;                        /* 光球数、连续天数（打卡天数用 gold） */
   --tag-on:rgba(20,20,19,.05); --edit-bg:rgba(20,20,19,.03);
   --rail-bg:rgba(250,249,245,.85); --tip-shadow:0 10px 30px rgba(40,30,20,.14);
   --sky-op:0; --sky-box:var(--panel); --star-ink:#141413; --star-dust:0;   /* 星点背景、星座图的底和线（checkin.js 读 --star-ink / --star-dust） */
@@ -27,7 +26,6 @@
     --ink:#EEEAF2; --ink-2:#B9B4C4; --muted:#8A8597; --faint:#6E6A7C;
     --gold:#E9B45E; --gold-2:#F3CD86; --gold-deep:#B9873A;
     --btn-top:var(--gold-2); --btn-bot:var(--gold);
-    --pc-moments:#8EC5F0; --pc-streak:#C9A6F0;
     --tag-on:#ffffff12; --edit-bg:#ffffff08;
     --rail-bg:#0B0A0Ecc; --tip-shadow:0 10px 30px #0008;
     --sky-op:.55; --sky-box:#08070B; --star-ink:#fff; --star-dust:1;
@@ -88,16 +86,14 @@ main { position:relative; z-index:1; margin-left:76px; min-height:100%; padding:
 h1 { font-size:clamp(34px,5vw,48px); font-weight:700; color:var(--gold); letter-spacing:-.01em; margin:10px 0 18px; }
 h1 .ck-spark { font-size:.6em; margin-left:10px; vertical-align:.25em; color:var(--gold-2); }
 
-.ck-progress { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:22px; }
-.ck-pcard { background:var(--panel); border:1px solid var(--line); border-radius:var(--r); padding:12px 16px; }
-.ck-pcard .ck-pcard-k { font-size:11px; letter-spacing:.14em; color:var(--muted); }
-.ck-pcard .ck-pcard-v { font-size:28px; font-weight:600; font-variant-numeric:tabular-nums; margin-top:2px; }
-.ck-pcard:nth-child(1) .ck-pcard-v { color:var(--pc-moments); } .ck-pcard:nth-child(2) .ck-pcard-v { color:var(--gold); } .ck-pcard:nth-child(3) .ck-pcard-v { color:var(--pc-streak); }
+.ck-dateline .ck-progress { margin-left:auto; font-size:12px; color:var(--faint); white-space:nowrap; }   /* 一共记了多少：一行小字 */
 
 .ck-capture { background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:22px 22px 18px; }
-.ck-capture textarea { width:100%; background:transparent; border:0; outline:0; resize:vertical; color:var(--ink); font:inherit; font-size:17px; line-height:1.7; min-height:84px; }
+.ck-note-label { display:block; font-size:11px; letter-spacing:.16em; color:var(--muted); margin:18px 0 4px; }
+.ck-note-label em { font-style:normal; letter-spacing:.04em; color:var(--faint); margin-left:8px; }
+.ck-capture textarea { width:100%; background:transparent; border:0; outline:0; resize:vertical; color:var(--ink); font:inherit; font-size:17px; line-height:1.7; min-height:60px; }
 .ck-capture textarea::placeholder { color:var(--faint); }
-.ck-tags-label { font-size:11px; letter-spacing:.16em; color:var(--muted); margin:10px 0 10px; }
+.ck-tags-label { font-size:11px; letter-spacing:.16em; color:var(--muted); margin:0 0 10px; }
 .ck-tags { display:flex; flex-wrap:wrap; gap:6px 4px; }
 .ck-tags.flash { animation:ck-flash .9s ease-out; border-radius:14px; }   /* 没点词就按 ⌘↩：闪一下 */
 @keyframes ck-flash { 0%, 40% { background:var(--panel-2); box-shadow:0 0 0 2px var(--gold-deep); } 100% { background:transparent; box-shadow:0 0 0 2px transparent; } }
@@ -133,9 +129,11 @@ h1 .ck-spark { font-size:.6em; margin-left:10px; vertical-align:.25em; color:var
 
 /* 光球管 */
 .ck-tube-head { text-align:center; font-size:11px; letter-spacing:.24em; color:var(--muted); margin:46px 0 16px; }
-.ck-tube { display:flex; flex-wrap:wrap; justify-content:center; gap:12px; }
+.ck-tube { display:flex; flex-wrap:wrap; justify-content:center; gap:10px; }   /* 14 颗 × (44 + 10) 刚好一行放进 760 */
 .ck-orb { width:44px; height:44px; border-radius:50%; cursor:pointer; position:relative; transition:transform .15s; }
 .ck-orb:hover { transform:translateY(-3px) scale(1.06); }
+.ck-tube-more { text-align:center; margin-top:16px; }
+.ck-tube-more .ck-link { font-size:13px; }
 
 /* ---------------- 这个月 ---------------- */
 .ck-month { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:40px; max-width:1180px; margin:0 auto; }
@@ -155,7 +153,8 @@ h1 .ck-spark { font-size:.6em; margin-left:10px; vertical-align:.25em; color:var
 .ck-cal .ck-cell { min-width:0; height:clamp(52px,6.2vw,74px); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; border-radius:10px; cursor:pointer; }
 .ck-cal .ck-cell:hover { background:var(--panel); }
 .ck-cal .ck-cell.sel { background:var(--panel-2); box-shadow:inset 0 0 0 1px var(--line-2); }
-.ck-cal .ck-cell.future { opacity:.25; cursor:default; }
+.ck-cal .ck-cell.future { opacity:.25; cursor:default; height:clamp(26px,3.1vw,37px); align-self:start; }   /* 还没到的日子：半高，不抢地方 */
+.ck-cal .ck-cell.future svg { display:none; }
 .ck-cal .ck-cell-num { font-size:14px; font-variant-numeric:tabular-nums; color:var(--ink-2); }
 .ck-cal .ck-cell.today .ck-cell-num { color:var(--gold); font-weight:700; }
 .ck-cal svg { width:18px; height:18px; }
@@ -165,7 +164,11 @@ h1 .ck-spark { font-size:.6em; margin-left:10px; vertical-align:.25em; color:var
 .ck-day-big .ck-big-meta { padding-bottom:6px; }
 .ck-day-big .ck-big-wk { color:var(--gold); font-weight:600; letter-spacing:.12em; font-size:13px; }
 .ck-day-big .ck-big-wd { color:var(--ink-2); font-size:13px; }
-.ck-day-big .ck-big-go { margin-left:auto; padding-bottom:8px; white-space:nowrap; flex:none; }
+.ck-day-big { scroll-margin:16px; }
+/* 补 / 看 / 改这天：小号的主按钮（跟「记下」同一种金色） */
+.ck-day-big .ck-big-go { margin:0 0 6px auto; white-space:nowrap; flex:none; border:0; border-radius:999px; padding:6px 14px;
+  font-size:12.5px; font-weight:600; cursor:pointer; background:linear-gradient(180deg,var(--btn-top),var(--btn-bot)); color:var(--btn-ink); }
+.ck-day-big .ck-big-go:focus-visible { outline:2px solid var(--gold-deep); outline-offset:2px; }
 .ck-constellation { background:var(--sky-box); border:1px solid var(--line); border-radius:var(--r); overflow:hidden; }
 .ck-constellation svg { display:block; }
 .ck-c-legend { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:11.5px; color:var(--muted); margin-top:10px; }
@@ -190,11 +193,12 @@ h1 .ck-spark { font-size:.6em; margin-left:10px; vertical-align:.25em; color:var
   .ck-back { display:none; }
   .ck-seg { margin-bottom:20px; }
   main { margin-left:0; padding:26px 16px 90px; }
-  .ck-progress { gap:8px; }
-  .ck-pcard { padding:10px 12px; }
-  .ck-pcard .ck-pcard-v { font-size:22px; }
-  .ck-item { grid-template-columns:40px auto minmax(0,1fr); }
-  .ck-item .ck-item-ops { grid-column:2 / -1; }
+  .ck-dateline { flex-wrap:wrap; row-gap:4px; }
+  /* 窄屏：时间、词、改 删在一行，备注折到下一行 */
+  .ck-item { grid-template-columns:40px auto minmax(0,1fr) auto; row-gap:2px; }
+  .ck-item .ck-item-ops { grid-column:4; grid-row:1; }
+  .ck-item .ck-item-n { grid-column:2 / -1; grid-row:2; }
+  .ck-item .ck-item-n:empty { display:none; }
   .ck-orb { width:36px; height:36px; }
   .ck-day-big .ck-big-d { font-size:44px; }
 }

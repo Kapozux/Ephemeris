@@ -1,4 +1,4 @@
-"""证据卡 + 问（2026-10-11；10-13 改成按窗口做）：原话对不上的卡不收；粘贴的长文不做卡；
+"""证据卡 + 问（2026-10-11；10-13 改成按窗口做）：原话对不上的卡不收；我发的长文标出来让模型分；
 窗口后来又聊了只做新的、带前文；做过的那段变了整窗重做；问答两路找、出处认回真 id、编的删掉。"""
 import _env  # noqa: F401
 import json
@@ -55,15 +55,15 @@ class Cards(unittest.TestCase):
         self.assertEqual([(x['id'], x['who'], x['msg_id']) for x in rows],
                          [('m1·1', 'me', 'm1'), ('m2·1', 'ai', 'm2'), ('m2·2', 'ai', 'm2')])
         self.assertEqual((rows[0]['topic'], rows[0]['date']), ('美本申请', DAY))
-        self.assertNotIn('很长的文章很长的文章很长的文章' * 50, self.prompts[0])     # 粘贴的长文只给开头
-        self.assertIn('[粘贴]', self.prompts[0])
         self.assertIn('「申请季」', self.prompts[0])
         self.assertEqual(cards.due(['c1']), [])
         self.assertIn('在定早申学校', store.one('SELECT summary FROM card_convs')['summary'])
 
-    def test_cards_on_paste_are_dropped(self):
-        self.fake([{'m': 3, 'k': '事实', 't': '粘贴的', 'q': '很长的文章很长的文章'}])    # 粘贴的不编号，第 3 条不存在
-        self.assertEqual(cards.build_conv('c1')['n'], 0)
+    def test_long_messages_are_marked_not_skipped(self):
+        """我发的长文也编号（可能是我自己写的文书）；标成「长文」让模型分。"""
+        self.fake([{'m': 3, 'k': '事实', 't': '我贴了一篇文章', 'q': '贴一篇文章：很长的文章'}])
+        self.assertEqual(cards.build_conv('c1')['n'], 1)
+        self.assertIn('[3] 我 2026-09-12 03:00（长文 2506 字）', self.prompts[0])
 
     def test_later_messages_only_do_the_new_ones_with_context(self):
         self.fake([{'m': 1, 'k': '决定', 't': '我决定 ED 交 CMU', 'q': 'ED 交 CMU，UIUC'}])
@@ -96,7 +96,7 @@ class Cards(unittest.TestCase):
     def test_only_first_good_segments_advance(self):
         """外面做好的（Claude workflow）也走 apply：第二段没拿到，做到哪只推进到第一段。"""
         mode, segs = cards.segments('c1', size=60)
-        self.assertEqual((mode, len(segs)), ('full', 3))
+        self.assertEqual((mode, len(segs)), ('full', 3))       # 每条一段
         r = cards.apply('c1', mode, segs, [{'cards': [{'m': 1, 'k': '决定', 't': '我决定 ED 交 CMU', 'q': 'ED 交 CMU'}]},
                                             None, {'cards': []}], src='claude')
         self.assertEqual((r['n'], r['failed']), (1, 1))

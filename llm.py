@@ -112,6 +112,46 @@ def _gemini(prompt, model=None):
     raise err or RuntimeError('没有可用的模型')
 
 
+# 向量（证据卡按意思找，2026-10-13，照 Verbatim ask.py 的 _embed_texts）：只走 Gemini，私密内容不给别家
+EMBED_MODEL = 'gemini-embedding-001'
+EMBED_DIM = 768
+EMBED_PRICE = 0.15 / 1e6                         # 每 token 美元
+
+
+def embed(texts, task='RETRIEVAL_DOCUMENT'):
+    """→ 每条一个行归一化的 float32 向量（numpy 矩阵）。一次最多 100 条（接口上限）；限流 / 断线等等再试，三次不行抛异常。
+    task：存卡用 RETRIEVAL_DOCUMENT，问的时候用 RETRIEVAL_QUERY。"""
+    import numpy as np
+    if _embed_override:
+        mat = np.array([_embed_override(t) for t in texts], dtype=np.float32)
+    elif _override:                                  # 测试换了假模型、没给假向量：别真去调 Gemini
+        raise RuntimeError('测试里没给假向量（llm.use_embed）')
+    else:
+        from google.genai import types
+        client, last = _client(), None
+        for attempt in range(3):
+            try:
+                r = client.models.embed_content(model=EMBED_MODEL, contents=list(texts),
+                                                config=types.EmbedContentConfig(task_type=task, output_dimensionality=EMBED_DIM))
+                break
+            except Exception as e:                       # noqa: BLE001
+                last = e
+                time.sleep(4 * (attempt + 1))
+        else:
+            raise RuntimeError(f'embedding 失败：{last}')
+        mat = np.array([e.values for e in r.embeddings], dtype=np.float32)
+    return mat / np.maximum(np.linalg.norm(mat, axis=1, keepdims=True), 1e-9)   # 截到 768 维后要自己归一化
+
+
+def use_embed(fn):
+    """测试用：换成假的向量（fn(text) -> list[float]）。use_embed(None) 换回来。"""
+    global _embed_override
+    _embed_override = fn
+
+
+_embed_override = None
+
+
 def _verbatim(prompt, model=None):
     _getaudio()
     from reflect import _call_model          # 借 Verbatim 的；它改了接口这里会当场报错，不会悄悄返回空

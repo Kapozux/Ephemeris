@@ -6,8 +6,9 @@
 
 一轮问答：
   1. 改写（便宜模型）：结合上几轮，把问题改成能单独看懂的一句 + 关键词（中英都要）+ 能看出来的时间范围
-  2. 挑卡：时间范围内的卡；关键词按命中打分（卡片 trigram 索引，中文子串也搜得到），取到预算为止；
-     上一轮引用过的卡一起带上（追问「那后来呢」能接上）；一张都没命中但给了时间范围，就沿时间均匀取
+  2. 挑卡：时间范围里的卡放得下就全给；不然两路找 —— 按字面（关键词按稀有程度打分）+ 按意思（卡的向量，cards.semantic），
+     名次融合，取到预算为止；上一轮引用过的卡一起带上（追问「那后来呢」能接上）；两路都没有但给了时间范围，就沿时间均匀取。
+     再带上这些卡最集中的几个窗口的小结（card_convs.summary），只作背景
   3. 回答（默认模型）：只用给的卡，句末标 [c12]；我说的和 AI 说的分清楚；卡里没有就直说没有
   4. 认出处：[c12] → 真的卡 id；不在给定卡里的删掉。cites 存卡的快照（卡重做了旧回答照样能看）
 """
@@ -16,11 +17,14 @@ import math
 import re
 from datetime import datetime
 
+import cards
 import days
 import llm
 import store
 
-BUDGET_CHARS = 45000          # 送给回答那一步的卡，最多这么多字（约 4.5 万 token，一问一答约 $0.015）
+BUDGET_CHARS = 80000          # 送给回答那一步的卡，最多这么多字（走 DeepSeek，一问一答约 $0.01；10-13 用户：效果优先）
+RRF_K = 60                    # 两路名次融合的常数（RRF 的通用值）
+SUMMARY_CHARS = 6000          # 回答时带上相关窗口的小结，最多这么多字
 FOLLOW_UP = 30                # 追问时带上上一轮引用过的卡，最多这么多张
 HISTORY_TURNS = 6
 
@@ -38,8 +42,8 @@ PLAN_PROMPT = """你在帮一个人查他自己和 AI 的聊天记录。今天�
 """
 
 ANSWER_PROMPT = """你在帮一个人回答关于他自己的问题。下面是从他和 AI 的聊天记录里做出来的证据卡，每张卡：
-[编号] 日期 谁说的 类型：要点「原话」
-「我」是提问的这个人，「AI」是当时跟他聊天的 AI。
+[编号] 日期 时间 谁说的 类型 · 话题 ·《哪个聊天窗口》：要点「原话」
+「我」是提问的这个人，「AI」是当时跟他聊天的 AI。最后还有几个相关窗口的小结，只帮你看懂来龙去脉，不能当出处。
 
 规则：
 - 只根据这些卡回答，卡里没有的不要补，不要猜。卡不够回答就直说「卡里没找到」，并说找到了哪些相关的。
@@ -56,6 +60,9 @@ ANSWER_PROMPT = """你在帮一个人回答关于他自己的问题。下面是�
 
 证据卡（按时间）：
 {cards}
+
+相关窗口的小结（只作背景）：
+{summaries}
 """
 
 CITE_RE = re.compile(r'\[(c\d+(?:\s*[,，、]\s*c?\d+)*)\]')
@@ -74,49 +81,91 @@ def _history_text(turns):
     return '\n'.join(lines) or '（无）'
 
 
-def select(plan, follow=()):
-    """按计划挑卡：返回按时间排好的卡（dict 列表）。"""
-    since, until = plan.get('since'), plan.get('until')
+def _range(plan):
     rng, args = '', []
-    if since:
-        rng += ' AND c.date >= ?'; args.append(since)
-    if until:
-        rng += ' AND c.date <= ?'; args.append(until)
+    if plan.get('since'):
+        rng += ' AND c.date >= ?'; args.append(plan['since'])
+    if plan.get('until'):
+        rng += ' AND c.date <= ?'; args.append(plan['until'])
+    return rng, args
+
+
+def _keyword_rank(plan, rng, args, total):
+    """按字面：每个关键词按稀有程度给分（BM25 的 idf 那一半）→ 卡 id，分高的在前。
+    「想法」「变化」「九月」这种一抓几百张的词，以前会把预算塞满、真正讲 ED / EA 的卡反而挤不进来（10-11 实测）。
+    超过四分之一的卡都有的词直接不算。"""
     kws = [k.strip() for k in plan.get('keywords') or [] if k and len(k.strip()) >= 2][:16]
-    total = store.one(f'SELECT COUNT(*) n FROM cards c WHERE 1=1{rng}', *args)['n'] or 1
-    # 按词的稀有程度给分（BM25 的 idf 那一半）：「想法」「变化」「九月」这种一抓几百张的词，
-    # 以前会把预算塞满、真正讲 ED / EA 的卡反而挤不进来（10-11 实测）。超过四分之一的卡都有的词直接不算
     score = {}
     for k in kws:
-        hits = store.q(f"""SELECT c.id, (c.text LIKE ? ESCAPE '\\') AS in_text FROM cards c
-                            WHERE (c.text LIKE ? ESCAPE '\\' OR c.quote LIKE ? ESCAPE '\\'){rng}""",
-                       _like(k), _like(k), _like(k), *args)
+        hits = store.q(f"""SELECT c.id, (c.text LIKE ? ESCAPE '\\' OR c.topic LIKE ? ESCAPE '\\') AS in_text FROM cards c
+                            WHERE (c.text LIKE ? ESCAPE '\\' OR c.quote LIKE ? ESCAPE '\\' OR c.topic LIKE ? ESCAPE '\\'){rng}""",
+                       _like(k), _like(k), _like(k), _like(k), _like(k), *args)
         if not hits or (total >= 40 and len(hits) > total / 4):     # 卡太少时比例没意义
             continue
         w = math.log(total / len(hits)) + 0.5
         for r in hits:
             score[r['id']] = score.get(r['id'], 0) + w * (1.5 if r['in_text'] else 1)
-    ids = [i for i, _ in sorted(score.items(), key=lambda x: (-x[1], x[0]))]
-    if not ids and (since or until):                     # 只说了时间：沿时间均匀取
-        allr = [r['id'] for r in store.q(f'SELECT c.id FROM cards c WHERE 1=1{rng} ORDER BY c.date, c.rowid', *args)]
-        step = max(1, len(allr) // 400)
-        ids = allr[::step]
+    return [i for i, _ in sorted(score.items(), key=lambda x: (-x[1], x[0]))]
+
+
+def select(plan, follow=()):
+    """按计划挑卡：返回按时间排好的卡（dict 列表）。
+    时间范围里的卡放得下就全给（「10 月 5 号我聊了啥」）；放不下就两路找 —— 按字面（关键词）和按意思（向量），
+    两路的名次融合（RRF，照 Verbatim ask.hybrid），谁都不单独说了算。上一轮引用过的卡排最前（追问接得上）。"""
+    rng, args = _range(plan)
+    total = store.one(f'SELECT COUNT(*) n, COALESCE(SUM(LENGTH(c.text) + LENGTH(c.quote) + 60), 0) size '
+                      f'FROM cards c WHERE 1=1{rng}', *args)
+    if rng and total['size'] <= BUDGET_CHARS:
+        ids = [r['id'] for r in store.q(f'SELECT c.id FROM cards c WHERE 1=1{rng}', *args)]
+    else:
+        kw = _keyword_rank(plan, rng, args, total['n'] or 1)
+        allowed = {r['id'] for r in store.q(f'SELECT c.id FROM cards c WHERE 1=1{rng}', *args)} if rng else None
+        sem = cards.semantic(plan.get('q') or ' '.join(plan.get('keywords') or []), allowed)
+        fused = {}
+        for ranked in (kw, sem):
+            for n, i in enumerate(ranked):
+                fused[i] = fused.get(i, 0) + 1 / (RRF_K + n)
+        ids = [i for i, _ in sorted(fused.items(), key=lambda x: -x[1])]
+        if not ids and rng:                                  # 两路都没有、只说了时间：沿时间均匀取
+            allr = [r['id'] for r in store.q(f'SELECT c.id FROM cards c WHERE 1=1{rng} ORDER BY c.date, c.rowid', *args)]
+            ids = allr[::max(1, len(allr) // 400)]
     picked, size = [], 0
     for cid in list(follow) + [i for i in ids if i not in follow]:
-        c = store.one('SELECT c.*, v.title FROM cards c LEFT JOIN conversations v ON v.id = c.conv_id WHERE c.id=?', cid)
+        c = store.one("""SELECT c.*, v.title, m.ts, m.hhmm FROM cards c LEFT JOIN conversations v ON v.id = c.conv_id
+                          LEFT JOIN messages m ON m.id = c.msg_id WHERE c.id=?""", cid)
         if not c:
             continue
-        n = len(c['text']) + len(c['quote']) + 30
+        n = len(c['text']) + len(c['quote']) + 60
         if size + n > BUDGET_CHARS:
             break
         picked.append(c)
         size += n
-    return sorted(picked, key=lambda c: (c['date'], int(c['id'].split('·')[-1])))
+    return sorted(picked, key=lambda c: (c['date'], c['ts'] or '', c['id']))
+
+
+def _summaries(picked, limit=SUMMARY_CHARS):
+    """挑中的卡最多的那几个窗口的小结（只作背景，不能当出处）。"""
+    count = {}
+    for c in picked:
+        count[c['conv_id']] = count.get(c['conv_id'], 0) + 1
+    out, size = [], 0
+    for cid, _ in sorted(count.items(), key=lambda x: -x[1]):
+        r = store.one('SELECT s.summary, v.title FROM card_convs s LEFT JOIN conversations v ON v.id = s.conv_id '
+                      'WHERE s.conv_id=?', cid)
+        if not r or not r['summary']:
+            continue
+        line = f"《{r['title'] or '无标题'}》\n{r['summary'][-1500:]}"
+        if size + len(line) > limit:
+            break
+        out.append(line)
+        size += len(line)
+    return '\n\n'.join(out) or '（无）'
 
 
 def _card_line(i, c):
     who = '我' if c['who'] == 'me' else 'AI'
-    return f"[c{i}] {c['date']} {who} {c['kind']}：{c['text']}「{c['quote']}」"
+    where = ' · '.join(x for x in (c.get('topic'), f"《{c['title']}》" if c.get('title') else '') if x)
+    return f"[c{i}] {c['date']} {c.get('hhmm') or ''} {who} {c['kind']}{' · ' + where if where else ''}：{c['text']}「{c['quote']}」"
 
 
 def clean(text, alias):
@@ -164,7 +213,8 @@ def answer(question):
     else:
         alias = {i: c for i, c in enumerate(picked, 1)}
         raw = llm.ask(ANSWER_PROMPT.format(history=htext, question=plan.get('q') or question,
-                                           cards='\n'.join(_card_line(i, c) for i, c in alias.items())))
+                                           cards='\n'.join(_card_line(i, c) for i, c in alias.items()),
+                                           summaries=_summaries(picked)))
         if not raw:
             raise RuntimeError('模型没回（看「窗口」栏里的模型状态）')
         text, used = clean(raw.strip(), alias)

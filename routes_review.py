@@ -115,10 +115,8 @@ def api_qa_clear():
 
 @bp.route('/api/qa/cards', methods=['POST'])
 def api_qa_cards():
-    """做卡：month=YYYY-MM 只做那个月，不给就把还差的天都做了。花钱的，前端先问过再调。"""
-    month = (request.get_json(silent=True) or {}).get('month') or ''
-    todo = [d for d in cards.due() if d.startswith(month)]
-    return jsonify(cards.start(todo))
+    """做卡：把还差的窗口都做了（新窗口整个做，老窗口只做后来的消息）。花钱的，前端先问过再调。"""
+    return jsonify(cards.start(cards.due()))
 
 
 @bp.route('/api/qa/cards/stop', methods=['POST'])

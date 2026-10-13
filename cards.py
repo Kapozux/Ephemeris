@@ -16,7 +16,7 @@ import hashlib
 import json
 import re
 import unicodedata
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime
 
 import index as idx
@@ -200,22 +200,31 @@ def _safe_day(date):
 
 
 def _run(job, dates):
-    """一次做 DAY_PARALLEL 天（每天里面再分 PARALLEL 块同时送）；每做完一批看一眼「停下」。"""
+    """同时做 DAY_PARALLEL 天（每天里面再分 PARALLEL 块同时送）；哪天做完就补下一天进来，不等最慢的那天。"""
     job['total'], job['done'], job['cost'], job['cards'], job['failed_days'] = len(dates), 0, 0.0, 0, 0
+    todo, running, streak = list(dates), {}, 0
     with ThreadPoolExecutor(max_workers=DAY_PARALLEL) as pool:
-        for i in range(0, len(dates), DAY_PARALLEL):
-            if job.get('stop'):
+        while todo or running:
+            while todo and len(running) < DAY_PARALLEL and not job.get('stop'):
+                d = todo.pop(0)
+                running[pool.submit(_safe_day, d)] = d
+            if not running:
                 break
-            batch = dates[i:i + DAY_PARALLEL]
-            job['current'] = ' / '.join(batch)
-            results = list(pool.map(_safe_day, batch))
-            for r in results:
+            job['current'] = ' / '.join(sorted(running.values()))
+            finished, _ = wait(running, return_when=FIRST_COMPLETED)
+            for f in finished:
+                del running[f]
+                r = f.result()
                 job['done'] += 1
                 job['cost'] = round(job['cost'] + r['cost'], 4)
                 job['cards'] += r['n']
                 job['failed_days'] += bool(r['failed'])
-            # 一整批都没做成：多半是 DeepSeek 两条路都连不上 / 欠费了。停下，别空跑完剩下几百天
-            if len(batch) > 1 and all(r['failed'] for r in results):
+                streak = streak + 1 if r['failed'] else 0
+            # 连着好几天都没做成：多半是 DeepSeek 两条路都连不上 / 欠费了。停下，别空跑完剩下几百天
+            if streak >= DAY_PARALLEL and len(dates) > 1:
+                job['stop'] = True
+                for f in running:
+                    f.cancel()
                 raise RuntimeError('DeepSeek 连着失败（欠费 / 连不上），先停了，没有改用 Gemini；修好再点「做上」接着做')
     return job['done']
 

@@ -4,6 +4,7 @@ from flask import Blueprint, jsonify, request
 import cards
 import conv_review
 import ledger
+import llm
 import qa
 import reflect_chat
 import river
@@ -93,14 +94,19 @@ def api_window_day(conv_id, date):
 @bp.route('/api/qa')
 def api_qa():
     """「问」那一栏：证据卡做到哪了（还差几天、估价、正在做的进度）+ 对话记录。"""
-    return jsonify({'cards': cards.status(), 'history': qa.history()})
+    return jsonify({'cards': cards.status(), 'history': qa.history(), 'deep': qa.deep_status()})
 
 
 @bp.route('/api/qa/ask', methods=['POST'])
 def api_qa_ask():
-    q = ((request.get_json(silent=True) or {}).get('question') or '').strip()
+    body = request.get_json(silent=True) or {}
+    q = (body.get('question') or '').strip()
     if not q:
         return jsonify({'error': '问题是空的'}), 400
+    if body.get('deep'):                              # 问 Claude：后台查，进度看 /api/qa 的 deep
+        if not llm.claude_on():
+            return jsonify({'error': 'Claude 现在用不了（没装 / 没登录 / 额度用完停着），先用普通的「问」'}), 409
+        return jsonify({'started': qa.start_deep(q), 'deep': qa.deep_status()})
     try:
         return jsonify(qa.answer(q))
     except Exception as e:                                   # noqa: BLE001

@@ -14,11 +14,16 @@
 """
 import json
 import math
+import os
 import re
+import sys
+import time
 from datetime import datetime
 
 import cards
 import days
+import index as idx
+import jobs
 import llm
 import store
 
@@ -109,31 +114,41 @@ def _keyword_rank(plan, rng, args, total):
     return [i for i, _ in sorted(score.items(), key=lambda x: (-x[1], x[0]))]
 
 
-def select(plan, follow=()):
-    """按计划挑卡：返回按时间排好的卡（dict 列表）。
-    时间范围里的卡放得下就全给（「10 月 5 号我聊了啥」）；放不下就两路找 —— 按字面（关键词）和按意思（向量），
-    两路的名次融合（RRF，照 Verbatim ask.hybrid），谁都不单独说了算。上一轮引用过的卡排最前（追问接得上）。"""
+def rank(plan, budget=BUDGET_CHARS):
+    """按计划给卡排名次 → 卡 id 列表（最相关的在前）。select 和 look.py（「问 Claude」的查卡工具）共用。
+    时间范围里的卡放得下（budget 字以内）就全给；放不下就两路找 —— 按字面（关键词）和按意思（向量），
+    两路的名次融合（RRF，照 Verbatim ask.hybrid），谁都不单独说了算。"""
     rng, args = _range(plan)
     total = store.one(f'SELECT COUNT(*) n, COALESCE(SUM(LENGTH(c.text) + LENGTH(c.quote) + 60), 0) size '
                       f'FROM cards c WHERE 1=1{rng}', *args)
-    if rng and total['size'] <= BUDGET_CHARS:
-        ids = [r['id'] for r in store.q(f'SELECT c.id FROM cards c WHERE 1=1{rng}', *args)]
-    else:
-        kw = _keyword_rank(plan, rng, args, total['n'] or 1)
-        allowed = {r['id'] for r in store.q(f'SELECT c.id FROM cards c WHERE 1=1{rng}', *args)} if rng else None
-        sem = cards.semantic(plan.get('q') or ' '.join(plan.get('keywords') or []), allowed)
-        fused = {}
-        for ranked in (kw, sem):
-            for n, i in enumerate(ranked):
-                fused[i] = fused.get(i, 0) + 1 / (RRF_K + n)
-        ids = [i for i, _ in sorted(fused.items(), key=lambda x: -x[1])]
-        if not ids and rng:                                  # 两路都没有、只说了时间：沿时间均匀取
-            allr = [r['id'] for r in store.q(f'SELECT c.id FROM cards c WHERE 1=1{rng} ORDER BY c.date, c.rowid', *args)]
-            ids = allr[::max(1, len(allr) // 400)]
+    if rng and total['size'] <= budget:
+        return [r['id'] for r in store.q(f'SELECT c.id FROM cards c WHERE 1=1{rng}', *args)]
+    kw = _keyword_rank(plan, rng, args, total['n'] or 1)
+    allowed = {r['id'] for r in store.q(f'SELECT c.id FROM cards c WHERE 1=1{rng}', *args)} if rng else None
+    sem = cards.semantic(plan.get('q') or ' '.join(plan.get('keywords') or []), allowed)
+    fused = {}
+    for ranked in (kw, sem):
+        for n, i in enumerate(ranked):
+            fused[i] = fused.get(i, 0) + 1 / (RRF_K + n)
+    ids = [i for i, _ in sorted(fused.items(), key=lambda x: -x[1])]
+    if not ids and rng:                                  # 两路都没有、只说了时间：沿时间均匀取
+        allr = [r['id'] for r in store.q(f'SELECT c.id FROM cards c WHERE 1=1{rng} ORDER BY c.date, c.rowid', *args)]
+        ids = allr[::max(1, len(allr) // 400)]
+    return ids
+
+
+def card(cid):
+    """一张卡，带窗口标题和那条消息的时间。"""
+    return store.one("""SELECT c.*, v.title, m.ts, m.hhmm FROM cards c LEFT JOIN conversations v ON v.id = c.conv_id
+                         LEFT JOIN messages m ON m.id = c.msg_id WHERE c.id=?""", cid)
+
+
+def select(plan, follow=()):
+    """按计划挑卡（rank 的名次，取到预算为止）：返回按时间排好的卡。上一轮引用过的卡排最前（追问接得上）。"""
+    ids = rank(plan)
     picked, size = [], 0
     for cid in list(follow) + [i for i in ids if i not in follow]:
-        c = store.one("""SELECT c.*, v.title, m.ts, m.hhmm FROM cards c LEFT JOIN conversations v ON v.id = c.conv_id
-                          LEFT JOIN messages m ON m.id = c.msg_id WHERE c.id=?""", cid)
+        c = card(cid)
         if not c:
             continue
         n = len(c['text']) + len(c['quote']) + 60
@@ -226,3 +241,127 @@ def answer(question):
     store.run('INSERT INTO qa_chat (ts, role, text, cites) VALUES (?,?,?,?)', now, 'assistant', text,
               json.dumps(cites, ensure_ascii=False))
     return {'answer': text, 'cites': cites, 'considered': len(picked), 'plan': plan}
+
+
+# ---------------------------------------------------------------- 问 Claude（深挖，2026-10-13）
+# 上面那套是写死的两路找卡 + 一次回答，快（十来秒）、便宜，但只看卡：卡漏掉的（比如「Pipeling」只做了 8 张卡）就答不出来，
+# 问得宽还会塞进几百张沾边的卡、答成大杂烩（10-13 用户：「证据卡咋来的」效果不好）。
+# 这里让 Claude Code 自己查：只放行 look.py（只读：搜原文 / 搜卡 / 读前后文 / 看某天），它决定先搜什么、读哪段，
+# 够了再答，出处可以是卡（[[c:id]]）也可以是原话（[[m:id]]）。追问接着同一个会话（--resume），前面查到的东西走缓存。
+# 一问一两分钟、等值几毛钱（订阅额度），所以是个开关，不是默认。
+DEEP_JOB = 'qa-deep'
+DEEP_TTL = 50 * 60                       # 追问在这么久以内就接着上一轮的会话（缓存 1 小时）
+HERE = os.path.dirname(os.path.abspath(__file__))
+LOOK = f'{sys.executable} {os.path.join(HERE, "look.py")}'
+DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料是他和 AI 的全部聊天记录（2025-07 起，几千个窗口）和从里面做出来的证据卡。今天是 {today}。
+
+查资料只有一个办法：用 Bash 运行 `{look} <命令>`（别的命令都会被拒）。命令：
+  msgs  <关键词> [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--who me|ai] [--old] [--n 30]   搜原始聊天，默认最新的在前；--old 最早的在前
+  cards <问题> [--kw 词,词] [--since …] [--until …] [--n 40]                             搜证据卡（字面 + 按意思）
+  read  <消息id> [--before 4] [--after 4] [--full]                                      读一条消息和它前后几条
+  conv  <窗口id>                                                                         窗口小结 + 每条一行的目录
+  convs <关键词>                                                                         哪些窗口聊过这个
+  day   <YYYY-MM-DD>                                                                     那天有哪些窗口、那天的日记、手写日记
+
+怎么查：
+- 具体的词、名字、「第一次 / 最早 / 什么时候开始」→ msgs（配 --old）；抽象的、跨很长时间的（状态、想法变化、怎么看某事）→ cards，再用 msgs 补。
+- 同一件事换几种说法都搜：中英文、简称、别名（比如「证据卡 / evidence card」「立党 / Lidang」）。
+- 关键的地方用 read 看前后文再下结论，别只看片段就猜。注意分清是他说的还是 AI 说的、是他贴进来的还是自己写的。
+- 每次只跑一条完整的命令（照上面的写法原样写全路径）：不要用 shell 变量、不要用 ; && | 把几条连起来——那样会被拒。
+- 查到能回答就停，别为了凑数一直查。
+
+回答：
+- 只根据查到的内容。查不到就直说没查到，并说查了哪些。
+- 每句有依据的话后面标出处：[[m:消息id]] 或 [[c:卡id]]，照抄工具输出里的记号，不要编。
+- 用「你」称呼他；分清「你说的 / 你想的」和「AI 当时说的」；有时间先后的按时间讲清变化。
+- 直白，不评价、不安慰、不说教。篇幅跟问题相称。用中文，除非他用英文问。
+- 最后只输出给他看的回答正文，不要讲你是怎么查的。
+
+之前的对话：
+{history}
+
+问题：{question}
+"""
+FOLLOW_PROMPT = """追问：{question}
+
+（规矩跟刚才一样：需要就接着用 look.py 查；只根据查到的回答，每句标 [[m:…]] / [[c:…]]；最后只输出回答正文。）"""
+CITE_ANY = re.compile(r'\[\[\s*([mc]):([^\]\s]+)\s*\]\]')
+
+
+def _deep_cites(text):
+    """回答里的 [[m:id]] / [[c:id]] → 出处快照（id 不存在的记号删掉）。返回 (正文, cites)。"""
+    cites, seen = [], {}
+
+    def rep(m):
+        kind, ref = m.group(1), m.group(2).strip()
+        key = f'{kind}:{ref}'
+        if key not in seen:
+            seen[key] = _snapshot(kind, ref)
+            if seen[key]:
+                cites.append(seen[key])
+        return f'[[{key}]]' if seen[key] else ''
+    return CITE_ANY.sub(rep, text or ''), cites
+
+
+def _snapshot(kind, ref):
+    if kind == 'c':
+        c = card(ref)
+        return c and {'id': f'c:{ref}', **{k: c[k] for k in ('date', 'who', 'kind', 'text', 'quote', 'conv_id', 'msg_id', 'title')}}
+    m = store.one("""SELECT m.id, m.date, m.role, m.text, m.conv_id, c.title FROM messages m
+                      LEFT JOIN conversations c ON c.id = m.conv_id WHERE m.id=?""", ref)
+    if not m:
+        return None
+    t = ' '.join((m['text'] or '').split())
+    return {'id': f'm:{ref}', 'date': m['date'], 'who': 'me' if m['role'] == 'human' else 'ai', 'kind': '原话',
+            'text': t[:60] + ('…' if len(t) > 60 else ''), 'quote': t[:240] + ('…' if len(t) > 240 else ''),
+            'conv_id': m['conv_id'], 'msg_id': m['id'], 'title': m['title']}
+
+
+def _step(kind, text):
+    """Claude 的一步 → 给人看的一行进度。"""
+    if kind == 'text':                                # 它中途说的话多半就是最后的回答，进度里不重复
+        return None
+    cmd = text.split('look.py', 1)[-1].strip()
+    verb, _, rest = cmd.partition(' ')
+    label = {'msgs': '搜原文', 'cards': '翻证据卡', 'read': '读原话前后', 'conv': '看窗口目录', 'convs': '找聊过的窗口',
+             'day': '看那天'}.get(verb, '查')
+    return f'🔎 {label}：{rest[:100]}'
+
+
+def answer_deep(question, progress=None):
+    """让 Claude 自己查着回答。progress(一行文字) 报进度。追问（DEEP_TTL 以内）接着上一轮的会话。"""
+    question = (question or '').strip()
+    if not question:
+        raise ValueError('问题是空的')
+    if not llm.claude_on():
+        raise RuntimeError('Claude 现在用不了（没装 / 没登录 / 额度用完停着），先用普通的「问」')
+    last = store.one("SELECT sid, ts FROM qa_chat WHERE role='assistant' ORDER BY id DESC LIMIT 1")
+    sid = last['sid'] if last and last['sid'] and \
+        time.time() - datetime.fromisoformat(last['ts']).timestamp() < DEEP_TTL else None
+    turns = history(HISTORY_TURNS * 2)
+    now = datetime.now().isoformat(timespec='seconds')
+    store.run('INSERT INTO qa_chat (ts, role, text, cites) VALUES (?,?,?,?)', now, 'user', question, '[]')
+    say = (lambda kind, text: _step(kind, text) and progress(_step(kind, text))) if progress else None
+    fresh = DEEP_PROMPT.format(name=idx.who(), today=days.today(), look=LOOK, history=_history_text(turns), question=question)
+    try:
+        text, new_sid = llm.claude_agent(FOLLOW_PROMPT.format(question=question) if sid else fresh, LOOK,
+                                         session=sid, on_event=say, purpose='qa-deep')
+    except RuntimeError:
+        if not sid:
+            raise
+        text, new_sid = llm.claude_agent(fresh, LOOK, on_event=say, purpose='qa-deep')    # 会话接不上：从头问
+    body, cites = _deep_cites(text)
+    store.run('INSERT INTO qa_chat (ts, role, text, cites, sid) VALUES (?,?,?,?,?)', datetime.now().isoformat(timespec='seconds'),
+              'assistant', body, json.dumps(cites, ensure_ascii=False), new_sid)
+    return {'answer': body, 'cites': cites, 'deep': True}
+
+
+def start_deep(question):
+    """后台问（一问一两分钟）：进度在 deep_status()['steps']，答完在 ['result']，记录照样进 history()。"""
+    def run(job, q):
+        job['result'] = answer_deep(q, progress=lambda line: job['steps'].append(line))
+    return jobs.start(DEEP_JOB, run, question, steps=[], result=None, question=question)
+
+
+def deep_status():
+    return jobs.get(DEEP_JOB, steps=[], result=None, question=None)

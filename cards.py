@@ -471,7 +471,8 @@ def semantic(query, allowed=None, k=400):
     except Exception as e:                                   # noqa: BLE001  没 Gemini key / 断网：只按字面找
         print(f'[cards] 按意思找没成：{type(e).__name__}: {e}', flush=True)
         return []
-    sims = mat @ qv
+    with np.errstate(all='ignore'):                    # macOS 上 numpy 的 Accelerate 会报假的 divide by zero（向量都是好的）
+        sims = mat @ qv
     if allowed is not None:
         mask = np.array([i in allowed for i in ids])
         sims = np.where(mask, sims, -2)

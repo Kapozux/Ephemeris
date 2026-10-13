@@ -301,10 +301,12 @@ def build_conv(conv_id, mode=None, route=None):
     if not segs:
         return {'n': 0, 'dropped': 0, 'cost': 0.0, 'failed': 0}
 
+    # effort medium（10-13 实测 6 段同提示词：Opus low 358 张、medium 518 张，原话核对都几乎全过；medium 的话题和种类分得更准，
+    # 小结也更贴原文。Haiku low 577 张、额度只要 1/20，但种类常标错（骂人的话标成「事实」）、小结会编时间段——用户要的是「给个好的」）
     def one(seg):
         p = prompt(conv_id, seg)
         raw = llm.ask_json(p, want=None, tries=2, model=MODEL, fallback=False,      # DeepSeek 限流不回 Gemini
-                           ok=lambda o: unpack(o) is not None, effort='low', route=route, purpose='cards')
+                           ok=lambda o: unpack(o) is not None, effort='medium', route=route, purpose='cards')
         pin, pout = llm.prices()
         return raw if unpack(raw) is not None else None, len(p) * pin + len(json.dumps(raw or {}, ensure_ascii=False)) * pout
 

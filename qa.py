@@ -65,7 +65,8 @@ ANSWER_PROMPT = """你在帮一个人回答关于他自己的问题。下面是�
 {summaries}
 """
 
-CITE_RE = re.compile(r'\[(c\d+(?:\s*[,，、]\s*c?\d+)*)\]')
+CITE_RE = re.compile(r'\[(c\d+[^\[\]\n]{0,80})\]')     # [c3]、[c3, c8]、[c3-c6]，后面夹了别的字（[c5， 背景]）也认
+_NUM_RE = re.compile(r'c?(\d+)(?:\s*[-–~]\s*c?(\d+))?')
 
 
 def _like(k):
@@ -169,18 +170,19 @@ def _card_line(i, c):
 
 
 def clean(text, alias):
-    """[c3, c8] → 真的卡 id；不在 alias 里的删掉。返回 (换成 [[id]] 记号的正文, 用到的 id 按出现顺序)。"""
+    """[c3, c8] / [c3-c6] → 真的卡 id；不在 alias 里的删掉。返回 (换成 [[id]] 记号的正文, 用到的 id 按出现顺序)。"""
     used = []
 
     def rep(m):
         ids = []
-        for part in re.split(r'\s*[,，、]\s*', m.group(1)):
-            n = part.lstrip('c')
-            if n.isdigit() and int(n) in alias:
-                cid = alias[int(n)]['id']
-                ids.append(cid)
-                if cid not in used:
-                    used.append(cid)
+        for a, b in _NUM_RE.findall(m.group(1)):
+            lo, hi = int(a), int(b or a)
+            for n in range(lo, min(hi, lo + 30) + 1):          # 范围最多认 30 张，别被「c1-c999」撑爆
+                if n in alias and alias[n]['id'] not in ids:
+                    ids.append(alias[n]['id'])
+        for cid in ids:
+            if cid not in used:
+                used.append(cid)
         return ''.join(f'[[{i}]]' for i in ids)
     return CITE_RE.sub(rep, text or ''), used
 

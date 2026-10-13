@@ -161,6 +161,11 @@ class Ask(unittest.TestCase):
         r = qa.answer('我早申最后去哪了')
         self.assertEqual([c['id'] for c in r['cites']], ['m1·1'])
 
+    def test_cite_ranges_and_stray_text(self):
+        alias = {i: {'id': f'x{i}'} for i in range(1, 10)}
+        self.assertEqual(qa.clean('a [c2-c4] b [c5， 背景] c [c9, c99]', alias),
+                         ('a [[x2]][[x3]][[x4]] b [[x5]] c [[x9]]', ['x2', 'x3', 'x4', 'x5', 'x9']))
+
     def test_nothing_found(self):
         llm.use_embed(None)
         cards._vec_cache.clear()

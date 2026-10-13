@@ -37,17 +37,19 @@ function renderCards(c) {
   const j = c.job || {}, box = $('#qaCards');
   clearTimeout(POLL);
   if (j.running) {
-    box.innerHTML = `<span class="pulse"></span> 正在做证据卡 ${j.done} / ${j.total} 天${j.current ? ` · ${j.current}` : ''} · 已花 $${(j.cost || 0).toFixed(2)}`
-      + (j.failed_days ? ` · ${j.failed_days} 天没做全（限流 / 断线），做完再补` : '') + ` · <a id="qaStop">停下</a>`;
+    box.innerHTML = `<span class="pulse"></span> ` + (j.stage === '算向量'
+      ? `在给卡算向量 ${j.vec_done || 0} / ${j.vec_total || '…'} 批`
+      : `正在做证据卡 ${j.done} / ${j.total} 个窗口${j.current ? ` · ${j.current} 个在做` : ''} · 已花 $${(j.cost || 0).toFixed(2)}`
+        + (j.failed ? ` · ${j.failed} 个没做全（限流 / 断线），下次再补` : '')) + ` · <a id="qaStop">停下</a>`;
     $('#qaStop').onclick = async () => { await fetch('/api/qa/cards/stop', { method: 'POST' }); };
     POLL = setTimeout(loadQA, 3000);
     return;
   }
-  const made = c.days ? `证据卡：${c.days} 天 · ${c.n.toLocaleString()} 张（${c.first} → ${c.last}）` : '还没有证据卡';
-  const todo = c.todo ? ` · 还有 ${c.todo} 天没做 · <a id="qaMake">做上（${usd(c.todo_estimate)}）</a>` : ' · 都做好了';
+  const made = c.n ? `证据卡：${c.convs} 个窗口 · ${c.n.toLocaleString()} 张（${c.first} → ${c.last}）` : '还没有证据卡';
+  const todo = c.todo ? ` · 还有 ${c.todo} 个窗口要做 · <a id="qaMake">做上（${usd(c.todo_estimate)}）</a>` : ' · 都做好了';
   box.innerHTML = made + todo + (j.error ? ` · <span class="qa-bad">上次没做完：${esc(j.error)}</span>` : '');
   const mk = $('#qaMake');
-  if (mk) mk.onclick = () => ask(mk, `把这 ${c.todo} 天的聊天（你说的和 AI 说的）做成证据卡，送 Gemini，${usd(c.todo_estimate)}`, async () => {
+  if (mk) mk.onclick = () => ask(mk, `把这 ${c.todo} 个窗口的聊天（你说的和 AI 说的）做成证据卡，走 DeepSeek，${usd(c.todo_estimate)}`, async () => {
     await fetch('/api/qa/cards', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     loadQA();
   });

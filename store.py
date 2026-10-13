@@ -120,12 +120,22 @@ CREATE INDEX IF NOT EXISTS checkins_date ON checkins(date);
 CREATE TABLE IF NOT EXISTS star_notes (month TEXT PRIMARY KEY, fingerprint TEXT, text TEXT, made_at TEXT);
 
 -- ---------------------------------------------------------------- 证据卡 + 问答（cards.py / qa.py，2026-10-11）
--- 一张卡 = 某天某条消息里的一个要点，带逐字原话（quote 必须在那条消息里找得到，找不到的卡不收）。
--- id = 「日期·序号」；who：me | ai。card_days 记每天做到哪、那天消息的指纹（变了才重做）、花了多少
+-- 一张卡 = 某条消息里的一个要点，带逐字原话（quote 必须在那条消息里找得到，找不到的卡不收）。
+-- id = 「消息 id·序号」；who：me | ai；topic：话题（跨窗口串起来用）。10-13 起按窗口做：
+-- card_convs 记每个窗口做到哪条（upto / upto_id）、做过那段的指纹（变了整窗重做）、这个窗口的小结、谁做的（api | claude）。
+-- card_days 是 10-13 之前按天做时的记账，不再写；cards_v1 是那时的卡，留着
 CREATE TABLE IF NOT EXISTS cards (
   id TEXT PRIMARY KEY, date TEXT NOT NULL, conv_id TEXT, msg_id TEXT, who TEXT, kind TEXT,
-  text TEXT, quote TEXT, made_at TEXT
+  text TEXT, quote TEXT, made_at TEXT, topic TEXT
 );
+CREATE INDEX IF NOT EXISTS cards_conv ON cards(conv_id);
+CREATE INDEX IF NOT EXISTS cards_msg ON cards(msg_id);
+CREATE TABLE IF NOT EXISTS card_convs (
+  conv_id TEXT PRIMARY KEY, fp TEXT, upto TEXT, upto_id TEXT, n INTEGER, dropped INTEGER, cost REAL,
+  summary TEXT, src TEXT, made_at TEXT
+);
+-- 卡的向量（qa 按意思找；Gemini embedding）。h：算向量时卡内容的指纹，卡重做了对不上就重算
+CREATE TABLE IF NOT EXISTS card_vecs (id TEXT PRIMARY KEY, h TEXT, model TEXT, vec BLOB);
 CREATE INDEX IF NOT EXISTS cards_date ON cards(date);
 CREATE VIRTUAL TABLE IF NOT EXISTS cards_fts USING fts5(
   text, quote, content='cards', content_rowid='rowid', tokenize='trigram', detail=none
@@ -195,6 +205,12 @@ def _cols(db, table):
 
 
 def _migrate(db):
+    # 证据卡改成按窗口做（2026-10-13）：老的按天做的卡先整张表留一份，再补 topic 列（新卡写进来会按窗口把老卡替掉）
+    if 'topic' not in _cols(db, 'cards'):
+        db.execute('CREATE TABLE IF NOT EXISTS cards_v1 AS SELECT * FROM cards')
+        db.execute('ALTER TABLE cards ADD COLUMN topic TEXT')
+        db.execute('CREATE INDEX IF NOT EXISTS cards_conv ON cards(conv_id)')
+        db.execute('CREATE INDEX IF NOT EXISTS cards_msg ON cards(msg_id)')
     for table, col, typ in _ADD_COLUMNS:
         if col not in _cols(db, table):
             db.execute(f'ALTER TABLE {table} ADD COLUMN {col} {typ}')

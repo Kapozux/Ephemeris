@@ -1,4 +1,4 @@
-"""每天早上那一串：拉 claude.ai → 补写缺的日记 → 整理。08:30 自己跑，手动点「立刻同步」也走这一条。
+"""每天早上那一串：拉 claude.ai → 补写缺的日记 → 证据卡（最近一周有新消息的窗口）→ 整理。08:30 自己跑，手动点「立刻同步」也走这一条。
 
     morning(job, force)  整串（后台任务 claude-sync，进度在 job 里：stage / done / total）
     start(force)         手动点按钮
@@ -22,6 +22,7 @@ import time
 from datetime import datetime, timedelta
 
 import backup
+import cards
 import claude_sync
 import days
 import diary
@@ -63,6 +64,15 @@ def morning(job, force=False):
             print(f'[claude-sync] 接着写日记：{len(dates)} 天', flush=True)
             job.update(stage='写日记', done=0, total=len(dates))
             diary.run_batch(dates, progress=lambda a, b: job.update(done=a, total=b))
+    # 证据卡：最近一周有新消息的窗口（只做新来的那些消息），做完补向量。DeepSeek，一天约 $0.03
+    since = (datetime.fromisoformat(days.today()) - timedelta(days=AUTO_DAYS)).date().isoformat()
+    todo = cards.due_since(since)
+    if todo:
+        job.update(stage='证据卡', done=0, total=len(todo))
+        try:
+            cards.make(job, todo)
+        except Exception as e:                               # noqa: BLE001  做卡没成不耽误后面的整理
+            print(f'[cards] 早上做卡没做完：{type(e).__name__}: {e}', flush=True)
     job.update(stage='整理', done=0, total=0)
     tidy(llm.ask)
 

@@ -59,7 +59,7 @@ VOICE = """怎么说：
 
 ANSWER_PROMPT = """你在帮一个人回答关于他自己的问题。今天是 {today}。下面是从他和 AI 的聊天记录里做出来的证据卡，每张卡：
 [编号] 日期 时间 谁说的 类型 · 话题 ·《哪个聊天窗口》：要点「原话」
-「我」是提问的这个人，「AI」是当时跟他聊天的 AI。最后还有几个相关窗口的小结，只帮你看懂来龙去脉，不能当出处。
+「我」是提问的这个人，「AI」是当时跟他聊天的 AI。《手写日记》的卡出自他自己在 Notion 里写的日记，没有 AI 参与，是他当时最直接的想法。最后还有几个相关窗口的小结，只帮你看懂来龙去脉，不能当出处。
 
 规则：
 - 只根据这些卡回答，卡里没有的不要补，不要猜。卡不够回答就直说「卡里没找到」，并说找到了哪些相关的。
@@ -148,7 +148,7 @@ def rank(plan, budget=BUDGET_CHARS):
 
 def card(cid):
     """一张卡，带窗口标题和那条消息的时间。"""
-    return store.one("""SELECT c.*, v.title, m.ts, m.hhmm FROM cards c LEFT JOIN conversations v ON v.id = c.conv_id
+    return store.one(f"""SELECT c.*, {cards.TITLE} AS title, m.ts, m.hhmm FROM cards c LEFT JOIN conversations v ON v.id = c.conv_id
                          LEFT JOIN messages m ON m.id = c.msg_id WHERE c.id=?""", cid)
 
 
@@ -175,8 +175,8 @@ def _summaries(picked, limit=SUMMARY_CHARS):
         count[c['conv_id']] = count.get(c['conv_id'], 0) + 1
     out, size = [], 0
     for cid, _ in sorted(count.items(), key=lambda x: -x[1]):
-        r = store.one('SELECT s.summary, v.title FROM card_convs s LEFT JOIN conversations v ON v.id = s.conv_id '
-                      'WHERE s.conv_id=?', cid)
+        r = store.one(f"SELECT s.summary, {cards.TITLE.replace('c.conv_id', 's.conv_id')} AS title FROM card_convs s "
+                      'LEFT JOIN conversations v ON v.id = s.conv_id WHERE s.conv_id=?', cid)
         if not r or not r['summary']:
             continue
         line = f"《{r['title'] or '无标题'}》\n{r['summary'][-1500:]}"

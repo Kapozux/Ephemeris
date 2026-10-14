@@ -34,13 +34,15 @@ function body(text, cites) {
   }).join('');
 }
 
+const isJournal = c => (c.conv_id || '').startsWith('journal-');     // Notion 手写日记做的卡（cards.JOURNAL）
+
 function sources(cites) {
   if (!cites.length) return '';
   return `<details class="ch-src"><summary>出处 ${cites.length} 条</summary>${cites.map((c, i) => `
     <div class="ch-src-row" data-n="${i + 1}"><span class="ch-src-n">${i + 1}</span>
-      <span class="ch-src-main"><span class="ch-src-meta">${c.date} · ${c.who === 'me' ? '你说' : 'AI 说'} · ${esc(c.title || '')}</span>
+      <span class="ch-src-main"><span class="ch-src-meta">${c.date} · ${isJournal(c) ? '你写的' : c.who === 'me' ? '你说' : 'AI 说'} · ${esc(c.title || '')}</span>
         ${c.kind === '原话' ? '' : esc(c.text) + ' '}<span class="ch-src-q">「${esc(c.quote)}」</span></span>
-      <a class="ch-go" href="/#/day/${c.date}/conv/${encodeURIComponent(c.conv_id)}/msg/${encodeURIComponent(c.msg_id)}">去原话 →</a></div>`).join('')}</details>`;
+      <a class="ch-go" href="${isJournal(c) ? `/#/day/${c.date}/journal` : `/#/day/${c.date}/conv/${encodeURIComponent(c.conv_id)}/msg/${encodeURIComponent(c.msg_id)}`}">${isJournal(c) ? '去日记' : '去原话'} →</a></div>`).join('')}</details>`;
 }
 
 const qHtml = t => `<div class="ch-q"><div>${esc(t)}</div></div>`;

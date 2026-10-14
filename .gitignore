@@ -8,6 +8,7 @@
 !/README.zh-CN.md
 !/*.py
 !/run.sh
+!/run.bat
 !/requirements.txt
 !/*.command
 !/export_claude.js

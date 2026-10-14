@@ -13,6 +13,7 @@
 后台常驻的只有两样：启动时把回顾面板算好（reflect_chat.warm），和每分钟看一眼的调度（daily.scheduler）。
 """
 import os
+import sys
 import threading
 
 from urllib.parse import urlsplit
@@ -65,6 +66,11 @@ def _static_version():
 
 
 if __name__ == '__main__':
+    for stream in (sys.stdout, sys.stderr):              # Windows 控制台默认 GBK：打印 emoji / 生僻字别把进程打崩
+        try:
+            stream.reconfigure(errors='replace')
+        except (AttributeError, ValueError):
+            pass
     port = int(os.environ.get('PORT') or 5055)
     store.connect()                                                # 建表 / 老库补列，出错就在启动时报
     threading.Timer(3.0, reflect_chat.warm).start()               # 提前算好，打开面板不用等

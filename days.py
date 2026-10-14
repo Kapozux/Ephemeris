@@ -22,7 +22,23 @@ from datetime import date, datetime, timedelta, timezone
 import store
 
 # Claude API 给的是 UTC，按天分桶必须先落到你所在的时区，否则晚上 8 点以后的消息会算进第二天。
-LOCAL_TZ = timezone(timedelta(hours=8))          # Asia/Shanghai
+def _utc_offset():
+    """默认东八区（Asia/Shanghai）；别的时区在环境变量或 ephemeris/.env 里设 EPHEMERIS_UTC_OFFSET（小时，可以是 -5、5.5）。
+    这里不能用 index.env（index 要 import 这个模块），自己读一下 .env 那一行。"""
+    v = os.environ.get('EPHEMERIS_UTC_OFFSET')
+    if not v:
+        try:
+            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'), encoding='utf-8') as f:
+                v = next((ln.split('=', 1)[1].strip().strip('"\'') for ln in f if ln.startswith('EPHEMERIS_UTC_OFFSET=')), '')
+        except OSError:
+            v = ''
+    try:
+        return float(v or 8)
+    except ValueError:
+        return 8.0
+
+
+LOCAL_TZ = timezone(timedelta(hours=_utc_offset()))
 # 一天的分界：4 表示凌晨 4 点前算前一天 —— 熬夜聊的东西归到前一天的日记里。
 DAY_CUTOFF_HOUR = int(os.environ.get('DIARY_DAY_CUTOFF', '4'))
 

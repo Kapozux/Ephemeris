@@ -18,6 +18,7 @@
 import os
 import re
 import subprocess
+import sys
 from collections import defaultdict
 from datetime import datetime, timedelta
 
@@ -269,6 +270,9 @@ def reveal(kind):
     """在 Finder 里打开上次导出的文件夹（路径只用后台任务自己记的，不收前端传的）。"""
     path = jobs.get(f'export-{kind}', path=None)['path']
     if path and os.path.isdir(path):
-        subprocess.run(['open', path], check=False)
+        if sys.platform == 'win32':
+            os.startfile(path)                             # 用资源管理器打开
+        else:
+            subprocess.run(['open' if sys.platform == 'darwin' else 'xdg-open', path], check=False)
         return True
     return False

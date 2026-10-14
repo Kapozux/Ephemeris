@@ -71,6 +71,29 @@ class Sync(unittest.TestCase):
         self.run_sync()
         self.assertEqual([c for c in FakeChrome.calls if c[0] == 'fetch'], [])
 
+    def test_rate_limited_keeps_what_it_got_and_resumes(self):
+        orig = FakeChrome.evaluate
+
+        def limited(self, js, timeout=None):
+            r = orig(self, js, timeout)
+            if 'const ids = ' in js:
+                r = {**r, 'conversations': r['conversations'][:1], 'limited': True}
+            return r
+        with mock.patch.object(FakeChrome, 'evaluate', limited):
+            r = self.run_sync()
+        self.assertTrue(r['limited'])
+        self.assertEqual(r['fetched'], 1)
+        self.assertEqual(set(gs.known()), {'a'})                           # 拉到的记下了
+        self.assertEqual([c for c in FakeChrome.calls if c[0] == 'fetch'][-1], ('fetch', ['a', 'b']))
+        FakeChrome.calls = []
+        self.run_sync()
+        self.assertEqual([c for c in FakeChrome.calls if c[0] == 'fetch'], [('fetch', ['b'])])   # 下次只拉剩下的
+
+    def test_time_formats_compare_equal(self):
+        gs.remember([('a', '2026-10-14T01:00:00.000Z'), ('b', 1789000000.73)])
+        self.assertEqual(gs.known()['a'], gs.norm(1791939600.0))
+        self.assertEqual(gs.known()['b'], '1789000000')
+
     def test_not_configured_is_skipped(self):
         with mock.patch.object(gs, 'env', lambda k: ''):
             self.assertFalse(gs.configured())

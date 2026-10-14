@@ -177,6 +177,12 @@ CREATE TABLE IF NOT EXISTS claude_usage (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, purpose TEXT, model TEXT, effort TEXT,
   input INTEGER, output INTEGER, cache_read INTEGER, cache_write INTEGER, usd REAL, secs REAL, ok INTEGER
 );
+-- 走 API 的调用（DeepSeek 官方 / 百炼 / OpenRouter 上的 DeepSeek，2026-10-14：只有 DeepSeek key 的电脑也要看得到花了多少）。
+-- cache_hit：DeepSeek 上下文缓存命中的输入 token（按 1/10 价算）；usd 是按价目表估的
+CREATE TABLE IF NOT EXISTS api_usage (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, route TEXT, model TEXT, purpose TEXT,
+  input INTEGER, output INTEGER, cache_hit INTEGER, usd REAL, secs REAL, ok INTEGER
+);
 
 -- ---------------------------------------------------------------- 心情分（mood.py）
 -- src：hand（手写日记读出的「过得怎么样」，-2..+2）| friction（聊天里「卡得多狠」，0..4）| 实验留下的 ai / both

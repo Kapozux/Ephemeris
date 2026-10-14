@@ -21,7 +21,7 @@ class Stop(unittest.TestCase):
         llm.use(None)
         self.cheap = []
         self._orig = llm._cheap, llm._gemini
-        llm._cheap = lambda p, why=None: self.cheap.append(p) or '别的模型写的'
+        llm._cheap = lambda p, why=None, **kw: self.cheap.append(p) or '别的模型写的'
         llm._gemini = lambda p, model=None: self.cheap.append(p) or '别的模型写的'
         plan = json.dumps({'q': '我 ED 交哪', 'keywords': ['MIT'], 'since': None, 'until': None})
 

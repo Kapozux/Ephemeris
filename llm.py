@@ -265,9 +265,32 @@ _POL_EN = [r'CCP', r'CPC', r'Chinese Communist', r'Communist Party', r'Xi Jinpin
            r'Xinjiang', r'Tibet(?:an)?', r'Dalai Lama', r'Falun Gong', r'Taiwan independence', r'Hong Kong protests?',
            r'Great Firewall', r'PRC', r'Chinese government', r'Beijing regime']
 _POLITICAL = re.compile('|'.join(map(re.escape, _POL_ZH)) + r'|\b(?:' + '|'.join(_POL_EN) + r')\b')
-_cheap_state = {'calls': 0, 'guarded': 0, 'fallback': 0, 'last_error': None}
+_cheap_state = {'calls': 0, 'guarded': 0, 'fallback': 0, 'political_sent': 0, 'last_error': None}
 _paused = {}                                     # 路线名 → 停到什么时候
 _turn = [0]                                      # 轮到哪条路先上（几条路分着扛并发，2026-10-13）
+
+
+DEEPSEEK_MODEL = 'deepseek-v4-flash'
+# 只有 DeepSeek 的电脑（2026-10-14：用户同学的 Windows）聊天页的模型菜单。第一个是默认；.env 的 EPHEMERIS_DEEPSEEK_MODEL 能换默认
+DEEPSEEK_CHOICES = (('deepseek-v4-flash', 'DeepSeek V4 Flash'), ('deepseek-chat', 'DeepSeek Chat'),
+                    ('deepseek-reasoner', 'DeepSeek Reasoner（先想再答）'))
+CHEAP_SYSTEM = '你是 Ephemeris（一个人的私人日记应用）里的文本处理程序。只按用户消息里的要求输出，不寒暄，不加额外说明。'
+CHEAP_PARALLEL = int(idx.env('EPHEMERIS_CHEAP_PARALLEL') or 16)     # 同时在路上的 DeepSeek 请求最多几个（做卡 12 个窗口 × 4 段会冲到 48）
+CHEAP_RETRIES = 4                                # 没有 Gemini 可退时，同一条路限流 / 断线 / 5xx 再试几次
+RETRY_WAIT = 3.0                                 # 第 n 次重试前等 RETRY_WAIT × 2^(n-1) 秒（测试里设 0）
+_cheap_sem = threading.BoundedSemaphore(CHEAP_PARALLEL)
+# DeepSeek 价目（美元 / 百万 token：缓存没命中的输入、命中的输入、输出）。估价、记账都按它
+DEEPSEEK_PRICE = {'deepseek-reasoner': (0.55, 0.14, 2.19), 'deepseek-chat': (0.27, 0.07, 1.10)}
+DEEPSEEK_PRICE_DEFAULT = (0.14, 0.014, 0.28)    # V4 Flash
+
+
+def deepseek_model():
+    return (idx.env('EPHEMERIS_DEEPSEEK_MODEL') or DEEPSEEK_MODEL).strip()
+
+
+def gemini_ready():
+    """有没有 Gemini 可退（直连 key 或 OpenRouter）。只有 DeepSeek 的电脑上没有：涉政的也只能给 DeepSeek、失败了多重试几次。"""
+    return bool(key('GEMINI_API_KEY', 'gemini_key') or openrouter_key())
 
 
 def political(text):
@@ -290,7 +313,7 @@ def _cheap_routes(all_routes=False):
                     idx.env('EPHEMERIS_CHEAP_MODEL') or 'deepseek-v4-flash-0731', {'enable_thinking': False}))
     dk = key('DEEPSEEK_API_KEY', 'deepseek_key')
     if dk:
-        out.append(('deepseek', 'https://api.deepseek.com/v1', dk, 'deepseek-v4-flash', {}))
+        out.append(('deepseek', 'https://api.deepseek.com/v1', dk, deepseek_model(), {}))
     ok = openrouter_key()
     if ok:
         out.append(('openrouter', 'https://openrouter.ai/api/v1', ok, 'deepseek/deepseek-v4-flash',
@@ -316,47 +339,111 @@ def _pause(name, err):
 _MODERATED = ('data_inspection', 'DataInspection', 'inappropriate')
 
 
-def _cheap(prompt, why=None):
+def _retryable(e):
+    t = str(e)
+    return any(k in t for k in ('429', '500:', '502:', '503:', '504:', 'Timeout', 'timed out', 'Connection', 'SSL', '返回空'))
+
+
+def _picked_deepseek():
+    """聊天页选了 DeepSeek 的某个模型（llm.using）：只走 DeepSeek 官方那条、用这个模型。"""
+    m = getattr(_pick, 'model', None)
+    return m if m and m.startswith('deepseek') else None
+
+
+def _cheap(prompt, why=None, force=False, json_mode=False, purpose=''):
     """走 DeepSeek，拿到文字就返回；涉政、没有路线、全失败返回 None（调用方接着用 Gemini）。
     why：传一个 dict 进来，会记下是不是被内容审核拦了（why['moderated']=True）—— 词表没认出来、审核却拦了的，
-    也算涉政，该走 Gemini；跟限流不一样，重试多少次 DeepSeek 都不会收。"""
-    if len(political(prompt)) >= GUARD_MIN:
+    也算涉政，该走 Gemini；跟限流不一样，重试多少次 DeepSeek 都不会收。
+    force：涉政也照样给 DeepSeek（没有 Gemini 可退时，_call 传）。
+    json_mode：要的是 JSON 对象（ask_json(want=dict)）—— DeepSeek 官方那条开 response_format=json_object，回来的一定是合法 JSON。
+    DeepSeek 的上下文缓存按前缀命中：系统提示固定（CHEAP_SYSTEM），提示词模板也都是「固定的要求在前、材料在后」，
+    同一批活（做卡、打分）的前缀能读缓存，按 1/10 价算。"""
+    if not force and len(political(prompt)) >= GUARD_MIN:
         with _lock:
             _cheap_state['guarded'] += 1
         return None
     import requests
     routes = _cheap_routes()
+    picked = _picked_deepseek()
+    if picked:
+        routes = [(n, b, k, picked, x) for n, b, k, m, x in routes if n == 'deepseek'] or routes
+    tries = 1 if gemini_ready() else CHEAP_RETRIES      # 有 Gemini 就失败一次换它；只有 DeepSeek 就多扛几下
     with _lock:
         i = _turn[0] % max(len(routes), 1)
         _turn[0] += 1
     for name, base, k, model, extra in routes[i:] + routes[:i]:     # 轮流先上，失败了再试别的
-        try:
-            r = requests.post(base + '/chat/completions', timeout=300, headers={'Authorization': f'Bearer {k}'},
-                              json={'model': model, 'messages': [{'role': 'user', 'content': prompt}], **extra})
-            if r.status_code != 200:
-                raise RuntimeError(f'{r.status_code}: {r.text[:200]}')
-            body = r.json()
-            text = (((body.get('choices') or [{}])[0].get('message') or {}).get('content') or '').strip()
-            if not text:
-                raise RuntimeError('返回空')
-            _record('record_openai', body, name, model, 'ephemeris')
-            with _lock:
-                _cheap_state['calls'] += 1
-            return text
-        except Exception as e:                               # noqa: BLE001
-            with _lock:
-                _cheap_state['last_error'] = f'{name}: {e}'[:200]
-            if why is not None and any(k in str(e) for k in _MODERATED):
-                why['moderated'] = True
-            _pause(name, e)
+        body_json = {'model': model, 'messages': [{'role': 'system', 'content': CHEAP_SYSTEM}, {'role': 'user', 'content': prompt}],
+                     **extra}
+        if json_mode and name == 'deepseek' and 'reasoner' not in model and 'json' in prompt.lower():
+            body_json['response_format'] = {'type': 'json_object'}
+        for attempt in range(tries):
+            t = time.time()
+            try:
+                with _cheap_sem:
+                    r = requests.post(base + '/chat/completions', timeout=300, headers={'Authorization': f'Bearer {k}'},
+                                      json=body_json)
+                if r.status_code != 200:
+                    raise RuntimeError(f'{r.status_code}: {r.text[:200]}')
+                body = r.json()
+                text = (((body.get('choices') or [{}])[0].get('message') or {}).get('content') or '').strip()
+                if not text:
+                    raise RuntimeError('返回空')
+                _record('record_openai', body, name, model, 'ephemeris')
+                _api_record(name, model, purpose, body.get('usage') or {}, time.time() - t, True)
+                with _lock:
+                    _cheap_state['calls'] += 1
+                    if force:
+                        _cheap_state['political_sent'] += 1
+                return text
+            except Exception as e:                           # noqa: BLE001
+                with _lock:
+                    _cheap_state['last_error'] = f'{name}: {e}'[:200]
+                if why is not None and any(k in str(e) for k in _MODERATED):
+                    why['moderated'] = True
+                if picked and 'model' in str(e).lower():
+                    break                                    # 选的模型这条路没有：别停整条路
+                _pause(name, e)
+                if attempt + 1 < tries and _retryable(e) and _paused.get(name, 0) <= time.time():
+                    time.sleep(RETRY_WAIT * 2 ** attempt)
+                    continue
+                break
     with _lock:
         _cheap_state['fallback'] += 1
     return None
 
 
+def deepseek_price(model):
+    return DEEPSEEK_PRICE.get(model, DEEPSEEK_PRICE_DEFAULT)
+
+
+def _api_record(route, model, purpose, u, secs, ok):
+    """记进 api_usage（设置页「这周花了多少」、只有 DeepSeek 的电脑也看得到）。命中缓存的输入按便宜那档算。"""
+    hit = u.get('prompt_cache_hit_tokens') or ((u.get('prompt_tokens_details') or {}).get('cached_tokens')) or 0
+    inp, out = u.get('prompt_tokens') or 0, u.get('completion_tokens') or 0
+    miss_p, hit_p, out_p = deepseek_price(model)
+    usd = u.get('cost') if route == 'openrouter' and u.get('cost') is not None else \
+        ((inp - hit) * miss_p + hit * hit_p + out * out_p) / 1e6
+    try:
+        store.run('INSERT INTO api_usage (ts, route, model, purpose, input, output, cache_hit, usd, secs, ok) VALUES (?,?,?,?,?,?,?,?,?,?)',
+                  datetime.now().isoformat(timespec='seconds'), route, model, purpose, inp, out, hit, float(usd), round(secs, 1), int(ok))
+    except Exception:                                        # noqa: BLE001  记账失败不影响结果
+        pass
+
+
+def api_week():
+    """这周（周一起）走 API 的调用：次数、估的美元、缓存命中的输入占比。"""
+    monday = (datetime.now() - timedelta(days=datetime.now().weekday())).date().isoformat()
+    r = store.one('SELECT COUNT(*) calls, COALESCE(SUM(usd), 0) usd, COALESCE(SUM(input), 0) input, COALESCE(SUM(cache_hit), 0) hit '
+                  'FROM api_usage WHERE ts >= ?', monday)
+    return {**r, 'hit_rate': round(r['hit'] / r['input'], 2) if r['input'] else None}
+
+
 def prices():
     """(每 token 进, 每 token 出) 美元：估价用。能走 DeepSeek 就按它算（涉政的那一小部分按 Gemini，忽略）。"""
-    return (0.14 / 1e6, 0.28 / 1e6) if cheap_on() else (0.25 / 1e6, 1.50 / 1e6)
+    if cheap_on():
+        miss, _, out = deepseek_price(deepseek_model())
+        return miss / 1e6, out / 1e6
+    return 0.25 / 1e6, 1.50 / 1e6
 
 
 # ------------------------------------------------------------------ Claude（2026-10-13 起首选）
@@ -414,6 +501,11 @@ def _prio(purpose):
     return 'live' if p.startswith('qa') or p == 'ask' else 'batch' if p == 'cards' else 'normal'
 
 
+def _claude_bin():
+    """本机 claude 的完整路径（Windows 上 npm 装的是 claude.cmd，subprocess 要完整路径才找得到）。没装是 None。"""
+    return shutil.which('claude')
+
+
 def claude_on():
     if (idx.env('EPHEMERIS_CLAUDE') or 'on').strip().lower() in ('off', '0', 'false', 'no'):
         return False
@@ -423,7 +515,7 @@ def claude_on():
         return _paused.get('claude', 0) <= time.time()
     if os.environ.get('EPHEMERIS_NO_USAGE'):     # 测试环境：没给假的就当没有
         return False
-    return bool(shutil.which('claude')) and _paused.get('claude', 0) <= time.time()
+    return bool(_claude_bin()) and _paused.get('claude', 0) <= time.time()
 
 
 def _env(args):
@@ -438,8 +530,8 @@ def _claude_exec(args, stdin):
     if _claude_runner:
         return _claude_runner(args, stdin)
     os.makedirs(CLAUDE_CWD, exist_ok=True)
-    r = subprocess.run(['claude'] + args, input=stdin, capture_output=True, text=True, cwd=CLAUDE_CWD, timeout=CLAUDE_TIMEOUT,
-                       env=_env(args))
+    r = subprocess.run([_claude_bin() or 'claude'] + args, input=stdin, capture_output=True, text=True, encoding='utf-8',
+                       errors='replace', cwd=CLAUDE_CWD, timeout=CLAUDE_TIMEOUT, env=_env(args))
     try:
         return json.loads(r.stdout)
     except ValueError:
@@ -533,8 +625,8 @@ def _claude_events(args, prompt, on_event, timeout):
         return d
     os.makedirs(CLAUDE_CWD, exist_ok=True)
     t = time.time()
-    p = subprocess.Popen(['claude'] + args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                         text=True, cwd=CLAUDE_CWD, env=_env(args))
+    p = subprocess.Popen([_claude_bin() or 'claude'] + args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         text=True, encoding='utf-8', errors='replace', cwd=CLAUDE_CWD, env=_env(args))
     _procs[threading.get_ident()] = p
     try:
         p.stdin.write(prompt)
@@ -677,11 +769,12 @@ class Session:
         return ask(self.material + '\n\n' + task, route='cheap')
 
 
-def _call(prompt, model=None, fallback=True, effort='medium', route='auto', purpose=''):
+def _call(prompt, model=None, fallback=True, effort='medium', route='auto', purpose='', json_mode=False):
     """先 Claude（route='auto' 且能用时）；Claude 失败 / 撞上限 / route='cheap'（一次性的大批量活）走下面原来的路线。
     fallback=False：不涉政、又有 DeepSeek 的路时，DeepSeek 失败就当失败，不回 Gemini。
     给证据卡这种大批量的用：并发高的时候限流一来，悄悄全回 Gemini 会贵 3～5 倍；失败的块下次再做就是了。
-    例外：被内容审核拦了的照样回 Gemini（那是词表漏掉的涉政内容，重试也没用；10-12 全量做卡时遇到）。"""
+    例外：被内容审核拦了的照样回 Gemini（那是词表漏掉的涉政内容，重试也没用；10-12 全量做卡时遇到）。
+    没有 Gemini 可退（只有 DeepSeek 的电脑）：涉政的也给 DeepSeek（审核拦了就是这次没拿到，status() 里记着），不会因为「没有 Gemini key」整段失败。"""
     if _override:
         return _override(prompt)
     if route == 'auto' and claude_on():
@@ -696,11 +789,15 @@ def _call(prompt, model=None, fallback=True, effort='medium', route='auto', purp
     if b != 'gemini':
         raise RuntimeError(f'不认识的 EPHEMERIS_LLM：{b}（只有 gemini / verbatim）')
     if cheap_on():
-        guarded = len(political(prompt)) >= GUARD_MIN
+        alone = not gemini_ready()
+        guarded = len(political(prompt)) >= GUARD_MIN and not alone
         why = {}
-        text = _cheap(prompt, why)
+        text = _cheap(prompt, why, force=alone, json_mode=json_mode, purpose=purpose)
         if text:
             return text
+        if alone:
+            raise RuntimeError('DeepSeek 这次没拿到' + ('（内容审核拦了，这段没有别的模型可换）' if why.get('moderated') else
+                                                     f'：{_cheap_state["last_error"] or "没有能用的路"}'))
         if not guarded and not fallback and not why.get('moderated'):
             raise RuntimeError('DeepSeek 这次没拿到（限流 / 断线），按要求不回 Gemini')
     return _gemini(prompt, model)
@@ -771,13 +868,13 @@ def stray(text, source=''):
     return [w for w in _STRAY.findall(text or '') if w not in (source or '')]
 
 
-def ask(prompt, model=None, fallback=True, effort='medium', route='auto', purpose=''):
+def ask(prompt, model=None, fallback=True, effort='medium', route='auto', purpose='', json_mode=False):
     """调一次模型，返回文本；失败返回 None，原因记在 status() 里（界面能看到）。
     输出里冒出材料里没有的外文词：重来一次；还这样就照收（总比没有强），次数记在 status()['stray']。"""
     with _lock:
         _state['calls'] += 1
     try:
-        text = _call(prompt, model, fallback, effort, route, purpose)
+        text = _call(prompt, model, fallback, effort, route, purpose, json_mode)
     except Exception as e:                                   # noqa: BLE001
         with _lock:
             _state['failures'] += 1
@@ -787,7 +884,7 @@ def ask(prompt, model=None, fallback=True, effort='medium', route='auto', purpos
         with _lock:
             _state['stray'] += 1
         try:
-            again = _call(prompt, model, fallback, effort, route, purpose)
+            again = _call(prompt, model, fallback, effort, route, purpose, json_mode)
         except Exception:                                    # noqa: BLE001  重来失败就用第一次的
             again = None
         if again and not stray(again, prompt):
@@ -830,7 +927,7 @@ def parse_json(text, want=None):
 def ask_json(prompt, want=dict, tries=2, model=None, ok=None, fallback=True, effort='medium', route='auto', purpose=''):
     """调模型并解析 JSON；解析失败或 ok(结果) 不满意就重来，最多 tries 次。"""
     for _ in range(tries):
-        out = parse_json(ask(prompt, model, fallback, effort, route, purpose), want)
+        out = parse_json(ask(prompt, model, fallback, effort, route, purpose, json_mode=want is dict), want)
         if out is not None and (ok is None or ok(out)):
             return out
     return None
@@ -842,8 +939,26 @@ def use(fn):
     _override = fn
 
 
+def chat_backend():
+    """聊天页（问）现在用谁写：claude | deepseek | gemini。菜单里列哪家的模型跟着它。"""
+    return 'claude' if claude_on() else 'deepseek' if cheap_on() else 'gemini'
+
+
+def choices():
+    """聊天页能挑的模型 [(id, 名字)]，第一个是默认。Gemini 那条没得挑（空）。"""
+    b = chat_backend()
+    if b == 'claude':
+        return CLAUDE_CHOICES
+    if b == 'deepseek':
+        own = deepseek_model()
+        if own in dict(DEEPSEEK_CHOICES):
+            return tuple(sorted(DEEPSEEK_CHOICES, key=lambda x: x[0] != own))
+        return ((own, own),) + DEEPSEEK_CHOICES
+    return ()
+
+
 def status():
-    return {'backend': backend(), **_state,
+    return {'backend': backend(), **_state, 'chat': chat_backend(), 'gemini_ready': gemini_ready(), 'api_week': api_week(),
             'claude': {'on': claude_on(), 'model': CLAUDE_MODEL, 'paused_until': _paused.get('claude'), 'week': claude_week()},
             'cheap': {'on': cheap_on(), **_cheap_state,
             'routes': [r[0] for r in _cheap_routes()], 'paused': [n for n, t in _paused.items() if t > time.time()],
@@ -851,7 +966,10 @@ def status():
 
 
 def check():
-    """启动时调一下：后端能不能建起来（不真的调模型）。返回错误说明或 None。"""
+    """启动时调一下：后端能不能建起来（不真的调模型）。返回错误说明或 None。
+    有 Claude 或 DeepSeek 就算能用（只有 DeepSeek 的电脑没有 Gemini key，不该报「不可用」）。"""
+    if backend() != 'verbatim' and (claude_on() or cheap_on()):
+        return None
     try:
         if backend() == 'verbatim':
             _getaudio()

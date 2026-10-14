@@ -11,13 +11,14 @@ class ClaudeRoute(unittest.TestCase):
     def setUp(self):
         store.run('DELETE FROM claude_usage')
         self.calls = []
-        self._cheap, self._gemini = llm._cheap, llm._gemini
-        llm._cheap = lambda prompt, why=None: 'deepseek 回的'
+        self._cheap, self._gemini, self._cheap_on = llm._cheap, llm._gemini, llm.cheap_on
+        llm._cheap = lambda prompt, why=None, **kw: 'deepseek 回的'
+        llm.cheap_on = lambda: True                   # 别看这台电脑旁边有没有 Verbatim 的 key
         llm._gemini = lambda prompt, model=None: 'gemini 回的'
 
     def tearDown(self):
         llm.use_claude(None)
-        llm._cheap, llm._gemini = self._cheap, self._gemini
+        llm._cheap, llm._gemini, llm.cheap_on = self._cheap, self._gemini, self._cheap_on
         llm._paused.pop('claude', None)
 
     def fake(self, reply):
@@ -66,7 +67,7 @@ class ClaudeRoute(unittest.TestCase):
 
     def test_session_falls_back_with_material(self):
         seen = []
-        llm._cheap = lambda prompt, why=None: (seen.append(prompt), 'deepseek 回的')[1]
+        llm._cheap = lambda prompt, why=None, **kw: (seen.append(prompt), 'deepseek 回的')[1]
         llm.use_claude(lambda args, stdin: {'is_error': True, 'result': 'Not logged in · Please run /login'})
         self.assertEqual(llm.Session('材料').ask('任务'), 'deepseek 回的')
         self.assertIn('材料', seen[0])                             # 退回时材料和任务一起送

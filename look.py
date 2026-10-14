@@ -6,6 +6,7 @@ python look.py read  <消息id> [--before 4] [--after 4] [--full]               
 python look.py conv  <窗口id>                                                          窗口小结 + 每条消息一行的目录
 python look.py convs <关键词>                                                          哪些窗口聊过（标题、小结、正文）
 python look.py day   <YYYY-MM-DD>                                                      那天有哪些窗口、那天的日记、手写日记
+python look.py stats [--since D] [--until D]                                           一共有多少：消息、字数、窗口、按来源、证据卡、日记、按月
 
 出处记号：消息是 m:<id>，卡是 c:<id>。回答时照抄就能被 Ephemeris 认回原话。
 搜原文 / 找窗口不看「问」自己的对话（来源 ask）：不然会引到自己以前的回答。
@@ -132,17 +133,47 @@ def day(a):
         print('\n手写日记：\n' + (j['text'] or '')[:3000])
 
 
+def stats(a):
+    """总量（2026-10-14 用户：问「你能搜集的数据规模」时，它只能拿「的」字搜一遍猜下限）。不算「问」自己的对话。"""
+    rng, args = _rng(a)
+    base = f"FROM messages m JOIN conversations c ON c.id = m.conv_id WHERE m.source <> 'ask' AND c.source <> 'ask'{rng}"
+    t = store.one(f"""SELECT COUNT(*) n, SUM(m.role='human') me, SUM(m.role='assistant') ai,
+                             SUM(CASE WHEN m.role='human' THEN m.chars ELSE 0 END) me_chars, SUM(m.chars) chars,
+                             COUNT(DISTINCT m.conv_id) convs, COUNT(DISTINCT m.date) days, MIN(m.date) first, MAX(m.date) last {base}""", *args)
+    scope = f"{a.since or '最早'} 到 {a.until or '现在'}" if (a.since or a.until) else '全部'
+    print(f"== {scope}（不含「问」自己的对话）")
+    print(f"时间：{t['first']} 到 {t['last']}，有聊天的日子 {t['days'] or 0} 天")
+    print(f"消息 {t['n'] or 0} 条（你 {t['me'] or 0} · AI {t['ai'] or 0}），共 {t['chars'] or 0:,} 字（你打的 {t['me_chars'] or 0:,} 字，含你贴进来的别人的内容）")
+    print(f"窗口 {t['convs'] or 0} 个")
+    print('\n按来源：')
+    for r in store.q(f"""SELECT c.source, COUNT(DISTINCT m.conv_id) convs, COUNT(*) n, SUM(m.role='human') me {base}
+                          GROUP BY c.source ORDER BY n DESC""", *args):
+        print(f"  {r['source']}：{r['convs']} 个窗口，{r['n']} 条（你 {r['me']}）")
+    crng, cargs = _rng(a, 'date')
+    k = store.one(f"SELECT COUNT(*) n, COUNT(DISTINCT conv_id) convs, SUM(who='me') me FROM cards WHERE 1=1{crng}", *cargs)
+    print(f"\n证据卡 {k['n'] or 0} 张（来自 {k['convs'] or 0} 个窗口；你说的 {k['me'] or 0} 张）")
+    kinds = store.q(f"SELECT kind, COUNT(*) n FROM cards WHERE 1=1{crng} GROUP BY kind ORDER BY n DESC LIMIT 8", *cargs)
+    if kinds:
+        print('  按种类：' + '、'.join(f"{r['kind']} {r['n']}" for r in kinds))
+    d = store.one(f"SELECT COUNT(*) n FROM diaries WHERE 1=1{crng}", *cargs)
+    j = store.one(f"SELECT COUNT(*) n, SUM(chars) chars FROM journal WHERE (gone_at IS NULL OR gone_at = ''){crng}", *cargs)
+    print(f"日记（Ephemeris 写的）{d['n'] or 0} 篇；手写日记 {j['n'] or 0} 篇，{j['chars'] or 0:,} 字")
+    print('\n按月（消息条数 · 你的）：')
+    for r in store.q(f"SELECT substr(m.date, 1, 7) mo, COUNT(*) n, SUM(m.role='human') me {base} GROUP BY mo ORDER BY mo", *args):
+        print(f"  {r['mo']}  {r['n']} · {r['me']}")
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog='look.py', description='只读查 Ephemeris 的聊天记录和证据卡')
-    p.add_argument('cmd', choices=['msgs', 'cards', 'read', 'conv', 'convs', 'day'])
-    p.add_argument('words', nargs='+')
+    p.add_argument('cmd', choices=['msgs', 'cards', 'read', 'conv', 'convs', 'day', 'stats'])
+    p.add_argument('words', nargs='*')
     p.add_argument('--since'); p.add_argument('--until')
     p.add_argument('--who', choices=['me', 'ai']); p.add_argument('--old', action='store_true')
     p.add_argument('--kw'); p.add_argument('--n', type=int, default=30)
     p.add_argument('--before', type=int, default=4); p.add_argument('--after', type=int, default=4)
     p.add_argument('--full', action='store_true')
     a = p.parse_args(argv)
-    {'msgs': msgs, 'cards': cards_, 'read': read, 'conv': conv, 'convs': convs, 'day': day}[a.cmd](a)
+    {'msgs': msgs, 'cards': cards_, 'read': read, 'conv': conv, 'convs': convs, 'day': day, 'stats': stats}[a.cmd](a)
 
 
 if __name__ == '__main__':

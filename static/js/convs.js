@@ -35,7 +35,7 @@ async function loadConvs() {
   CONVS = d.conversations;
   // 每个来源新到哪天：小标签。太久没新数据的标红，提示怎么补（账号要是没了就导不出来了）
   const HOW = { gemini: '用「导入…」里的「复制导出脚本」在 gemini.google.com 导一份拖进来', claude: '看看上面的 claude.ai 同步是不是坏了' };
-  const NAME = { claude: 'Claude', gemini: 'Gemini', ask: '问', cc: 'Claude Code', cursor: 'Cursor', codex: 'Codex' };
+  const NAME = { claude: 'Claude', gemini: 'Gemini', ask: '问', cc: 'Claude Code', cursor: 'Cursor', codex: 'Codex', chatgpt: 'ChatGPT' };
   $('#cvSrcs').innerHTML = Object.entries(d.by_source).map(([k, v]) => {
     const last = (d.latest || {})[k], ago = last ? Math.round((Date.now() - new Date(last + 'T12:00:00')) / 864e5) : null;
     const stale = ago > 30, tip = `${v} 个窗口${stale ? ` · ${HOW[k] || '导一份新的补上'}` : ''}`;
@@ -110,6 +110,14 @@ $('#geminiCopy').onclick = async () => {
     await navigator.clipboard.writeText(code);
     say('　已复制，去 Gemini 页面粘贴吧');
   } catch (e) { say('　没复制上（' + e.message + '）：直接打开 Ephemeris 文件夹里的 export_gemini.js 复制'); }
+};
+$('#chatgptCopy').onclick = async () => {                   // ChatGPT 同理（export_chatgpt.js，10-14）
+  const say = t => { $('#chatgptCopied').textContent = t; };
+  try {
+    const code = await fetch('/tools/export_chatgpt.js').then(r => { if (!r.ok) throw new Error(r.status); return r.text(); });
+    await navigator.clipboard.writeText(code);
+    say('　已复制，去 ChatGPT 页面粘贴吧');
+  } catch (e) { say('　没复制上（' + e.message + '）：直接打开 Ephemeris 文件夹里的 export_chatgpt.js 复制'); }
 };
 $('#importFile').onchange = e => { doImport(e.target.files); e.target.value = ''; };
 const ib = $('#importBox');

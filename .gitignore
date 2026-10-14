@@ -12,6 +12,7 @@
 !/*.command
 !/export_claude.js
 !/export_gemini.js
+!/export_chatgpt.js
 !/static/
 !/templates/
 !/tests/

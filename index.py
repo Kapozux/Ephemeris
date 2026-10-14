@@ -312,18 +312,57 @@ def parse_gemini_web(path):
                    'title': title or first[:38].replace('\n', ' ') or 'Gemini', 'title_fallback': not title, 'msgs': msgs}
 
 
+def _chatgpt_text(m):
+    c = m.get('content') or {}
+    if c.get('content_type') not in ('text', 'multimodal_text'):        # 代码执行、搜索结果、思考过程、自定义说明都不要
+        return ''
+    return '\n'.join(p for p in c.get('parts') or [] if isinstance(p, str)).strip()
+
+
+def parse_chatgpt_export(path):
+    """ChatGPT 官方「导出数据」（zip 或里面的 conversations.json，2026-10-14）。消息是一棵树（重新生成、改问题都会分叉），
+    从 current_node 往上走，只取最后停在的那一支；跟 export_chatgpt.js 一样只要他和 ChatGPT 的文字。
+    窗口 id 用 chatgpt-<对话 id>，跟脚本导的是同一个窗口。"""
+    for c in _load_claude_json(path):
+        mp, chain, nid = c.get('mapping') or {}, [], c.get('current_node')
+        while nid and nid in mp:
+            chain.append(mp[nid])
+            nid = mp[nid].get('parent')
+        msgs = []
+        for node in reversed(chain):
+            m = node.get('message') or {}
+            role, t = (m.get('author') or {}).get('role'), m.get('create_time')
+            if role not in ('user', 'assistant') or not t or (m.get('metadata') or {}).get('is_visually_hidden_from_conversation'):
+                continue
+            if role == 'assistant' and m.get('recipient') not in (None, 'all'):          # 发给工具的
+                continue
+            text = _chatgpt_text(m)
+            if text:
+                msgs.append((datetime.fromtimestamp(t, timezone.utc), 'human' if role == 'user' else 'assistant', text))
+        cid = c.get('conversation_id') or c.get('id')
+        if msgs and cid:
+            yield {'uid': f'chatgpt-{cid}', 'title': c.get('title') or 'Untitled', 'title_fallback': not c.get('title'), 'msgs': msgs}
+
+
 PARSERS = {'claude_md': parse_claude_md, 'claude_json': parse_claude_json, 'gemini_md': parse_gemini_md,
-           'gemini_takeout': parse_gemini_takeout, 'gemini_web': parse_gemini_web}
+           'gemini_takeout': parse_gemini_takeout, 'gemini_web': parse_gemini_web, 'chatgpt_export': parse_chatgpt_export}
 
 
 def sniff(path):
     """按内容判断格式和来源。"""
-    if zipfile.is_zipfile(path):
-        return 'claude_json', 'claude'                # claude.ai 官方导出的 zip
+    if zipfile.is_zipfile(path):                      # claude.ai / ChatGPT 官方导出的 zip：看里面 conversations.json 的样子
+        with zipfile.ZipFile(path) as z:
+            name = next((n for n in z.namelist() if n.endswith('conversations.json')), None)
+            head = z.open(name).read(20000).decode('utf-8', errors='replace') if name else ''
+        return ('chatgpt_export', 'chatgpt') if '"mapping"' in head and '"children"' in head else ('claude_json', 'claude')
     with open(path, 'rb') as f:
-        head = f.read(4000).decode('utf-8', errors='replace')
+        head = f.read(20000).decode('utf-8', errors='replace')
     if '"exporter":"ephemeris-gemini"' in head.replace(' ', ''):
         return 'gemini_web', 'gemini'                 # export_gemini.js
+    if '"exporter":"ephemeris-chatgpt"' in head.replace(' ', ''):
+        return 'claude_json', 'chatgpt'               # export_chatgpt.js：格式跟 export_claude.js 一样（messages + role）
+    if head.lstrip().startswith('[') and '"mapping"' in head and '"children"' in head:
+        return 'chatgpt_export', 'chatgpt'            # ChatGPT 官方导出的 conversations.json
     if head.lstrip().startswith('{') or head.lstrip().startswith('['):
         # Google Takeout 的 MyActivity 也是 JSON，但顶层是活动数组，跟 Claude 导出完全两回事
         if '"header"' in head and '"time"' in head and ('Gemini Apps' in head or 'Bard' in head):

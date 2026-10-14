@@ -25,7 +25,7 @@
   --line:#ECEAE1; --line-2:#E1DED2;
   --coral:#D97757; --coral-deep:#B05230; --coral-press:#933F22; --coral-soft:#FBEEE7; --coral-line:#F0D8CC;
   --code-bg:#F1EFE8; --mark:#FFF1B8;
-  --claude:#D97757; --gemini:#4A7DB5;
+  --claude:#D97757; --gemini:#4A7DB5; --chatgpt:#2E8B6E;
   --on-coral:#fff; --btn:var(--coral-deep); --btn-press:var(--coral-press);   /* 主按钮：底色和上面的字 */
   --ok:#4F7A5B; --ok-dot:#5B8C5A;                 /* 好 / 已完成：字用 ok，圆点和底色用 ok-dot */
   --journal-bg:#FFFDF9;                            /* 手写日记卡：比 card 暖一点 */
@@ -65,7 +65,7 @@
     --line:#33332F; --line-2:#44433F;
     --coral:#D97757; --coral-deep:#E8957A; --coral-press:#B05230; --coral-soft:#3A2A22; --coral-line:#5C3B2D;
     --code-bg:#2C2C2A; --mark:#5A4A1C;
-    --claude:#D97757; --gemini:#6A9AD0;
+    --claude:#D97757; --gemini:#6A9AD0; --chatgpt:#4FB08F;
     --on-coral:#fff; --btn:#C4603E; --btn-press:#A94F30;
     --ok:#8DB88C; --ok-dot:#6E9F6C;
     --journal-bg:#292825;
@@ -221,7 +221,7 @@ button { font-family:inherit; }
 .threads-srclegend { margin-left:auto; font-size:11px; color:var(--muted); display:flex; gap:10px; align-items:center; }
 .threads-srclegend span { display:inline-flex; align-items:center; white-space:nowrap; }
 .src { display:inline-block; width:6px; height:6px; border-radius:50%; flex:none; margin-right:4px; }
-.src.claude { background:var(--claude); } .src.gemini { background:var(--gemini); } .src.ask { background:var(--coral); } .src.cc { background:var(--ink-soft); }
+.src.claude { background:var(--claude); } .src.gemini { background:var(--gemini); } .src.ask { background:var(--coral); } .src.cc, .src.cursor, .src.codex { background:var(--ink-soft); } .src.chatgpt { background:var(--chatgpt); }
 .threads-body { overflow-y:auto; min-height:0; padding:4px 6px 8px; scrollbar-width:thin; }
 
 .thread { border-bottom:1px solid var(--line); }

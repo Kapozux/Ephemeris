@@ -51,6 +51,12 @@ def tool_export_gemini():
     return send_from_directory(idx.HERE, 'export_gemini.js', mimetype='text/javascript')
 
 
+@bp.route('/tools/export_chatgpt.js')
+def tool_export_chatgpt():
+    """「数据来源 → 导入」里 ChatGPT 那行的「复制导出脚本」（在 chatgpt.com 的控制台里跑，2026-10-14）。"""
+    return send_from_directory(idx.HERE, 'export_chatgpt.js', mimetype='text/javascript')
+
+
 @bp.route('/api/imports')
 def api_imports():
     return jsonify({'imports': store.q('SELECT * FROM imports ORDER BY id DESC LIMIT 100')})

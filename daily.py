@@ -24,6 +24,7 @@ from datetime import datetime, timedelta
 import backup
 import cards
 import claude_code
+import chatgpt_sync
 import claude_sync
 import codex
 import cursor
@@ -53,6 +54,12 @@ def morning(job, force=False):
             mod.sync()
         except Exception as e:                               # noqa: BLE001
             print(f'[{name}] 失败：{type(e).__name__}: {e}', flush=True)
+    if chatgpt_sync.configured():                            # ChatGPT（.env 里填了登录 cookie 才跑，10-14）：失败不挡后面
+        try:
+            g = chatgpt_sync.sync(progress=prog)
+            print(f"[chatgpt-sync] 拉了 {g['fetched']} 个，新消息 {g['new_msgs']}，涉及 {len(g['days'])} 天", flush=True)
+        except Exception as e:                               # noqa: BLE001
+            print(f'[chatgpt-sync] 失败：{type(e).__name__}: {e}', flush=True)
     try:
         r = claude_sync.sync(force=force, progress=prog)
     except Exception as e:                                   # noqa: BLE001

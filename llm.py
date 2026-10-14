@@ -583,6 +583,8 @@ def _claude_bin():
 def claude_on():
     if (idx.env('EPHEMERIS_CLAUDE') or 'on').strip().lower() in ('off', '0', 'false', 'no'):
         return False
+    if (idx.env('EPHEMERIS_PROVIDER') or 'claude').strip().lower() != 'claude':
+        return False                             # 「开始用」页选了别家：装着 Claude Code 也不碰它
     if claude_gate.paused_until():
         return False
     if _claude_runner:

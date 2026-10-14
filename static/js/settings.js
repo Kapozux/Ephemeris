@@ -9,20 +9,23 @@ const KEYS = [
   ['setClaude', 'CLAUDE_SESSION_KEY', 'claude.ai 的 sessionKey', 'sk-ant- 开头的一串', 'password',
     '每天自动拉新对话用，等于你的登录，别发给别人。过一段时间会失效：同步报错时在这里贴一个新的。'
     + '取法：Chrome 打开 claude.ai（已登录）→ 右键「检查」→ Application → Cookies → https://claude.ai → sessionKey 那一行的值。',
-    s => s.claude ? '已填' : '没填：claude.ai 不会自动同步'],
+    s => s.claude ? '已填' : '没填：claude.ai 不会自动同步', s => s.claude],
+  ['setDeepseek', 'DEEPSEEK_API_KEY', 'DeepSeek API key', 'sk- 开头的一串', 'password',
+    '只有 DeepSeek 时它就是主力；有 Claude 时是省钱的后备。在 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">platform.deepseek.com</a> 拿，存之前先跟 DeepSeek 验一下（不花钱）。',
+    s => s.providers?.deepseek ? '已填' : '没填', s => s.providers?.deepseek],
   ['setGemini', 'GEMINI_API_KEY', 'Gemini API key', 'AIza 开头的一串', 'password',
-    'Claude 用不了时的后备模型。在 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> 拿，存之前先跟 Google 验一下（不花钱）。',
-    s => s.gemini ? '能用' : '没填或用不了'],
+    'Claude 用不了时的后备模型；涉政的内容只给它。在 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> 拿，存之前先跟 Google 验一下（不花钱）。',
+    s => s.providers?.gemini ? '已填' : '没填', s => s.providers?.gemini],
   ['setName', 'DIARY_NAME', '日记里怎么称呼你', '比如：妈妈', 'text',
     '不填就叫「用户」。只影响以后写的日记。',
-    s => s.name ? `现在是「${esc(s.name)}」` : '没填'],
+    s => s.name ? `现在是「${esc(s.name)}」` : '没填', s => s.name],
 ];
 
 function keysStatus(s) {
-  for (const [id, , , , , , st] of KEYS) {
+  for (const [id, , , , , , st, ok] of KEYS) {
     const el = $(`#${id}St`); if (!el) continue;
     el.innerHTML = st(s);
-    el.classList.toggle('ok', !!(id === 'setClaude' ? s.claude : id === 'setGemini' ? s.gemini : s.name));
+    el.classList.toggle('ok', !!ok(s));
   }
 }
 

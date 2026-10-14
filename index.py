@@ -75,7 +75,7 @@ def conv_fingerprint(msgs):
 # ------------------------------------------------------------------ parsers
 # 每个 parser yield dict(title, title_fallback, msgs=[(dt, role, text)])
 
-_H_RE = re.compile(r'\n## (Human|Claude) \(([^)]*)\):\n')
+_H_RE = re.compile(r'\n## (Human|Claude|ChatGPT) \(([^)]*)\):\n')     # ChatGPT：同一个浏览器插件导出的 GPT 对话，格式一样
 
 
 def _claude_ts(s):
@@ -128,12 +128,14 @@ def parse_claude_md(path):
 
 
 def _msg_text(m):
-    """一条消息的正文。官方导出里 text 有时是空的，正文在 content 的 text 块里。"""
-    text = (m.get('text') or '').strip()
-    if not text and isinstance(m.get('content'), list):
-        text = '\n\n'.join((b.get('text') or '').strip() for b in m['content']
-                             if isinstance(b, dict) and b.get('type') == 'text' and b.get('text')).strip()
-    return text
+    """一条消息的正文。官方导出有 content 块就只拿 text 块，拼法跟每日同步（claude_sync.py 里的 JS）一模一样：直接接上、不加分隔。
+    官方导出的 text 字段把思考过程、工具调用（「This block is not supported…」）也拼进去了；拿它的话，
+    同一条回复跟同步来的那条算出不同的 id，一份官方导出能多出上万条「思考过程」（2026-10-14 试导时发现）。
+    没有 content 块（每日同步、export_claude.js）才用 text。"""
+    blocks = m.get('content')
+    if isinstance(blocks, list) and any(isinstance(b, dict) and b.get('type') == 'text' for b in blocks):
+        return ''.join(b.get('text') or '' for b in blocks if isinstance(b, dict) and b.get('type') == 'text').strip()
+    return (m.get('text') or '').strip()
 
 
 def _load_claude_json(path):
@@ -344,7 +346,54 @@ def parse_chatgpt_export(path):
             yield {'uid': f'chatgpt-{cid}', 'title': c.get('title') or 'Untitled', 'title_fallback': not c.get('title'), 'msgs': msgs}
 
 
-PARSERS = {'claude_md': parse_claude_md, 'claude_json': parse_claude_json, 'gemini_md': parse_gemini_md,
+_AS_MARK = re.compile(r'^\*\*(User|Model):\*\*[ \t]*$', re.M)
+_AS_TIME = re.compile(r'^(User|Model) (\d{1,2}):(\d{2})\s*(AM|PM)')
+_AS_STAMP = re.compile(r'(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})')
+
+
+def parse_aistudio_md(path):
+    """Google AI Studio 导出的 markdown（「# AI Studio Conversation」，2026-03 的 Adim1 / PHY）。
+    按 **User:** / **Model:** 标记一段一段读（块之间不一定有 ---）：
+      他说的：正文开头是「User 10:40 PM」，后面紧接着就是原话；只有附件（「User docs … tokens」）的不要。
+      模型的：带「Expand to view model thoughts」或「Thinking Process:」的是思考过程（有时后面跟着回答，分不清，整段不要）；
+             不带钟点、不带思考的才是回答，时间跟前一条他说的。
+    只有钟点没有日期：日期取文件名里的导出时间，钟点比导出时间晚就算前一天（对话要是跨了好几天，会都算到这一两天上）。"""
+    name = os.path.basename(path)
+    m = _AS_STAMP.search(name)
+    if not m:
+        raise ValueError('AI Studio 导出：文件名里没有导出时间（…-conversation-YYYY-MM-DD-HH-MM-SS.md），排不了日期')
+    y, mo, d, hh, mi = (int(x) for x in m.groups()[:5])
+    with open(path, encoding='utf-8', errors='replace') as f:
+        raw = f.read()
+    marks = list(_AS_MARK.finditer(raw))
+    msgs, clock = [], None
+    for i, mk in enumerate(marks):
+        body = raw[mk.end():marks[i + 1].start() if i + 1 < len(marks) else len(raw)]
+        body = '\n'.join(ln for ln in body.split('\n')
+                         if not ln.strip().startswith(('arrow_split', 'chevron_right'))).strip().rstrip('-').strip()
+        t = _AS_TIME.match(body)
+        if mk.group(1) == 'User':
+            if not t:
+                continue                                 # 只有附件 / 没时间
+            clock = (int(t.group(2)) % 12 + (12 if t.group(4) == 'PM' else 0), int(t.group(3)))
+            body = body[t.end():].strip()
+            role = 'human'
+        else:
+            if t or 'Expand to view model thoughts' in body or 'Thinking Process:' in body[:200]:
+                continue
+            role = 'assistant'
+        if not body or not clock:
+            continue
+        dt = datetime(y, mo, d, clock[0], clock[1], tzinfo=LOCAL_TZ)
+        if clock > (hh, mi):
+            dt -= timedelta(days=1)
+        msgs.append((dt, role, body))
+    if msgs:
+        title = re.sub(r'-conversation-.*$', '', re.sub(r'^\d{8}-\d{6}_', '', os.path.splitext(name)[0]))
+        yield {'title': f'AI Studio·{title}', 'title_fallback': False, 'msgs': msgs}
+
+
+PARSERS = {'claude_md': parse_claude_md, 'aistudio_md': parse_aistudio_md, 'claude_json': parse_claude_json, 'gemini_md': parse_gemini_md,
            'gemini_takeout': parse_gemini_takeout, 'gemini_web': parse_gemini_web, 'chatgpt_export': parse_chatgpt_export}
 
 
@@ -370,6 +419,10 @@ def sniff(path):
         return 'claude_json', 'claude'
     if '**我**' in head or re.search(r'\*\*(Gemini|模型)\*\* \(\d{4}-', head):
         return 'gemini_md', 'gemini'
+    if head.lstrip().startswith('# AI Studio Conversation'):
+        return 'aistudio_md', 'gemini'                # Google AI Studio（Gemini）导出的 markdown
+    if head.lstrip().startswith('# Conversation with ChatGPT'):
+        return 'claude_md', 'chatgpt'                 # 跟 Claude 的 transcript 同一个插件导出的，格式一样
     if '## Human (' in head or 'Claude Conversations Export' in head or 'Conversation with Claude' in head:
         return 'claude_md', 'claude'
     with open(path, encoding='utf-8', errors='replace') as f:

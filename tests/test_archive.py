@@ -90,6 +90,117 @@ class OfficialClaudeExport(unittest.TestCase):
         rows = store.q('SELECT role, text FROM messages ORDER BY ts')
         self.assertEqual([(x['role'], x['text']) for x in rows], [('human', '红烧肉怎么做'), ('assistant', '先焯水')])
 
+    def test_official_export_matches_daily_sync(self):
+        """官方导出的 text 把思考过程、工具调用也拼进去了；只拿 content 里的 text 块、直接接上，跟每日同步那条是同一个 id，不会多一份。"""
+        sync = os.path.join(self.tmp, 'sync.json')
+        with open(sync, 'w') as f:
+            json.dump({'conversations': [{'uuid': 'u-2', 'name': '读文件', 'messages': [
+                {'role': 'human', 'text': '你读一下', 'created_at': '2026-05-06T08:18:35Z'},
+                {'role': 'assistant', 'text': '文件很长。读完了。', 'created_at': '2026-05-06T08:19:15Z'}]}]}, f, ensure_ascii=False)
+        idx.ingest(store.connect(), sync)
+        export = os.path.join(self.tmp, 'conversations.json')
+        with open(export, 'w') as f:
+            json.dump([{'uuid': 'u-2', 'name': '读文件', 'chat_messages': [
+                {'sender': 'human', 'text': '你读一下', 'content': [{'type': 'text', 'text': '你读一下'}], 'created_at': '2026-05-06T08:18:35Z'},
+                {'sender': 'assistant', 'text': 'The user wants me to read it.\n```\nThis block is not supported\n```\n文件很长。读完了。',
+                 'content': [{'type': 'thinking', 'thinking': 'The user wants me to read it.'}, {'type': 'tool_use'},
+                             {'type': 'text', 'text': '文件很长。'}, {'type': 'tool_result'}, {'type': 'text', 'text': '读完了。'}],
+                 'created_at': '2026-05-06T08:19:15Z'}]}], f, ensure_ascii=False)
+        r = idx.ingest(store.connect(), export)
+        self.assertEqual(r['n_msgs_new'], 0)
+        self.assertEqual(store.one('SELECT COUNT(*) n FROM messages')['n'], 2)
+
+
+class OtherMarkdownExports(unittest.TestCase):
+    """2026-10-14 从下载里补导：Google AI Studio 的 markdown、同一个插件导出的 ChatGPT transcript。"""
+    def setUp(self):
+        with store.tx() as db:
+            for t in ('messages', 'conversations'):
+                db.execute(f'DELETE FROM {t}')
+        self.tmp = tempfile.mkdtemp(prefix='ephemeris-md-')
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def write(self, name, text):
+        p = os.path.join(self.tmp, name)
+        with open(p, 'w') as f:
+            f.write(text)
+        return p
+
+    def test_aistudio(self):
+        p = self.write('Adim1-conversation-2026-03-04-18-10-38.md', '''# AI Studio Conversation
+
+**User:**
+
+User  docs  progress_activity 40,304 tokens
+
+---
+
+**Model:**
+
+Model 10:40 PM
+
+![Thinking](x)
+
+ Thoughts **Considering**
+ Expand to view model thoughts 
+ chevron_right
+
+---
+
+**User:**
+
+User 10:40 PM你认为这个频道中文聊还是英文
+
+**Model:**
+
+结论：混合模式。
+ arrow_split See branched conversations
+
+---
+
+**User:**
+
+User 8:15 AM这是去年底的对话
+
+**Model:**
+
+Model 8:15 AMThinking Process:
+1. 想一想
+''')
+        self.assertEqual(idx.sniff(p), ('aistudio_md', 'gemini'))
+        r = idx.ingest(store.connect(), p)
+        self.assertEqual(r['n_msgs'], 3)
+        rows = store.q('SELECT date, hhmm, role, text FROM messages ORDER BY ts')
+        self.assertEqual([(x['date'], x['role'], x['text']) for x in rows],
+                         [('2026-03-03', 'human', '你认为这个频道中文聊还是英文'),        # 22:40 比导出时间 18:10 晚：前一天
+                          ('2026-03-03', 'assistant', '结论：混合模式。'),
+                          ('2026-03-04', 'human', '这是去年底的对话')])               # 思考过程那段不要
+
+    def test_chatgpt_transcript(self):
+        p = self.write('密码强度_transcript.md', '''# Conversation with ChatGPT
+
+**密码强度测量解析**
+
+---
+
+## Human (Aug 1, 2026, 3:42 PM):
+
+这题为什么选 C
+
+---
+
+## ChatGPT (Aug 1, 2026, 3:42 PM):
+
+因为两条结论要分开对应。
+''')
+        self.assertEqual(idx.sniff(p), ('claude_md', 'chatgpt'))
+        idx.ingest(store.connect(), p)
+        rows = store.q('SELECT source, role, text FROM messages ORDER BY ts, role DESC')
+        self.assertEqual([(x['source'], x['role']) for x in rows], [('chatgpt', 'human'), ('chatgpt', 'assistant')])
+        self.assertEqual(rows[0]['text'], '这题为什么选 C')
+
 
 class NotionNeverDeletes(unittest.TestCase):
     def setUp(self):

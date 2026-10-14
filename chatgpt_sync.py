@@ -30,12 +30,14 @@ env = idx.env
 
 _AUTH = """const s = await fetch('/api/auth/session', {credentials:'include'}).then(r => r.json()).catch(() => null);
   if (!s || !s.accessToken) return {error: 'no session', status: 401};
+  const norm = t => String(Math.floor(typeof t === 'number' ? t : (Date.parse(t) || 0) / 1000));   // 接口有时给秒数、有时给 ISO：一律整秒
   const did = (document.cookie.match(/oai-did=([^;]+)/) || [])[1];
   const H = {Authorization: 'Bearer ' + s.accessToken, ...(did ? {'oai-device-id': did} : {})};
   const get = async (p) => { for (let i = 0; ; i++) {
     const r = await fetch(p, {credentials:'include', headers: H});
     if (r.ok) return r.json();
-    if ((r.status === 429 || r.status >= 500) && i < 4) { await new Promise(x => setTimeout(x, 3000 * 2 ** i)); continue; }
+    if (r.status >= 500 && i < 3) { await new Promise(x => setTimeout(x, 3000 * 2 ** i)); continue; }
+    if (r.status === 429 && i < 2) { await new Promise(x => setTimeout(x, 20000 * (i + 1))); continue; }
     throw Object.assign(new Error('HTTP ' + r.status), {status: r.status, body: (await r.text()).slice(0, 300)}); } };"""
 
 _LIST_JS = """(async () => {
@@ -45,7 +47,7 @@ _LIST_JS = """(async () => {
     for (const archived of [false, true]) {
       for (let offset = 0; ; offset += 100) {
         const j = await get(`/backend-api/conversations?offset=${offset}&limit=100&order=updated&is_archived=${archived}`);
-        for (const c of j.items || []) out.set(c.id, {id: c.id, title: c.title || '', update_time: String(c.update_time || c.create_time || ''),
+        for (const c of j.items || []) out.set(c.id, {id: c.id, title: c.title || '', update_time: norm(c.update_time || c.create_time),
                                                       create_time: c.create_time});
         if ((j.items || []).length < 100) break;
         await new Promise(x => setTimeout(x, 300));
@@ -60,7 +62,7 @@ _LIST_JS = """(async () => {
       let cursor = '0';
       while (cursor != null) {
         const j = await get(`/backend-api/gizmos/${gid}/conversations?cursor=${cursor}`);
-        for (const c of j.items || []) out.set(c.id, {id: c.id, title: c.title || '', update_time: String(c.update_time || c.create_time || ''),
+        for (const c of j.items || []) out.set(c.id, {id: c.id, title: c.title || '', update_time: norm(c.update_time || c.create_time),
                                                       create_time: c.create_time});
         cursor = j.cursor ?? null;
       }
@@ -95,8 +97,11 @@ _FETCH_JS = """(async () => {
       if (messages.length) out.push({uuid: 'chatgpt-' + it.id, id: it.id, name: d.title || it.title || 'Untitled',
                                      created_at: iso(d.create_time || it.create_time), updated_at: it.update_time, messages});
       else out.push({id: it.id, updated_at: it.update_time, empty: true});
-    } catch (e) { fail.push({id: it.id, error: String(e)}); }
-    await new Promise(x => setTimeout(x, 300));
+    } catch (e) {
+      if (e.status === 429) return {conversations: out, failed: fail, limited: true};   // 被限速：今天先到这，下次接着
+      fail.push({id: it.id, error: String(e)});
+    }
+    await new Promise(x => setTimeout(x, 1500));       // 10-14 实测一秒一个，三百来个之后就被限速
   }
   return {conversations: out, failed: fail};
 })()"""
@@ -108,18 +113,34 @@ def known():
     return {r['id']: r['updated_at'] for r in store.q('SELECT id, updated_at FROM chatgpt_sync')}
 
 
+def norm(t):
+    """更新时间一律记成整秒的字符串（接口有时给秒数、有时给 ISO），对比才不会因为格式不同全部重拉。"""
+    if t in (None, ''):
+        return '0'
+    try:
+        return str(int(float(t)))
+    except (TypeError, ValueError):
+        try:
+            return str(int(datetime.fromisoformat(str(t).replace('Z', '+00:00')).timestamp()))
+        except ValueError:
+            return str(t)
+
+
 def remember(rows):
     now = datetime.now().isoformat(timespec='seconds')
     with store.tx() as db:
         db.executemany('INSERT OR REPLACE INTO chatgpt_sync (id, updated_at, synced_at) VALUES (?,?,?)',
-                       [(i, str(u), now) for i, u in rows])
+                       [(i, norm(u), now) for i, u in rows])
 
 
 def seed_from_export(path):
-    """手动导进来的 chatgpt_export_*.json：把里面每个对话的更新时间记下，自动同步就不再重拉它们。"""
-    with open(path, encoding='utf-8') as f:
-        data = json.load(f)
-    rows = [(c['uuid'].removeprefix('chatgpt-'), c.get('updated_at') or '') for c in data.get('conversations') or [] if c.get('uuid')]
+    """手动导进来的文件（export_chatgpt.js 的 json，或官方「导出数据」的 zip / conversations.json）：
+    把里面每个对话的更新时间记下，自动同步就不再重拉它们。"""
+    data = idx._load_claude_json(path)
+    if isinstance(data, list):                                              # 官方导出
+        rows = [(c.get('conversation_id') or c.get('id'), c.get('update_time')) for c in data if c.get('conversation_id') or c.get('id')]
+    else:
+        rows = [(c['uuid'].removeprefix('chatgpt-'), c.get('updated_at')) for c in data.get('conversations') or [] if c.get('uuid')]
     remember(rows)
     return len(rows)
 
@@ -189,9 +210,9 @@ def sync(progress=None, headless=True):
             raise claude_sync.SyncError(_explain(res))
         listed = res['conversations']
         seen = known()
-        todo = [x for x in listed if seen.get(x['id']) != x['update_time']]
+        todo = [x for x in listed if seen.get(x['id']) != norm(x['update_time'])]
         say('对比', len(listed) - len(todo), len(listed))
-        totals, failed, buf = {'msgs': 0, 'convs': 0, 'days': set()}, [], []
+        totals, failed, buf, limited = {'msgs': 0, 'convs': 0, 'days': set()}, [], [], False
         for i in range(0, len(todo), BATCH):
             chunk = todo[i:i + BATCH]
             r = None
@@ -212,10 +233,15 @@ def sync(progress=None, headless=True):
             buf += r.get('conversations', [])
             failed += r.get('failed', [])
             say('拉取', min(i + BATCH, len(todo)), len(todo))
+            if r.get('limited'):                          # 被 ChatGPT 限速：拉到的先入库，剩下的下次（记着拉到哪了）
+                limited = True
+                break
             if len(buf) >= FLUSH or i + BATCH >= len(todo):
                 _flush(buf, totals, say)
                 buf = []
-    return {'listed': len(listed), 'fetched': totals['convs'], 'failed': failed,
+        _flush(buf, totals, say)
+    return {'listed': len(listed), 'fetched': totals['convs'], 'failed': failed, 'limited': limited,
+            'left': len(todo) - totals['convs'] - len(failed) if limited else 0,
             'new_msgs': totals['msgs'], 'days': sorted(totals['days'])}
 
 
@@ -231,4 +257,4 @@ if __name__ == '__main__':
     t0 = time.time()
     r = sync(headless=not a.show, progress=lambda st, x, y: print(f'  {st} {x}/{y}' if y else f'  {st}…', flush=True))
     print(f"列出 {r['listed']} 个，拉了 {r['fetched']} 个，新消息 {r['new_msgs']}，涉及 {len(r['days'])} 天，"
-          f"失败 {len(r['failed'])}（{time.time() - t0:.0f}s）")
+          f"失败 {len(r['failed'])}" + (f"，被限速停下、还剩约 {r['left']} 个下次接着" if r['limited'] else '') + f"（{time.time() - t0:.0f}s）")

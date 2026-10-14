@@ -78,3 +78,19 @@ class DeepSeekChat(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class NoEmbedding(unittest.TestCase):
+    """DeepSeek 没有 embedding：没有 Google / OpenRouter 的 key 时，补向量那步安静跳过，按意思找返回空（「问」只按字面找）。"""
+    def setUp(self):
+        self.saved = (llm.embed_ready, llm.embed)
+        llm.embed_ready = lambda: False
+        llm.embed = lambda *a, **k: self.fail('没有 key 不该去算向量')
+
+    def tearDown(self):
+        llm.embed_ready, llm.embed = self.saved
+
+    def test_skips_quietly(self):
+        import cards
+        self.assertEqual(cards.embed_missing(), 0)
+        self.assertEqual(cards.semantic('我那阵子状态怎么样'), [])

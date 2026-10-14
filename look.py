@@ -4,7 +4,12 @@ python look.py msgs  <关键词> [--since D] [--until D] [--who me|ai] [--old] [
 python look.py cards <问题>   [--kw 词,词] [--since D] [--until D] [--n 40]           搜证据卡（字面 + 按意思，qa.rank）
 python look.py read  <消息id> [--before 4] [--after 4] [--full]                        读一条消息和它前后几条
 python look.py conv  <窗口id>                                                          窗口小结 + 每条消息一行的目录
-python look.py convs <关键词>                                                          哪些窗口聊过（标题、小结、正文）
+python look.py convs <词> [词…] [--n 25]                                              哪些窗口聊过（任一个词；标题、小结、正文），带每个窗口的字数
+python look.py sum   <窗口id> [窗口id…]                                                 把这些窗口的字数加起来（你打的 / AI 写的）
+python look.py journal <词> [--since D] [--until D]                                     搜他的手写日记
+python look.py diaries [--since D] [--until D] [--full]                                 按日期读 Ephemeris 写的日记（一天一段）
+python look.py schema                                                                  库里有哪些表、哪些列、各是什么
+python look.py sql   "<SELECT …>" [--n 30]                                              自己写只读 SQL（统计、加总、分组、筛选；改不了库）
 python look.py day   <YYYY-MM-DD>                                                      那天有哪些窗口、那天的日记、手写日记
 python look.py stats [--since D] [--until D]                                           一共有多少：消息、字数、窗口、按来源、证据卡、日记、按月
 
@@ -13,7 +18,9 @@ python look.py stats [--since D] [--until D]                                    
 """
 import argparse
 import os
+import sqlite3
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import qa      # noqa: E402
@@ -104,19 +111,49 @@ def conv(a):
         print(f"[m:{r['id']}] {r['date']} {r['hhmm']} {WHO.get(r['role'], r['role'])}（{r['chars']} 字）{_one_line(r['text'], 70)}")
 
 
+def _sizes(ids):
+    """{窗口: 你打的字、AI 写的字、条数、首末日期}（不算「问」自己的）。"""
+    out = {}
+    for i in range(0, len(ids), 500):
+        part = ids[i:i + 500]
+        for r in store.q(f"""SELECT conv_id, SUM(CASE WHEN role='human' THEN chars ELSE 0 END) me,
+                                    SUM(CASE WHEN role='assistant' THEN chars ELSE 0 END) ai, COUNT(*) n, MIN(date) a, MAX(date) b
+                               FROM messages WHERE conv_id IN ({','.join('?' * len(part))}) AND source <> 'ask' GROUP BY conv_id""", *part):
+            out[r['conv_id']] = r
+    return out
+
+
 def convs(a):
-    kw = ' '.join(a.words)
-    rows = store.q("""SELECT c.id, c.title, s.summary,
-                             (SELECT COUNT(*) FROM messages m WHERE m.conv_id = c.id AND m.text LIKE ?) hits,
-                             (SELECT MIN(date) FROM messages m WHERE m.conv_id = c.id) first,
-                             (SELECT MAX(date) FROM messages m WHERE m.conv_id = c.id) last
-                        FROM conversations c LEFT JOIN card_convs s ON s.conv_id = c.id
-                       WHERE c.source <> 'ask' AND (c.title LIKE ? OR s.summary LIKE ? OR EXISTS
-                             (SELECT 1 FROM messages m WHERE m.conv_id = c.id AND m.text LIKE ?))
-                       ORDER BY hits DESC LIMIT 25""", *([f'%{kw}%'] * 4))
-    print(f'「{kw}」出现在 {len(rows)} 个窗口（命中多的在前，最多 25 个）')
+    """几个词任一出现（标题、小结、原文）的窗口，命中多的在前；每个带字数，方便挑出某一类再用 sum 加起来。"""
+    kws = [w for w in a.words if w]
+    hit = ' + '.join(['(SELECT COUNT(*) FROM messages m WHERE m.conv_id = c.id AND m.text LIKE ?)'] * len(kws))
+    where = ' OR '.join(['c.title LIKE ? OR s.summary LIKE ? OR EXISTS (SELECT 1 FROM messages m WHERE m.conv_id = c.id AND m.text LIKE ?)'] * len(kws))
+    pats = [f'%{k}%' for k in kws]
+    rows = store.q(f"""SELECT c.id, c.title, s.summary, ({hit}) hits FROM conversations c LEFT JOIN card_convs s ON s.conv_id = c.id
+                        WHERE c.source <> 'ask' AND ({where}) ORDER BY hits DESC LIMIT ?""",
+                   *pats, *[p for p in pats for _ in range(3)], min(a.n, 300))
+    size = _sizes([r['id'] for r in rows])
+    print(f'「{" / ".join(kws)}」出现在 {len(rows)} 个窗口（命中多的在前，最多 {min(a.n, 300)} 个；要更多加 --n 300）')
     for r in rows:
-        print(f"{r['id']} 《{r['title'] or '无标题'}》 {r['first']}→{r['last']} 原文命中 {r['hits']} 处｜{_one_line(r['summary'], 160)}")
+        z = size.get(r['id']) or {}
+        print(f"{r['id']} 《{r['title'] or '无标题'}》 {z.get('a')}→{z.get('b')} 你 {z.get('me') or 0} 字 · AI {z.get('ai') or 0} 字"
+              f" 原文命中 {r['hits']} 处｜{_one_line(r['summary'], 160)}")
+
+
+def sum_(a):
+    """把挑出来的窗口加起来：每个一行，再给合计（你打的 / AI 写的分开）。"""
+    ids = list(dict.fromkeys(a.words))
+    size = _sizes(ids)
+    titles = {r['id']: r['title'] for r in store.q(f"SELECT id, title FROM conversations WHERE id IN ({','.join('?' * len(ids))})", *ids)}
+    me = ai = n = 0
+    for i in ids:
+        if i not in titles:
+            print(f'没有这个窗口：{i}')
+            continue
+        z = size.get(i) or {}
+        me, ai, n = me + (z.get('me') or 0), ai + (z.get('ai') or 0), n + 1
+        print(f"{i} 《{titles[i] or '无标题'}》 {z.get('a')}→{z.get('b')} {z.get('n') or 0} 条：你 {z.get('me') or 0} 字 · AI {z.get('ai') or 0} 字")
+    print(f'\n合计 {n} 个窗口：你 {me} 字 · AI {ai} 字 · 共 {me + ai} 字')
 
 
 def day(a):
@@ -163,9 +200,88 @@ def stats(a):
         print(f"  {r['mo']}  {r['n']} · {r['me']}")
 
 
+# ---------------------------------------------------------------- 自己写 SQL（10-14）
+# 现成命令不够（统计、加总、分组、按条件筛）就让它自己查。只读：库按只读打开，再加一道授权检查，只放行读；输出有上限、查询有时限。
+_NOTES = {
+    'messages': '每条消息。role = human（他）/ assistant（AI）；source = claude / gemini / chatgpt / cc / cursor / codex / ask（ask 是「问」自己，统计时一般排除）；date 按他的一天（凌晨算前一天）；chars 字数',
+    'conversations': '窗口（一段对话）。title 标题；source 同上',
+    'cards': '证据卡：从原话抽的要点。who = me / ai；kind 种类；topic 话题；quote 原话；msg_id 出自哪条消息',
+    'card_convs': '每个窗口做卡的情况，summary 是这个窗口的小结（按天分段）',
+    'diaries': 'Ephemeris 每天写的日记：headline 一句话、narrative 正文、mood、topics',
+    'journal': '他自己手写的日记（Notion 拉回来的），gone_at 有值的是 Notion 上删了的',
+    'checkins': '打卡：word 心情词、valence 好坏（正好负坏）、note 备注',
+    'mood_scores': '每天过得怎么样的打分（valence）',
+    'themes': '主题账本：长期在想的事；theme_days 是它出现在哪些天',
+    'qa_chat': '「问」的对话记录',
+}
+_SKIP = ('fts', 'dup', 'backup', 'sync', 'sqlite_', 'cc_files', 'imports', 'lab', 'card_vecs', 'cards_v1', 'flashback', 'daily_runs', 'claude_usage', 'notion_pages')
+
+
+def schema(a):
+    for t in [r['name'] for r in store.q("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]:
+        if any(x in t for x in _SKIP):
+            continue
+        cols = ', '.join(r['name'] for r in store.q(f"SELECT name FROM pragma_table_info('{t}')"))
+        n = store.one(f'SELECT COUNT(*) n FROM "{t}"')['n']
+        print(f"{t}（{n} 行）：{cols}" + (f"\n    {_NOTES[t]}" if t in _NOTES else ''))
+
+
+def _readonly_auth(action, *_):
+    ok = (sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION, getattr(sqlite3, 'SQLITE_RECURSIVE', 33))
+    return sqlite3.SQLITE_OK if action in ok else sqlite3.SQLITE_DENY
+
+
+def sql(a):
+    q = ' '.join(a.words).strip().rstrip(';')
+    cap = max(1, min(a.n, 500))
+    db = sqlite3.connect(f'file:{store.DB_PATH}?mode=ro', uri=True)
+    try:
+        db.execute('PRAGMA query_only = ON')
+        db.set_authorizer(_readonly_auth)
+        deadline = time.time() + 60
+        db.set_progress_handler(lambda: 1 if time.time() > deadline else 0, 10000)
+        try:
+            cur = db.execute(q)
+            rows = cur.fetchmany(cap + 1)
+        except (sqlite3.DatabaseError, sqlite3.Warning, sqlite3.ProgrammingError) as e:
+            msg = str(e)
+            if 'not authorized' in msg or 'one statement' in msg or 'readonly' in msg.lower():
+                print(f'只能查（一条 SELECT / WITH），不能改库：{msg}')
+            elif 'interrupted' in msg:
+                print('查了 60 秒没查完，换个更省的写法（少用 LIKE 扫全文、先按日期 / 窗口缩小范围）')
+            else:
+                print(f'SQL 出错：{msg}')
+            return
+        print('\t'.join(d[0] for d in cur.description or []))
+        for r in rows[:cap]:
+            print('\t'.join(_one_line(str(v), 300) if v is not None else '' for v in r))
+        if len(rows) > cap:
+            print(f'…只列前 {cap} 行（加 --n 最多 500，或者用 GROUP BY / COUNT 先汇总）')
+    finally:
+        db.close()
+
+
+def journal_(a):
+    kw = ' '.join(a.words)
+    rng, args = _rng(a, 'date')
+    rows = store.q(f"""SELECT date, text FROM journal WHERE text LIKE ? AND (gone_at IS NULL OR gone_at = ''){rng}
+                       ORDER BY date DESC LIMIT ?""", f'%{kw}%', *args, a.n)
+    print(f'手写日记里「{kw}」出现在 {len(rows)} 篇（最新的在前）')
+    for r in rows:
+        print(f"[{r['date']}] {_around(r['text'], kw)}")
+
+
+def diaries_(a):
+    rng, args = _rng(a, 'date')
+    rows = store.q(f'SELECT date, headline, narrative, mood FROM diaries WHERE 1=1{rng} ORDER BY date LIMIT ?', *args, min(a.n, 200))
+    for r in rows:
+        body = r['narrative'] or ''
+        print(f"== {r['date']} {r['headline'] or ''}" + (f"（{r['mood']}）" if r['mood'] else '') + '\n' + (body if a.full else _one_line(body, 400)))
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog='look.py', description='只读查 Ephemeris 的聊天记录和证据卡')
-    p.add_argument('cmd', choices=['msgs', 'cards', 'read', 'conv', 'convs', 'day', 'stats'])
+    p.add_argument('cmd', choices=['msgs', 'cards', 'read', 'conv', 'convs', 'day', 'stats', 'sum', 'sql', 'schema', 'journal', 'diaries'])
     p.add_argument('words', nargs='*')
     p.add_argument('--since'); p.add_argument('--until')
     p.add_argument('--who', choices=['me', 'ai']); p.add_argument('--old', action='store_true')
@@ -173,7 +289,8 @@ def main(argv=None):
     p.add_argument('--before', type=int, default=4); p.add_argument('--after', type=int, default=4)
     p.add_argument('--full', action='store_true')
     a = p.parse_args(argv)
-    {'msgs': msgs, 'cards': cards_, 'read': read, 'conv': conv, 'convs': convs, 'day': day, 'stats': stats}[a.cmd](a)
+    {'msgs': msgs, 'cards': cards_, 'read': read, 'conv': conv, 'convs': convs, 'day': day, 'stats': stats, 'sum': sum_, 'sql': sql, 'schema': schema,
+     'journal': journal_, 'diaries': diaries_}[a.cmd](a)
 
 
 if __name__ == '__main__':

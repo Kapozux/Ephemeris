@@ -344,17 +344,28 @@ DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料�
   cards <问题> [--kw 词,词] [--since …] [--until …] [--n 40]                             搜证据卡（字面 + 按意思）
   read  <消息id> [--before 4] [--after 4] [--full]                                      读一条消息和它前后几条
   conv  <窗口id>                                                                         窗口小结 + 每条一行的目录
-  convs <关键词>                                                                         哪些窗口聊过这个
+  convs <词> [词…] [--n 25]                                                              哪些窗口聊过（几个词任一出现），每个窗口带「你打的 / AI 写的」字数
+  sum   <窗口id> [窗口id…]                                                               把挑出来的窗口字数加起来
   day   <YYYY-MM-DD>                                                                     那天有哪些窗口、那天的日记、手写日记
   stats [--since YYYY-MM-DD] [--until YYYY-MM-DD]                                       一共有多少：消息、字数、窗口、按来源、证据卡、日记、按月
+  journal <词> [--since …] [--until …]                                                  搜他的手写日记
+  diaries [--since …] [--until …] [--full]                                              按日期读 Ephemeris 写的日记，一天一段（看一段时间过得怎样很快）
+  schema                                                                                 库里有哪些表、列、各是什么（messages / conversations / cards / diaries / journal / checkins / themes …）
+  sql   "<一条 SELECT 或 WITH>" [--n 30]                                                 自己写只读 SQL：统计、加总、分组、按条件筛，能算准数（改不了库，最多 500 行，60 秒）
 
 怎么查：
 - 问总量、规模、一共多少、哪个月聊得最多 → stats（给的是准数，别拿关键词搜索的命中数去估）。
+- 问「某一类事一共多少字 / 多少次 / 多少天 / 什么时候最多」（比如某个爱好、某个人、某门课）→ 自己算出准数，别拿他以前随口估的、
+  或者别处算过的旧数当答案（那些可以拿来对照）：先用 convs 多换几个说法（--n 100）把候选窗口找全，看标题和小结逐个判断算不算，
+  拿不准的用 conv 看一眼；再用 sum 把算进去的加起来（或者直接写 sql 按条件统计）。回答里说清楚算了哪几类窗口、排除了什么、
+  「你打的」和「AI 写的」各多少（像某个爱好这种，字主要是 AI 写的）。
+- 现成命令不够用，就先 schema 看表，再用 sql 自己查：按天 / 月分组、某段时间、某些窗口、某种卡、打卡和心情……都能算。
+  sql 用双引号把整条括起来，里面的字符串用单引号；别用 ; 和 ||；统计时一般排除 source = 'ask'（那是「问」自己）。
 - 具体的词、名字、「第一次 / 最早 / 什么时候开始」→ msgs（配 --old）；抽象的、跨很长时间的（状态、想法变化、怎么看某事）→ cards，再用 msgs 补。
 - 同一件事换几种说法都搜：中英文、简称、别名（比如「证据卡 / evidence card」「立党 / Lidang」）。
 - 关键的地方用 read 看前后文再下结论，别只看片段就猜。注意分清是他说的还是 AI 说的、是他贴进来的还是自己写的。
 - 每次只跑一条完整的命令（照上面的写法原样写全路径）：不要用 shell 变量、不要用 ; && | 把几条连起来——那样会被拒。
-- 查到能回答就停，别为了凑数一直查。
+- 查到能回答就停，别为了凑数一直查；但要算数的问题，宁可多查几步把数算准。
 
 回答：
 - 只根据查到的内容。查不到就直说没查到，并说查了哪些。
@@ -409,8 +420,15 @@ def _step(kind, text):
         return None
     cmd = text.split('look.py', 1)[-1].strip()
     verb, _, rest = cmd.partition(' ')
+    if verb == 'schema':
+        return '🔎 看库里有哪些表'
+    if verb == 'sql':                                 # SQL 原文人看不懂：只说在算，带上它查的是哪张表
+        tables = list(dict.fromkeys(re.findall(r'\b(?:FROM|JOIN)\s+(\w+)', rest, re.I)))
+        return f"🔎 自己算：{'、'.join(tables[:3]) or '统计'}"
+    if verb == 'sum':
+        return f'🔎 加字数：{len(rest.split())} 个窗口'
     label = {'msgs': '搜原文', 'cards': '翻证据卡', 'read': '读原话前后', 'conv': '看窗口目录', 'convs': '找聊过的窗口',
-             'day': '看那天'}.get(verb, '查')
+             'day': '看那天', 'stats': '看总量', 'journal': '翻手写日记', 'diaries': '读日记'}.get(verb, '查')
     return f'🔎 {label}：{rest[:100]}'
 
 

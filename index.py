@@ -346,6 +346,41 @@ def parse_chatgpt_export(path):
             yield {'uid': f'chatgpt-{cid}', 'title': c.get('title') or 'Untitled', 'title_fallback': not c.get('title'), 'msgs': msgs}
 
 
+def _ds_time(v):
+    """DeepSeek 导出里的时间：ISO 字符串（带不带时区都有）或秒数。没有时区按 UTC。"""
+    if isinstance(v, (int, float)):
+        return datetime.fromtimestamp(v, timezone.utc)
+    try:
+        dt = datetime.fromisoformat(str(v).replace('Z', '+00:00'))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def parse_deepseek_export(path):
+    """DeepSeek 网页（chat.deepseek.com → 设置 → 数据管理 → 导出数据）的 zip 或里面的 conversations.json（2026-10-14，给只用 DeepSeek 的同学）。
+    跟 ChatGPT 一样是一棵树（mapping：每个节点有 parent / children），但没有 current_node：从根往下，每层走最后一个孩子（最后一次重新生成 / 改的问题）。
+    一条消息的正文在 fragments 里：REQUEST 是他问的，RESPONSE 是 DeepSeek 答的；THINK（深度思考）、SEARCH（联网搜索结果）不要。
+    窗口 id 用 deepseek-<对话 id>。"""
+    for c in _load_claude_json(path):
+        mp = c.get('mapping') or {}
+        root = next((n for n in mp.values() if not n.get('parent')), None)
+        msgs, node, seen = [], root, set()
+        while node and node.get('id') not in seen:
+            seen.add(node.get('id'))
+            m = node.get('message') or {}
+            when = _ds_time(m.get('inserted_at') or c.get('inserted_at'))
+            for f in m.get('fragments') or []:
+                kind, text = str(f.get('type') or '').upper(), (f.get('content') or '').strip()
+                if text and when and kind in ('REQUEST', 'RESPONSE'):
+                    msgs.append((when, 'human' if kind == 'REQUEST' else 'assistant', text))
+            kids = node.get('children') or []
+            node = mp.get(kids[-1]) if kids else None
+        cid = c.get('id')
+        if msgs and cid:
+            yield {'uid': f'deepseek-{cid}', 'title': c.get('title') or 'Untitled', 'title_fallback': not c.get('title'), 'msgs': msgs}
+
+
 _AS_MARK = re.compile(r'^\*\*(User|Model):\*\*[ \t]*$', re.M)
 _AS_TIME = re.compile(r'^(User|Model) (\d{1,2}):(\d{2})\s*(AM|PM)')
 _AS_STAMP = re.compile(r'(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})')
@@ -418,7 +453,8 @@ def parse_aistudio_json(path):
         yield {'uid': 'aistudio-' + _h(name, 16), 'title': f'AI Studio·{name}', 'title_fallback': False, 'msgs': msgs}
 
 
-PARSERS = {'claude_md': parse_claude_md, 'aistudio_md': parse_aistudio_md, 'aistudio_json': parse_aistudio_json, 'claude_json': parse_claude_json, 'gemini_md': parse_gemini_md,
+PARSERS = {'claude_md': parse_claude_md, 'aistudio_md': parse_aistudio_md, 'aistudio_json': parse_aistudio_json,
+           'deepseek_export': parse_deepseek_export, 'claude_json': parse_claude_json, 'gemini_md': parse_gemini_md,
            'gemini_takeout': parse_gemini_takeout, 'gemini_web': parse_gemini_web, 'chatgpt_export': parse_chatgpt_export}
 
 
@@ -428,6 +464,8 @@ def sniff(path):
         with zipfile.ZipFile(path) as z:
             name = next((n for n in z.namelist() if n.endswith('conversations.json')), None)
             head = z.open(name).read(20000).decode('utf-8', errors='replace') if name else ''
+        if '"fragments"' in head and '"mapping"' in head:
+            return 'deepseek_export', 'deepseek'          # DeepSeek 网页导出的 zip
         return ('chatgpt_export', 'chatgpt') if '"mapping"' in head and '"children"' in head else ('claude_json', 'claude')
     with open(path, 'rb') as f:
         head = f.read(20000).decode('utf-8', errors='replace')
@@ -435,6 +473,8 @@ def sniff(path):
         return 'gemini_web', 'gemini'                 # export_gemini.js
     if '"exporter":"ephemeris-chatgpt"' in head.replace(' ', ''):
         return 'claude_json', 'chatgpt'               # export_chatgpt.js：格式跟 export_claude.js 一样（messages + role）
+    if head.lstrip().startswith('[') and '"mapping"' in head and '"fragments"' in head:
+        return 'deepseek_export', 'deepseek'          # DeepSeek 网页导出的 conversations.json（也有 mapping，先认它）
     if head.lstrip().startswith('[') and '"mapping"' in head and '"children"' in head:
         return 'chatgpt_export', 'chatgpt'            # ChatGPT 官方导出的 conversations.json
     if head.lstrip().startswith('{') or head.lstrip().startswith('['):

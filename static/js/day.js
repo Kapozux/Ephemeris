@@ -153,7 +153,7 @@ function aiMsgHtml(m, text, isTarget, q) {
             <span class="msg-time">${m.hhmm}</span><div class="msg-text msg-md j-body">${body}</div></div>`;
 }
 
-const SRC_NAME = { claude: 'Claude', gemini: 'Gemini', cc: 'Claude Code', cursor: 'Cursor', codex: 'Codex', chatgpt: 'ChatGPT', ask: '问' };
+const SRC_NAME = { claude: 'Claude', gemini: 'Gemini', cc: 'Claude Code', cursor: 'Cursor', codex: 'Codex', chatgpt: 'ChatGPT', deepseek: 'DeepSeek', ask: '问' };
 // 跨了几天（按日历天算，首尾都算）
 const spanDays = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5) + 1;
 

@@ -347,3 +347,37 @@ class NoRebuildFromScratch(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DeepSeekExport(unittest.TestCase):
+    """DeepSeek 网页导出（2026-10-14）：树从根往下每层走最后一个孩子；REQUEST / RESPONSE 要，THINK / SEARCH 不要；zip 也认。"""
+    def setUp(self):
+        with store.tx() as db:
+            for t in ('messages', 'conversations'):
+                db.execute(f'DELETE FROM {t}')
+        self.tmp = tempfile.mkdtemp(prefix='ephemeris-ds-')
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_zip(self):
+        import zipfile
+
+        def node(i, parent, kids, frags, t):
+            return {'id': i, 'parent': parent, 'children': kids,
+                    'message': {'model': 'deepseek-chat', 'inserted_at': t, 'fragments': frags} if frags else None}
+        conv = {'id': 'abc', 'title': '选课', 'inserted_at': '2026-09-01T10:00:00+08:00', 'mapping': {
+            'root': node('root', None, ['1'], None, None),
+            '1': node('1', 'root', ['2', '3'], [{'type': 'REQUEST', 'content': '物理选难的还是简单的'}], '2026-09-01T10:00:00+08:00'),
+            '2': node('2', '1', [], [{'type': 'RESPONSE', 'content': '旧的回答'}], '2026-09-01T10:00:30+08:00'),
+            '3': node('3', '1', [], [{'type': 'THINK', 'content': '想一想'}, {'type': 'SEARCH', 'content': '搜到的'},
+                                     {'type': 'RESPONSE', 'content': '选难的'}], '2026-09-01T10:01:00+08:00')}}
+        p = os.path.join(self.tmp, 'deepseek_data-2026-10-14.zip')
+        with zipfile.ZipFile(p, 'w') as z:
+            z.writestr('conversations.json', json.dumps([conv], ensure_ascii=False))
+        self.assertEqual(idx.sniff(p), ('deepseek_export', 'deepseek'))
+        r = idx.ingest(store.connect(), p)
+        self.assertEqual(r['n_msgs'], 2)
+        rows = store.q('SELECT conv_id, source, role, text FROM messages ORDER BY ts')
+        self.assertEqual([(x['conv_id'], x['source'], x['role'], x['text']) for x in rows],
+                         [('deepseek-abc', 'deepseek', 'human', '物理选难的还是简单的'), ('deepseek-abc', 'deepseek', 'assistant', '选难的')])

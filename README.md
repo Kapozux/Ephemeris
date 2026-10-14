@@ -62,6 +62,10 @@ Importing the same data twice is safe. Messages are de-duplicated, and only days
 
 ## Setup
 
+> **Windows / DeepSeek-only:** install Python from python.org (tick "Add python.exe to PATH"), download this repo, and double-click `run.bat`.
+> On the get-started page pick **DeepSeek** and paste a key from platform.deepseek.com; everything (diaries, evidence cards, Ask, deep Ask with tool calls) then runs on DeepSeek.
+> Other choices: a local Claude Code login, Gemini, OpenRouter, or Alibaba Bailian. Chat exports from DeepSeek, ChatGPT, Claude and Gemini can be imported right on that page.
+
 Requirements: a Mac, Python 3.9+ (the first `python3` on a Mac offers to install the developer tools; accept), and Chrome or Edge (for the claude.ai sync; either works).
 
 ```bash

@@ -57,12 +57,19 @@ claude.ai（每日同步）─┐
 - Claude 无痕模式的单窗口 transcript
 - Gemini 的 `sess_*.md` 导出
 - Google Takeout 里 Gemini Apps 的 `MyActivity.json`
+- ChatGPT 官方「导出数据」的 .zip
+- DeepSeek 网页（chat.deepseek.com → 设置 → 数据管理 → 导出所有历史对话）的 .zip
+- Google AI Studio 导出的 markdown
+- 本机的 Claude Code、Cursor、Codex 对话（每天早上自动读，不用导）
 
 同一份数据导两次也没关系。消息会去重，只有内容真的变了的那几天才会重写日记。
 
 ## 安装
 
-需要：一台 Mac、Python 3.9+（Mac 上第一次敲 `python3` 会提示装开发者工具，点安装就行）、Chrome 或 Edge（claude.ai 同步用，有一个就行）。
+需要：一台 Mac 或 Windows 电脑、Python 3.9+、一家模型的 key（DeepSeek / Gemini / OpenRouter / 百炼任选，或者本机装好的 Claude Code）。
+Chrome 或 Edge 只有 claude.ai 自动同步要用。
+
+**Mac**
 
 ```bash
 git clone https://github.com/Kapozux/Ephemeris.git
@@ -72,22 +79,44 @@ cd Ephemeris
 
 不想开终端：在 Finder 里双击 `启动 Ephemeris.command`（那个窗口别关，关了 Ephemeris 就停了）。
 
-第一次打开会出「开始用」页，照着做三件事：贴 Gemini key、贴 claude.ai 的 sessionKey、点「开始下载」。
+**Windows**
+
+1. 装 Python：从 [python.org](https://www.python.org/downloads/) 下载，安装第一屏一定要勾「Add python.exe to PATH」。
+2. 下载这个仓库（GitHub 页面上 Code → Download ZIP，解压到比如 `D:\Ephemeris`；或者 `git clone`）。
+3. 双击 `run.bat`。第一次会自己装需要的东西（一两分钟），然后自动打开 http://localhost:5055。
+   那个黑色窗口别关，关了 Ephemeris 就停了。以后再双击 `run.bat` 就行。
+
+第一次打开会出「开始用」页：
+
+1. **选一家写日记的模型**，只要那家的 key：
+   - **DeepSeek**（只有 DeepSeek 的选这个）：在 [platform.deepseek.com](https://platform.deepseek.com/api_keys) 创建 API key、充一点钱，贴进来。
+     写日记、做证据卡、「问」都走它；深挖时它自己调工具翻你的聊天记录。DeepSeek 没有向量模型，「问」按字面找。
+   - **Claude Code**：本机装好并登录过 `claude`，不用 key，用订阅额度。
+   - **Gemini** / **OpenRouter** / **百炼（通义）**：贴对应的 key。
+   key 存之前会先跟那家验一下（不花钱）；错的、没余额的 key 存不进去。
+2. 日记里怎么称呼你（可以不填）。
+3. **把聊天记录放进来**：直接在这一页选导出文件（DeepSeek / ChatGPT / Claude / Gemini 的 .zip 都行，不用解压），
+   或者贴 claude.ai 的 sessionKey 让它每天自动下载。
+
 填的东西只写进本机的 `.env`。弄好之后这一页就不再出现。
-也可以不给 sessionKey：claude.ai 设置里「导出数据」下载的 .zip，直接拖进「窗口与导入」。
 
 `.env` 里的字段（页面上填过的不用再管；用不到的可以不填）：
 
 | 字段 | 用途 |
 | --- | --- |
-| `GEMINI_API_KEY` | 写日记、回顾（必须） |
+| `EPHEMERIS_PROVIDER` | 用哪家模型：`deepseek` / `claude` / `gemini` / `openrouter` / `dashscope`（「开始用」页选的）。不是 `claude` 就不碰本机的 Claude Code |
+| `DEEPSEEK_API_KEY` | DeepSeek 官方 API。`EPHEMERIS_DEEPSEEK_MODEL` 换默认模型（默认 `deepseek-v4-flash`），`EPHEMERIS_CHEAP_PARALLEL` 同时最多几个请求（默认 16） |
+| `GEMINI_API_KEY` | Gemini（没有别家时写日记、回顾用；有它时涉政的内容只给它） |
+| `DASHSCOPE_API_KEY` | 阿里云百炼（走它上面的 DeepSeek） |
+| `EPHEMERIS_UTC_OFFSET` | 你在哪个时区（小时，默认 8） |
 | `CLAUDE_SESSION_KEY` | 每日 claude.ai 同步（浏览器里的 cookie）；`CLAUDE_ORG_ID` 可以不填 |
 | `DIARY_NAME` | 日记 prompt 里怎么称呼你 |
 | `NOTION_TOKEN`、`NOTION_DIARY_DS` | Notion 同步（internal integration secret + 数据库的 data_source_id） |
-| `OPENROUTER_API_KEY` | 只有「设置 → 交接包」用 |
+| `OPENROUTER_API_KEY` | OpenRouter：上面的 DeepSeek / Gemini、证据卡的向量、「设置 → 交接包」 |
 | `EPHEMERIS_LLM` | `gemini`（默认）或 `verbatim`（跟着 Verbatim 的模型分流，要把 Verbatim 放在旁边） |
 
-> 所有模型调用都走 `llm.py`，直接用 `google-genai`（`gemini-3.5-flash-lite`，不行退到 `gemini-2.5-flash`）。
+> 所有模型调用都走 `llm.py`：本机 Claude Code 能用就先走它；不然走 DeepSeek（百炼 / 官方 / OpenRouter 轮流），
+> 有 Gemini 的话涉政内容只给 Gemini、DeepSeek 失败也回 Gemini；只有 DeepSeek 的话全部给它，限流会自己等一会儿再试。
 > 旁边放着 [Verbatim](https://github.com/Kapozux/_Verbatim_) 的 `getAudio/` 的话，key 没填会借它存的，花费也会记进它的账本；没有也完全能用。
 
 只接受本机这个页面发来的请求：别的网站、别的域名指过来的请求一律拒，免得网页偷偷让它同步、写日记、改 key。

@@ -412,6 +412,75 @@ def _cheap(prompt, why=None, force=False, json_mode=False, purpose=''):
     return None
 
 
+def deepseek_agent(prompt, tool, run_tool, on_event=None, max_steps=16, purpose=''):
+    """没有 Claude 时的「深挖」：让 DeepSeek 自己调工具查资料（OpenAI 那种 function calling）。
+    tool：一个工具的 JSON 描述（name / description / parameters）；run_tool(参数 dict) → 工具输出的文字。
+    on_event(kind, text) 跟 claude_agent 一样：'tool'（要跑的命令，给界面报进度）、'message' / 'delta'（写好的回答）。
+    最多 max_steps 轮；到了还在查就逼它用已经查到的回答。返回回答全文；失败抛异常，点了停止抛 Cancelled。
+    走第一条能用的 DeepSeek 路（聊天页选了模型就只走官方那条）；思考过程（reasoning_content）不回传，回传了 DeepSeek 会报 400。"""
+    import requests
+    routes = _cheap_routes()
+    picked = _picked_deepseek()
+    if picked:
+        routes = [(n, b, k, picked, x) for n, b, k, m, x in routes if n == 'deepseek'] or routes
+    if not routes:
+        raise RuntimeError('没有能用的 DeepSeek（.env 里填 DEEPSEEK_API_KEY）')
+    name, base, k, model, extra = routes[0]
+    msgs = [{'role': 'system', 'content': CHEAP_SYSTEM}, {'role': 'user', 'content': prompt}]
+    tools = [{'type': 'function', 'function': tool}]
+    for step in range(max_steps + 1):
+        if cancelled():
+            raise Cancelled('停下了')
+        last = step == max_steps
+        if last:
+            msgs.append({'role': 'user', 'content': '查的次数到上限了。不要再调工具，用已经查到的内容回答（照前面的要求）。'})
+        body_json = {'model': model, 'messages': msgs, **extra, **({} if last else {'tools': tools})}
+        t = time.time()
+        for attempt in range(CHEAP_RETRIES):
+            try:
+                with _cheap_sem:
+                    r = requests.post(base + '/chat/completions', timeout=300, headers={'Authorization': f'Bearer {k}'},
+                                      json=body_json)
+                if r.status_code != 200:
+                    raise RuntimeError(f'{r.status_code}: {r.text[:200]}')
+                break
+            except Exception as e:                           # noqa: BLE001
+                if attempt + 1 < CHEAP_RETRIES and _retryable(e):
+                    time.sleep(RETRY_WAIT * 2 ** attempt)
+                    continue
+                _pause(name, e)
+                raise RuntimeError(f'DeepSeek：{e}') from e
+        body = r.json()
+        _api_record(name, model, purpose, body.get('usage') or {}, time.time() - t, True)
+        msg = (body.get('choices') or [{}])[0].get('message') or {}
+        calls = msg.get('tool_calls') or []
+        if not calls:
+            text = (msg.get('content') or '').strip()
+            if not text:
+                raise RuntimeError('DeepSeek 返回空')
+            if on_event:
+                on_event('message', '')
+                on_event('delta', text)
+            return text
+        msgs.append({'role': 'assistant', 'content': msg.get('content') or '', 'tool_calls': calls})
+        for c in calls:
+            fn = c.get('function') or {}
+            try:
+                args = json.loads(fn.get('arguments') or '{}')
+            except ValueError:
+                args = {}
+            if on_event:
+                on_event('tool', str(args.get('command') or ''))
+            if cancelled():
+                raise Cancelled('停下了')
+            try:
+                out = run_tool(args)
+            except Exception as e:                           # noqa: BLE001  工具出错也告诉它，让它换个查法
+                out = f'出错了：{e}'
+            msgs.append({'role': 'tool', 'tool_call_id': c.get('id'), 'content': str(out)[:12000]})
+    raise RuntimeError('DeepSeek 查了太多步还没回答')
+
+
 def deepseek_price(model):
     return DEEPSEEK_PRICE.get(model, DEEPSEEK_PRICE_DEFAULT)
 

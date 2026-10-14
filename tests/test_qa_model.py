@@ -99,3 +99,29 @@ class Pick(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class Strong(unittest.TestCase):
+    """交接包（llm.ask_strong）先走本机 Claude Opus 5.5 [1m]（2026-10-14 用户点头；以前是 OpenRouter 上的 Opus 4.6，按量花钱），
+    Claude 用不了才走 OpenRouter。"""
+    def tearDown(self):
+        llm.use_claude(None)
+
+    def test_local_claude_first(self):
+        seen = []
+        llm.use_claude(lambda args, stdin: seen.append(args) or {'result': '=== 关于我 ===\n…'})
+        text, cost = llm.ask_strong('材料')
+        self.assertEqual(text, '=== 关于我 ===\n…')
+        self.assertIsNone(cost)
+        self.assertEqual(arg(seen[0], '--model'), llm.STRONG_CLAUDE)
+        self.assertEqual(llm.strong_model(), llm.STRONG_CLAUDE)
+        self.assertEqual(llm.current_model(), llm.CLAUDE_MODEL)       # 用完换回来
+
+    def test_falls_back_when_claude_fails(self):
+        llm.use_claude(lambda args, stdin: {'is_error': True, 'result': 'boom'})
+        orig = llm._strong_openrouter
+        llm._strong_openrouter = lambda prompt, max_tokens: ('OR 写的', 1.5)
+        try:
+            self.assertEqual(llm.ask_strong('材料'), ('OR 写的', 1.5))
+        finally:
+            llm._strong_openrouter = orig

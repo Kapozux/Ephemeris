@@ -168,6 +168,11 @@ OR_EMBED = 'google/gemini-embedding-2'
 GEMINI_EMBED = 'gemini-embedding-001'
 
 
+def embed_ready():
+    """能不能算向量：有 OpenRouter 或 Gemini 的 key（DeepSeek 没有 embedding）。没有的话证据卡只按字面找，补向量那步跳过。"""
+    return bool(_embed_override or openrouter_key() or key('GEMINI_API_KEY', 'gemini_key'))
+
+
 def embed_model():
     return OR_EMBED if openrouter_key() else GEMINI_EMBED
 

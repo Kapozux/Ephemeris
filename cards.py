@@ -525,6 +525,8 @@ def embed_todo():
 
 def embed_missing(progress=None, parallel=4):
     """补向量；删掉卡已经没了的向量。返回补了几张。"""
+    if not llm.embed_ready():                     # 只有 DeepSeek 的电脑：没有 embedding，安静跳过（「问」只按字面找）
+        return 0
     import numpy as np
     model = llm.embed_model()
     store.run('DELETE FROM card_vecs WHERE id NOT IN (SELECT id FROM cards) OR model <> ?', model)
@@ -560,6 +562,8 @@ def _vectors():
 
 def semantic(query, allowed=None, k=400):
     """按意思找：→ [卡 id]，最像的在前。allowed：只在这些卡里找（时间范围）。没向量 / 调不通返回 []。"""
+    if not llm.embed_ready():
+        return []
     import numpy as np
     ids, mat = _vectors()
     if not ids:

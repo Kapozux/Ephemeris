@@ -79,6 +79,14 @@ def cards_(a):
 
 def read(a):
     mid = a.words[0].removeprefix('m:')
+    if mid.startswith('journal-'):                      # 手写日记做的卡：原话在那页日记里（cards.JOURNAL）
+        j = store.one('SELECT date, title, text, chars FROM journal WHERE page_id=?', mid.removeprefix('journal-').split('/')[0])
+        if not j:
+            print('没有这页日记'); return
+        cap = 100000 if a.full else 8000
+        print(f"手写日记 {j['date']}《{j['title'] or ''}》（{j['chars']} 字）\n{(j['text'] or '')[:cap]}"
+              f"{'…（后面略，--full 看全文）' if len(j['text'] or '') > cap else ''}")
+        return
     m = store.one('SELECT conv_id, ts, id FROM messages WHERE id=?', mid)
     if not m:
         print('没有这条消息'); return

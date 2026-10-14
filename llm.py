@@ -713,8 +713,13 @@ STRONG_MODEL = 'anthropic/claude-opus-4.6'
 OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions'
 
 
+STRONG_CLAUDE = 'claude-opus-5-5[1m]'      # 交接包一次读一年的日记，要 100 万 token 的窗口
+
+
 def strong_model():
-    return (idx.env('EPHEMERIS_STRONG_MODEL') or '').strip() or STRONG_MODEL
+    """交接包用哪个模型（界面上显示的名字）：.env 指定了就用它（走 OpenRouter），Claude 能用就是本机 Opus 5.5 [1m]。"""
+    own = (idx.env('EPHEMERIS_STRONG_MODEL') or '').strip()
+    return own or (STRONG_CLAUDE if claude_on() else STRONG_MODEL)
 
 
 def openrouter_key():
@@ -722,14 +727,26 @@ def openrouter_key():
 
 
 def ask_strong(prompt, max_tokens=16000):
-    """调一次大模型，返回 (文本, 这一笔实际多少美元 / None)。没 key、报错、返回空都抛异常（上层要让用户看到原因）。"""
+    """调一次大模型，返回 (文本, 这一笔实际多少美元 / None)。没 key、报错、返回空都抛异常（上层要让用户看到原因）。
+    先走本机 Claude Opus 5.5 [1m]（订阅额度，不另花钱，所以金额是 None；2026-10-14 用户点头），用不了才走 OpenRouter。"""
     if _override:
         return _override(prompt), None
+    if claude_on() and not (idx.env('EPHEMERIS_STRONG_MODEL') or '').strip():
+        try:
+            with using(STRONG_CLAUDE):
+                return claude(prompt, 'high', purpose='handoff')[0], None
+        except Exception as e:                               # noqa: BLE001
+            with _lock:
+                _state['last_error'] = f'{type(e).__name__}: {e}'[:300]
+    return _strong_openrouter(prompt, max_tokens)
+
+
+def _strong_openrouter(prompt, max_tokens):
     import requests
     key = openrouter_key()
     if not key:
         raise RuntimeError('没有 OpenRouter key：在 ephemeris/.env 里填 OPENROUTER_API_KEY（只有交接包要用）')
-    model = strong_model()
+    model = (idx.env('EPHEMERIS_STRONG_MODEL') or '').strip() or STRONG_MODEL
     r = requests.post(OPENROUTER, timeout=900, headers={'Authorization': f'Bearer {key}'},
                       json={'model': model, 'max_tokens': max_tokens, 'usage': {'include': True},
                             'messages': [{'role': 'user', 'content': prompt}]})

@@ -191,10 +191,12 @@ async function loadMonth(m) {
 function renderNote(st = '') {
   const note = S.M.note || '';
   $('#mNote').textContent = note;
-  $('#mNoteAsk').classList.toggle('hidden', !!note || !S.M.stars.length);
+  $('#mNoteAsk').classList.toggle('hidden', !S.M.stars.length);
   const go = $('#mNoteGo'), busy = S.noteBusy === S.month;      // 翻走又翻回来：还在写就别让再点一次
   go.disabled = busy;
-  go.textContent = busy ? '在写' : st ? '重试' : '写一句这个月';
+  go.classList.toggle('again', !!note && !busy && !st);          // 已经有一句：只留个小小的 ↻ 重写（10-14 用户要的，点了才调模型）
+  go.textContent = busy ? '在写' : st ? '重试' : note ? '↻ 重写' : '写一句这个月';
+  go.title = note ? '按这个月现在的打卡重写这一句（调一次模型）' : '调一次模型，按这个月的打卡写一句';
   $('#mNoteSt').textContent = st;
 }
 

@@ -183,6 +183,9 @@ h1 .ck-spark { font-size:.6em; margin-left:10px; vertical-align:.25em; color:var
 .ck-m-note-go { border:1px solid var(--line-2); background:none; border-radius:999px; padding:6px 14px; font-size:13px;
   color:var(--gold); cursor:pointer; }
 .ck-m-note-go:hover:not(:disabled) { border-color:var(--gold); }
+.ck-m-note-ask:has(.again) { margin-top:8px; }
+.ck-m-note-go.again { border-color:transparent; padding:2px 6px; font-size:12px; color:var(--muted); }
+.ck-m-note-go.again:hover { color:var(--gold); border-color:transparent; }
 .ck-m-note-go:disabled { color:var(--muted); cursor:default; }
 .ck-m-note-go:disabled::after { content:'…'; animation:blink 1s infinite; }
 .ck-m-note-go:focus-visible { outline:2px solid var(--gold-deep); outline-offset:2px; }

@@ -6,7 +6,7 @@
                           日记/       每周一份：AI 写的日记、手写日记、打卡（跟备份的「每周/」同一份，backup.weeks_md）
                           日记图片/   手写日记里的图片
                           主题.md     主题账本：每条线哪天做到哪
-    handoff(dir, skip)  给新账号的交接包：请 Claude Opus 4.6（llm.ask_strong）读一年的日记和主题账本，一次写出
+    handoff(dir, skip)  给新账号的交接包：请本机 Claude Opus 5.5 [1m]（llm.ask_strong，用不了才走 OpenRouter 上的 Opus 4.6）读一年的日记和主题账本，一次写出
                           关于我.md / 过去一年.md / 正在进行的事.md，再附 怎么用.md。约 $1，按实际收，结果里记着花了多少。
                         skip：要跳过的话题（比如「感情」）—— 标题或正文提到它的日记、提到它的主题整篇不发给模型，也叫模型别写
 
@@ -224,7 +224,7 @@ def split(text):
 def handoff(job, root, skip=()):
     base = _fresh(root, '交接包')
     skip = [k.strip() for k in skip if k.strip()]
-    job['stage'] = f'在请 {llm.strong_model().split("/")[-1]} 读一年的日记，两三分钟'
+    job['stage'] = f'在请 {llm.strong_model().split("/")[-1]} 读一年的日记，几分钟'
     text, cost = llm.ask_strong(material(skip))
     job['cost'] = cost
     got = split(text)

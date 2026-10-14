@@ -45,7 +45,8 @@ export async function pollKeys() {
 // ---------------------------------------------------------------- 导出
 
 let POLL = null, ESTMR = null, LAST = null;
-const nice = m => (m || '').split('/').pop().replace(/-/g, ' ').replace(/\b\w/g, x => x.toUpperCase());
+const nice = m => (m || '').split('/').pop().replace('[1m]', ' 1M').replace(/-/g, ' ').replace(/\b\w/g, x => x.toUpperCase());
+const local = m => !String(m || '').includes('/');      // 交接包走本机 Claude（订阅额度）还是 OpenRouter（按量花钱）
 
 function skeleton(box) {
   box.innerHTML = `
@@ -71,7 +72,8 @@ function skeleton(box) {
     if (b.dataset.k !== 'handoff' || !LAST) return run(b.dataset.k);
     // 唯一一处把日记发给 Gemini 以外的服务，又要花差不多一美元：点之前说清楚发什么、发给谁
     const n = LAST.sends;
-    ask(b, `把 ${n.diaries} 篇日记、${n.themes} 个主题发给 OpenRouter 上的 ${nice(LAST.model)}（约 $${LAST.estimate.toFixed(2)}）`, () => run('handoff'));
+    ask(b, local(LAST.model) ? `把 ${n.diaries} 篇日记、${n.themes} 个主题交给本机的 ${nice(LAST.model)}（用 Claude 订阅额度，不另花钱）`
+      : `把 ${n.diaries} 篇日记、${n.themes} 个主题发给 OpenRouter 上的 ${nice(LAST.model)}（约 $${LAST.estimate.toFixed(2)}）`, () => run('handoff'));
   });
   $('#exportSkip').addEventListener('input', () => { clearTimeout(ESTMR); ESTMR = setTimeout(pollExport, 400); });   // 跳过的多了，估价跟着变
   box.addEventListener('click', e => {
@@ -99,7 +101,7 @@ export async function pollExport() {
   LAST = s;
   const n = s.sends, skip = $('#exportSkip').value.trim();
   $('#setHoWhat').textContent = `请 ${nice(s.model)} 读你一年的日记和主题账本，写「关于我」「过去一年」「正在进行的事」三份，`
-    + `再附「怎么用」。约 $${s.estimate.toFixed(2)}，按实际收，两三分钟。`
+    + `再附「怎么用」。` + (local(s.model) ? '用 Claude 订阅额度，几分钟。' : `约 $${s.estimate.toFixed(2)}，按实际收，两三分钟。`)
     + (skip ? ` 跳过「${skip}」：标题或正文提到它的 ${n.dropped_diaries} 篇日记、${n.dropped_themes} 个主题不发出去。` : '');
   for (const [k, res, act] of [['full', '#setFullRes', '#setFullAct'], ['handoff', '#setHoRes', '#setHoAct']]) {
     const j = s[k];

@@ -147,8 +147,24 @@ sup .ch-cite:hover { color: var(--text); }
 .ch-modes { display: flex; padding: 3px; border-radius: 10px; background: var(--hover); }
 .ch-mode { padding: 3px 12px; border-radius: 8px; font-size: 14px; color: var(--muted); }
 .ch-mode.on { background: var(--box); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
-.ch-model { margin-left: auto; font-size: 14px; color: var(--text); white-space: nowrap; }
+/* 模型菜单（照 claude.ai：当前模型 ✓ / Effort › / 更多模型 ›，子菜单在右边展开；窄屏子菜单就地换掉主菜单） */
+.ch-mm { position: relative; margin-left: auto; }
+.ch-model { font-size: 14px; color: var(--text); white-space: nowrap; padding: 4px 8px; border-radius: 8px; }
+.ch-model:hover, .ch-model[aria-expanded="true"] { background: var(--hover); }
 .ch-model i { font-style: normal; color: var(--faint); margin-left: 3px; }
+.ch-menu { position: absolute; z-index: 7; right: 0; bottom: calc(100% + 8px); width: 236px; padding: 6px; background: var(--box);
+  border: 1px solid var(--line2); border-radius: 14px; box-shadow: var(--pop-shadow); }
+.ch-menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 10px; }
+.ch-mi { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border-radius: 9px; font-size: 15px; text-align: left; color: var(--text); }
+.ch-mi:hover, .ch-mi:focus-visible, .ch-mi.open { background: var(--hover); outline: none; }
+.ch-mi-t { flex: 1; min-width: 0; white-space: nowrap; }
+.ch-mi-v { color: var(--faint); font-size: 14px; }
+.ch-mi svg { width: 16px; height: 16px; flex: none; }
+.ch-gt { color: var(--faint); }
+.ch-ok { color: #4a8fe0; visibility: hidden; }
+.ch-mi.on .ch-ok, .ch-mi[data-act="cur"] .ch-ok { visibility: visible; }
+.ch-sub { position: absolute; left: calc(100% + 6px); bottom: 0; width: 200px; max-height: 70vh; overflow-y: auto; padding: 6px;
+  background: var(--box); border: 1px solid var(--line2); border-radius: 14px; box-shadow: var(--pop-shadow); }
 .ch-send { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--accent); color: var(--accent-text); flex: none; }
 .ch-send:disabled { opacity: .35; cursor: default; }
 .ch-send svg { width: 18px; height: 18px; }
@@ -172,6 +188,7 @@ body.ch-busy .ch-send .ch-stop { display: block; }
   .ch-hello h1 { font-size: 30px; }
   .ch-mark { width: 34px; height: 34px; }
   .ch-q > div { max-width: 90%; }
-  .ch-model { display: none; }
-  .ch-tools .ch-send { margin-left: auto; }
+  .ch-model { font-size: 13px; padding: 4px 6px; }
+  .ch-sub { left: auto; right: -7px; bottom: -7px; width: 236px; }
 }
+.ch-sub.left { left: auto; right: calc(100% + 6px); }   /* 右边放不下（中等宽度）就往左开 */

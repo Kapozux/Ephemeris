@@ -47,17 +47,25 @@ PLAN_PROMPT = """你在帮一个人查他自己和 AI 的聊天记录。今天�
 刚问的：{question}
 """
 
-ANSWER_PROMPT = """你在帮一个人回答关于他自己的问题。下面是从他和 AI 的聊天记录里做出来的证据卡，每张卡：
+# 怎么说（两种问法共用，2026-10-14：按日期一条条列太像行动日志，要更像聊天）
+VOICE = """怎么说：
+- 像一个把他所有聊天记录都看过、很了解他的朋友在跟他聊：用「你」称呼他，口语，一段一段地说，不要标题、不要编号、不要一行一个日期的列表（除非他明确要列表）。
+- 第一句就直接回答他问的，用一两句大白话说出结论；然后挑最能说明问题的两三个时刻讲给他听，讲清楚前后是怎么变的，不用把每一次都列出来。
+- 时间说得像人说话：「去年年底」「今年三四月那阵」「八月用上新系统以后」；只有日子本身重要时才说具体哪天。
+- 可以引他自己的一两句原话，点到为止。分清「你说的 / 你想的」和「AI 当时说的」。
+- 看出了他自己可能没注意到的规律、前后矛盾，可以直说一句，但不评价他好坏、不安慰、不说教，结尾不加「希望对你有帮助」「要不要我…」之类的话。
+- 出处照样标，标在那句话的末尾，同一句的出处合在一起，别每几个字就标一次。
+- 篇幅跟问题相称：简单的问题两三句就够，大问题也尽量别超过五六段。用中文，除非他用英文问。"""
+
+ANSWER_PROMPT = """你在帮一个人回答关于他自己的问题。今天是 {today}。下面是从他和 AI 的聊天记录里做出来的证据卡，每张卡：
 [编号] 日期 时间 谁说的 类型 · 话题 ·《哪个聊天窗口》：要点「原话」
 「我」是提问的这个人，「AI」是当时跟他聊天的 AI。最后还有几个相关窗口的小结，只帮你看懂来龙去脉，不能当出处。
 
 规则：
 - 只根据这些卡回答，卡里没有的不要补，不要猜。卡不够回答就直说「卡里没找到」，并说找到了哪些相关的。
-- 每一句有依据的话后面标出处，格式 [c12] 或 [c3, c8]，只能用下面出现过的编号。
-- 分清楚是「你」自己说的、想的，还是 AI 当时建议的。用「你」称呼他。
-- 有时间先后的，按时间讲清楚变化（以前怎样、后来怎样）。
-- 直白，不评价他，不安慰，不说教，不加「希望对你有帮助」之类的话。用中文回答，除非他用英文问。
-- 篇幅跟问题相称：简单的问题几句话就够。
+- 有依据的话后面标出处，格式 [c12] 或 [c3, c8]，只能用下面出现过的编号。
+
+""" + VOICE + """
 
 之前的对话：
 {history}
@@ -275,7 +283,13 @@ def _mirror(qid, thread, role, text, when):
             WHERE id = ?""", (cid,))
 
 
-def answer(question, on_text=None, thread=None):
+def answer(question, on_text=None, thread=None, model=None, effort='high'):
+    """model / effort：聊天页选的（None = 默认 Opus 5.5）。model 管这一次的所有调用，effort 只管写回答那步。"""
+    with llm.using(model):
+        return _answer(question, on_text, thread, effort)
+
+
+def _answer(question, on_text, thread, effort):
     question = (question or '').strip()
     if not question:
         raise ValueError('问题是空的')
@@ -292,13 +306,13 @@ def answer(question, on_text=None, thread=None):
         text, cites = '卡里没找到跟这个有关的。可能是那段时间的卡还没做（看上面的「证据卡」那一行），或者换个说法再问。', []
     else:
         alias = {i: c for i, c in enumerate(picked, 1)}
-        prompt = ANSWER_PROMPT.format(history=htext, question=plan.get('q') or question,
+        prompt = ANSWER_PROMPT.format(today=days.today(), history=htext, question=plan.get('q') or question,
                                       cards='\n'.join(_card_line(i, c) for i, c in alias.items()),
                                       summaries=_summaries(picked))
         buf = []
         try:
-            raw = llm.ask_stream(prompt, lambda x: (buf.append(x), on_text(x)), effort='high', purpose='qa') if on_text else \
-                llm.ask(prompt, effort='high', purpose='qa')
+            raw = llm.ask_stream(prompt, lambda x: (buf.append(x), on_text(x)), effort=effort, purpose='qa') if on_text else \
+                llm.ask(prompt, effort=effort, purpose='qa')
         except llm.Cancelled:                                       # 写到一半点了停止：留下写出来的那段
             text, used = clean(''.join(buf).strip(), alias)
             by_id = {c['id']: c for c in picked}
@@ -342,10 +356,10 @@ DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料�
 
 回答：
 - 只根据查到的内容。查不到就直说没查到，并说查了哪些。
-- 每句有依据的话后面标出处：[[m:消息id]] 或 [[c:卡id]]，照抄工具输出里的记号，不要编。
-- 用「你」称呼他；分清「你说的 / 你想的」和「AI 当时说的」；有时间先后的按时间讲清变化。
-- 直白，不评价、不安慰、不说教。篇幅跟问题相称。用中文，除非他用英文问。
+- 有依据的话后面标出处：[[m:消息id]] 或 [[c:卡id]]，照抄工具输出里的记号，不要编。
 - 最后只输出给他看的回答正文，不要讲你是怎么查的。
+
+""" + VOICE + """
 
 之前的对话：
 {history}
@@ -354,7 +368,7 @@ DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料�
 """
 FOLLOW_PROMPT = """追问：{question}
 
-（规矩跟刚才一样：需要就接着用 look.py 查；只根据查到的回答，每句标 [[m:…]] / [[c:…]]；最后只输出回答正文。）"""
+（规矩跟刚才一样：需要就接着用 look.py 查；只根据查到的回答，标 [[m:…]] / [[c:…]]；最后只输出回答正文；还是像聊天那样说，别列流水账。）"""
 CITE_ANY = re.compile(r'\[\[\s*([mc]):([^\]\s]+)\s*\]\]')
 
 
@@ -398,7 +412,12 @@ def _step(kind, text):
     return f'🔎 {label}：{rest[:100]}'
 
 
-def answer_deep(question, progress=None, on_text=None, thread=None):
+def answer_deep(question, progress=None, on_text=None, thread=None, model=None, effort='high'):
+    with llm.using(model):
+        return _answer_deep(question, progress, on_text, thread, effort)
+
+
+def _answer_deep(question, progress, on_text, thread, effort):
     """让 Claude 自己查着回答。progress(一行文字) 报进度；on_text(一小段字) 是正在写的回答，on_text(None) = 这段作废、重新开始
     （它查一步说一句再查，每段话开头都会重置，最后留下的就是回答）。追问（DEEP_TTL 以内）接着上一轮的会话。"""
     question = (question or '').strip()
@@ -429,13 +448,13 @@ def answer_deep(question, progress=None, on_text=None, thread=None):
     try:
         try:
             text, new_sid = llm.claude_agent(FOLLOW_PROMPT.format(question=question) if sid else fresh, LOOK,
-                                             session=sid, on_event=say, purpose='qa-deep')
+                                             session=sid, on_event=say, purpose='qa-deep', effort=effort)
         except llm.Cancelled:
             raise
         except RuntimeError:
             if not sid:
                 raise
-            text, new_sid = llm.claude_agent(fresh, LOOK, on_event=say, purpose='qa-deep')    # 会话接不上：从头问
+            text, new_sid = llm.claude_agent(fresh, LOOK, on_event=say, purpose='qa-deep', effort=effort)    # 会话接不上：从头问
     except llm.Cancelled:                                           # 写到一半点了停止：留下写出来的那段
         body, cites = _deep_cites(''.join(buf).strip())
         _say(thread, 'assistant', body, cites)
@@ -448,7 +467,7 @@ def answer_deep(question, progress=None, on_text=None, thread=None):
 QA_JOB = 'qa'
 
 
-def start_ask(question, deep=False, thread=None):
+def start_ask(question, deep=False, thread=None, model=None, effort=None):
     """后台问（快的十来秒，问 Claude 一两分钟）。前端 / ask.py 轮询 live()：steps 是查找进度，partial 是正在写的回答，
     result 是写完、出处认好的最终版；问答照样记进 history()。同一时间只问一个。"""
     thread = thread or current()
@@ -458,10 +477,11 @@ def start_ask(question, deep=False, thread=None):
         llm.uncancel()
         def text(piece):
             job['partial'] = '' if piece is None else job['partial'] + piece
-        job['result'] = answer_deep(q, progress=job['steps'].append, on_text=text, thread=thread) if deep \
-            else answer(q, on_text=text, thread=thread)
+        pick = {'model': model, 'effort': effort or 'high'}
+        job['result'] = answer_deep(q, progress=job['steps'].append, on_text=text, thread=thread, **pick) if deep \
+            else answer(q, on_text=text, thread=thread, **pick)
     return jobs.start(QA_JOB, run, question, deep, steps=[], partial='', result=None, question=question, deep=deep,
-                      thread=thread)
+                      thread=thread, model=model or llm.CLAUDE_MODEL, effort=effort or 'high')
 
 
 def stop():
@@ -474,4 +494,4 @@ def stop():
 
 
 def live():
-    return jobs.get(QA_JOB, steps=[], partial='', result=None, question=None, deep=False, thread=None)
+    return jobs.get(QA_JOB, steps=[], partial='', result=None, question=None, deep=False, thread=None, model=None, effort=None)

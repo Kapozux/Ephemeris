@@ -119,8 +119,13 @@ def api_qa_ask():
             return jsonify(qa.answer(q))
         except Exception as e:                           # noqa: BLE001
             return jsonify({'error': f'{type(e).__name__}: {e}'[:300]}), 500
+    model, effort = body.get('model') or None, body.get('effort') or None     # 聊天页的模型菜单；没给 = 默认
+    if model and model not in dict(llm.CLAUDE_CHOICES):
+        return jsonify({'error': f'不认识的模型：{model}'}), 400
+    if effort and effort not in llm.EFFORTS:
+        return jsonify({'error': f'不认识的 effort：{effort}'}), 400
     # 后台问、边写边看：进度在 /api/qa/live
-    return jsonify({'started': qa.start_ask(q, bool(body.get('deep')), body.get('thread')), 'live': qa.live()})
+    return jsonify({'started': qa.start_ask(q, bool(body.get('deep')), body.get('thread'), model, effort), 'live': qa.live()})
 
 
 @bp.route('/api/qa/stop', methods=['POST'])
@@ -133,7 +138,7 @@ def api_qa_stop():
 @bp.route('/chat/<int:thread>')
 def chat_page(thread=None):
     """「问」单独一个全屏聊天页（2026-10-13：独立网址，像 claude.ai）。一段对话一个网址：/chat/<id>。"""
-    return render_template('chat.html', thread=thread or '', name=idx.who())
+    return render_template('chat.html', thread=thread or '', name=idx.who(), models=llm.CLAUDE_CHOICES, efforts=llm.EFFORTS)
 
 
 @bp.route('/api/qa/new', methods=['POST'])

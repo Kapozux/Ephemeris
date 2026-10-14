@@ -3,6 +3,7 @@
 // 一段对话一个网址；/chat 是还没开的新对话（问第一句时才建）。写的时候发送键变成圆圈停止键，停下后写出来的那段留着。
 // 别的对话在写时（一次只问一个）：发送键禁用，输入框上面一条提示「「标题」还在写… 去看看 · 停下」。
 // 左下角「N 张卡」点开是做卡的小弹层（进度、做上、停下）；老的浮层「问」栏 10-13 删了，做卡只在这里。
+// 右下角「Opus 5.5 High」点开是模型菜单（10-14）：选的模型和 effort 记在本机浏览器，每次问都带上（/api/qa/ask 的 model / effort）。
 import { ask, usd } from './js/util.js';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -10,6 +11,15 @@ const B = document.body;
 let THREAD = +B.dataset.thread || null, BUSY = false, POLL = null, LIVE_THREAD = null, THREADS = [], CARDS = null, CARD_POLL = null;
 let DEEP = true;
 try { DEEP = localStorage.getItem('qaDeep') !== '0'; } catch { /* 隐私模式：不记 */ }
+// 模型和 effort（右下角的菜单，照 claude.ai；10-14 用户：自己选，Fable 太贵不放）。列表来自后端 llm.CLAUDE_CHOICES，第一个是默认
+const MODELS = [...document.querySelectorAll('#chSubModels [data-model]')].map(b => [b.dataset.model, b.textContent.trim()]);
+const EFFORTS = [...document.querySelectorAll('#chSubEffort [data-effort]')].map(b => [b.dataset.effort, b.textContent.trim()]);
+let MODEL = MODELS[0]?.[0], EFFORT = 'high';
+try {
+  const m = localStorage.getItem('qaModel'), e = localStorage.getItem('qaEffort');
+  if (MODELS.some(x => x[0] === m)) MODEL = m;
+  if (EFFORTS.some(x => x[0] === e)) EFFORT = e;
+} catch { /* 同上 */ }
 
 // ---------- 正文：[[id]] → 上标数字，**粗体**、换行、「- 」列表 ----------
 function body(text, cites) {
@@ -95,6 +105,43 @@ function setMode(deep) {
     b.setAttribute('aria-checked', on);
   });
   try { localStorage.setItem('qaDeep', deep ? '1' : '0'); } catch { /* 同上 */ }
+}
+
+function label(list, id) { return (list.find(x => x[0] === id) || [id, id])[1]; }
+
+function renderModel() {
+  $('#chModel').innerHTML = `${esc(label(MODELS, MODEL))} <i>${esc(label(EFFORTS, EFFORT))}</i>`;
+  $('#chMenuCur').textContent = label(MODELS, MODEL);
+  $('#chMenuEffort').textContent = label(EFFORTS, EFFORT);
+  document.querySelectorAll('#chSubModels [data-model]').forEach(b => { b.classList.toggle('on', b.dataset.model === MODEL); b.setAttribute('aria-checked', b.dataset.model === MODEL); });
+  document.querySelectorAll('#chSubEffort [data-effort]').forEach(b => { b.classList.toggle('on', b.dataset.effort === EFFORT); b.setAttribute('aria-checked', b.dataset.effort === EFFORT); });
+}
+
+function openSub(name) {
+  document.querySelectorAll('#chMenu .ch-sub').forEach(x => { x.hidden = x.dataset.sub !== name; x.classList.remove('left'); });
+  document.querySelectorAll('#chMenu [data-sub]').forEach(x => x.classList.toggle('open', x.dataset.sub === name && x.classList.contains('ch-mi')));
+  const sub = name && $(`#chMenu .ch-sub[data-sub="${name}"]`);
+  if (!sub) return;
+  sub.style.maxHeight = '';
+  const r = sub.getBoundingClientRect();
+  if (r.right > innerWidth - 8) sub.classList.add('left');
+  if (r.top < 8) sub.style.maxHeight = `${r.bottom - 8}px`;            // 上面放不下（窄屏、输入框在中间时）：列表自己滚
+  (sub.querySelector('.ch-mi.on') || sub.querySelector('.ch-mi')).focus({ preventScroll: true });
+}
+
+function toggleMenu(open = $('#chMenu').hidden) {
+  $('#chMenu').hidden = !open;
+  $('#chModel').setAttribute('aria-expanded', open);
+  openSub(null);
+  if (open) $('#chMenu .ch-mi').focus({ preventScroll: true });
+}
+
+function pick(kind, v) {
+  if (kind === 'model') MODEL = v; else EFFORT = v;
+  try { localStorage.setItem(kind === 'model' ? 'qaModel' : 'qaEffort', v); } catch { /* 同上 */ }
+  renderModel();
+  toggleMenu(false);
+  $('#chModel').focus({ preventScroll: true });
 }
 
 function renderThreads(list) {
@@ -227,7 +274,7 @@ async function send(e) {
   setBusy(true);
   scrollEnd(true);
   const r = await fetch('/api/qa/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question: q, deep: DEEP, thread: THREAD }) }).then(r => r.json()).catch(() => ({ error: '连不上 Ephemeris' }));
+    body: JSON.stringify({ question: q, deep: DEEP, thread: THREAD, model: MODEL, effort: EFFORT }) }).then(r => r.json()).catch(() => ({ error: '连不上 Ephemeris' }));
   if (!r.error && !r.started) r.error = '上一个问题还没答完';
   if (!r.error) { LIVE_THREAD = THREAD; return poll(); }
   $('#chLog .ch-wait').outerHTML = `<div class="ch-a bad">没答上：${esc(r.error)}</div>`;
@@ -271,6 +318,22 @@ $('#chOther').addEventListener('click', e => {
   else fetch('/api/qa/stop', { method: 'POST' }).catch(() => null);     // 停下后 poll 看到写完，提示条自己收起
 });
 $('#chCards').addEventListener('click', e => { e.stopPropagation(); togglePop(); });
+$('#chModel').addEventListener('click', e => { e.stopPropagation(); toggleMenu(); });
+$('#chMenu').addEventListener('click', e => {
+  e.stopPropagation();
+  const b = e.target.closest('.ch-mi');
+  if (!b) return;
+  if (b.dataset.act === 'cur') toggleMenu(false);
+  else if (b.dataset.sub) openSub(b.classList.contains('open') ? null : b.dataset.sub);
+  else if (b.dataset.model) pick('model', b.dataset.model);
+  else if (b.dataset.effort) pick('effort', b.dataset.effort);
+});
+$('#chMenu').addEventListener('mouseover', e => {           // 鼠标停在「Effort ›」「更多模型 ›」上就展开（窄屏靠点）
+  const b = e.target.closest('.ch-mi[data-sub]');
+  if (b && matchMedia('(hover: hover) and (min-width: 761px)').matches && !b.classList.contains('open')) openSub(b.dataset.sub);
+});
+document.addEventListener('click', e => { if (!$('#chMenu').hidden && !e.target.closest('.ch-mm')) toggleMenu(false); });
+renderModel();
 $('#chPop').addEventListener('click', e => {
   const b = e.target.closest('button[data-act]');
   if (!b) return;
@@ -301,7 +364,10 @@ function closeSide() { B.classList.remove('ch-side-open'); }
 $('#chScrim').addEventListener('click', closeSide);
 document.addEventListener('keydown', e => {                 // Esc：先收弹层，再关抽屉
   if (e.key !== 'Escape') return;
-  if (!$('#chPop').hidden) togglePop(false);
+  if (!$('#chMenu').hidden) {                               // 模型菜单：先收子菜单，再收菜单
+    const open = $('#chMenu .ch-mi.open');
+    if (open) { openSub(null); open.focus(); } else { toggleMenu(false); $('#chModel').focus(); }
+  } else if (!$('#chPop').hidden) togglePop(false);
   else if (B.classList.contains('ch-side-open')) closeSide();
 });
 $('#chFold').addEventListener('click', () => {

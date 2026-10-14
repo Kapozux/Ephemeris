@@ -34,6 +34,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 
 import claude_gate
@@ -368,6 +369,30 @@ def prices():
 #   · 跑测试时不会真的调（EPHEMERIS_NO_USAGE；要测就 use_claude(假函数)）
 #   · 关掉：.env 里 EPHEMERIS_CLAUDE=off
 CLAUDE_MODEL = 'claude-opus-5-5'
+# 聊天页能自己挑的模型（2026-10-14 用户：照 claude.ai 的菜单，Fable 太贵不放；Opus 3 本机已经调不到）。第一个是默认。
+CLAUDE_CHOICES = (('claude-opus-5-5', 'Opus 5.5'), ('claude-sonnet-5-5', 'Sonnet 5.5'), ('claude-haiku-5-5', 'Haiku 5.5'),
+                  ('claude-opus-5', 'Opus 5'), ('claude-opus-4-8', 'Opus 4.8'), ('claude-opus-4-7', 'Opus 4.7'),
+                  ('claude-opus-4-6', 'Opus 4.6'), ('claude-sonnet-5', 'Sonnet 5'), ('claude-sonnet-4-6', 'Sonnet 4.6'),
+                  ('claude-haiku-4-5', 'Haiku 4.5'))
+EFFORTS = ('low', 'medium', 'high', 'xhigh', 'max')
+_pick = threading.local()        # 这个线程临时换的模型（using）；别的线程照旧用 CLAUDE_MODEL
+
+
+@contextmanager
+def using(model=None):
+    """这一段里本线程的 Claude 调用都用 model（None = 默认）。聊天页选的模型靠它传到 qa 的每一次调用。"""
+    old = getattr(_pick, 'model', None)
+    _pick.model = model or old
+    try:
+        yield
+    finally:
+        _pick.model = old
+
+
+def current_model():
+    return getattr(_pick, 'model', None) or CLAUDE_MODEL
+
+
 CLAUDE_PARALLEL = int(idx.env('EPHEMERIS_CLAUDE_PARALLEL') or 3)
 CLAUDE_TIMEOUT = 900
 CLAUDE_CWD = os.path.expanduser('~/.ephemeris-claude')     # 会话存在这个目录名下，不混进用户自己的 Claude Code 项目
@@ -433,7 +458,7 @@ def _claude_pause(text):
 def claude(prompt, effort='medium', session=None, keep=False, purpose=''):
     """调一次 Claude，返回 (文本, 会话 id)。失败抛异常。
     session：接着那个会话问（--resume，前面的内容走缓存）；keep：留下会话，之后能接着问（Session 用）。"""
-    args = ['-p', '--model', CLAUDE_MODEL, '--effort', effort, '--system-prompt', CLAUDE_SYSTEM, '--tools', '',
+    args = ['-p', '--model', current_model(), '--effort', effort, '--system-prompt', CLAUDE_SYSTEM, '--tools', '',
             '--disable-slash-commands', '--strict-mcp-config', '--setting-sources', '', '--output-format', 'json']
     if session:
         args += ['--resume', session]
@@ -557,7 +582,7 @@ def _claude_finish(d, effort, purpose, t):
 
 
 def _base_args(effort):
-    return ['-p', '--model', CLAUDE_MODEL, '--effort', effort, '--system-prompt', CLAUDE_SYSTEM,
+    return ['-p', '--model', current_model(), '--effort', effort, '--system-prompt', CLAUDE_SYSTEM,
             '--disable-slash-commands', '--strict-mcp-config', '--setting-sources', '',
             '--output-format', 'stream-json', '--verbose', '--include-partial-messages']
 
@@ -604,11 +629,11 @@ def ask_stream(prompt, on_text, effort='medium', purpose=''):
 
 
 def _claude_record(d, effort, purpose, secs):
-    claude_gate.record(GATE_APP, purpose, CLAUDE_MODEL, d, secs, _prio(purpose))
+    claude_gate.record(GATE_APP, purpose, current_model(), d, secs, _prio(purpose))
     u = d.get('usage') or {}
     try:
         store.run('INSERT INTO claude_usage (ts, purpose, model, effort, input, output, cache_read, cache_write, usd, secs, ok) '
-                  'VALUES (?,?,?,?,?,?,?,?,?,?,?)', datetime.now().isoformat(timespec='seconds'), purpose, CLAUDE_MODEL, effort,
+                  'VALUES (?,?,?,?,?,?,?,?,?,?,?)', datetime.now().isoformat(timespec='seconds'), purpose, current_model(), effort,
                   u.get('input_tokens', 0), u.get('output_tokens', 0), u.get('cache_read_input_tokens', 0),
                   u.get('cache_creation_input_tokens', 0), float(d.get('total_cost_usd') or 0), round(secs, 1),
                   0 if d.get('is_error') else 1)

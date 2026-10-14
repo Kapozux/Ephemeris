@@ -279,7 +279,9 @@ def apply(conv_id, mode, segs, raws, cost=0.0, src='api'):
         old = db.execute('SELECT fp, upto, upto_id, summary FROM card_convs WHERE conv_id=?', (conv_id,)).fetchone()
         if done:
             last = done[-1][-1]
-            covered = db.execute("""SELECT id, chars FROM messages WHERE conv_id=? AND chars > 0
+            # 指纹只算要做卡的消息，跟 _all_rows / _plan 判断时同一个口径（10-14：这里以前算上了写代码那几家 AI 的回复，
+            # 判断时又不算，两边永远对不上，那些窗口每次做卡都整窗重做一遍）
+            covered = db.execute(f"""SELECT id, chars FROM messages WHERE conv_id=? AND chars > 0 AND {_CARDABLE}
                                      AND (ts < ? OR (ts = ? AND id <= ?)) ORDER BY ts, id""",
                                  (conv_id, last['ts'], last['ts'], last['id'])).fetchall()
             fp, upto, upto_id = _fp([{'id': a, 'chars': b} for a, b in covered]), last['ts'], last['id']

@@ -8,6 +8,7 @@ import unittest
 
 import bundle
 import cards
+import llm
 import claude_code
 import slice as sl
 import store
@@ -61,6 +62,18 @@ class Sync(unittest.TestCase):
     def test_unchanged_files_are_not_reread(self):
         claude_code.sync(say=None)
         self.assertEqual(claude_code.sync(say=None), {'files': 0, 'new': 0, 'days': []})
+
+    def test_window_ending_on_claudes_reply_is_not_redone(self):
+        # 10-14：存进度时的指纹算上了 Claude 的回复、判断时又不算，两边永远对不上，每次做卡都整窗重做一遍
+        claude_code.sync(say=None)
+        store.run('INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?)', 'cc-u9', 'cc-s1', 'cc', f'{DAY}T10:10:00+00:00', DAY, '18:10',
+                  'human', '那就这么改', 5)                                         # Claude 的回复夹在他两句话中间
+        llm.use(lambda p: json.dumps({'summary': '在改做卡', 'cards': []}, ensure_ascii=False))
+        try:
+            cards.build_conv('cc-s1')
+        finally:
+            llm.use(None)
+        self.assertEqual(cards.due(['cc-s1']), [])
 
     def test_cards_skip_claudes_replies_in_claude_code(self):
         claude_code.sync(say=None)

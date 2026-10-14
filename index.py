@@ -393,7 +393,32 @@ def parse_aistudio_md(path):
         yield {'title': f'AI Studio·{title}', 'title_fallback': False, 'msgs': msgs}
 
 
-PARSERS = {'claude_md': parse_claude_md, 'aistudio_md': parse_aistudio_md, 'claude_json': parse_claude_json, 'gemini_md': parse_gemini_md,
+def parse_aistudio_json(path):
+    """Google AI Studio 存在 Google Drive「Google AI Studio」文件夹里的对话（没有扩展名的 JSON，chunkedPrompt.chunks）。
+    一条一条：role user / model；isThought 的是思考过程，不要。**每条都没有时间**：
+    一律记在文件在 Drive 里建出来的那一刻（st_birthtime，没有就 mtime），按顺序每条加一秒。
+    不按「建出来 → 最后修改」摊开：那样文件一改，旧消息的时间全变，再导一次就重复（只加不删的库里删不掉）。
+    代价：聊了好几天的对话全算在第一天。窗口身份用文件名（AI Studio 里的名字），不用内容指纹。"""
+    with open(path, encoding='utf-8') as f:
+        d = json.load(f)
+    chunks = ((d.get('chunkedPrompt') or {}).get('chunks')) or []
+    st = os.stat(path)
+    start = datetime.fromtimestamp(getattr(st, 'st_birthtime', st.st_mtime) or st.st_mtime, LOCAL_TZ)
+    msgs = []
+    for c in chunks:
+        if c.get('isThought') or c.get('role') not in ('user', 'model'):
+            continue
+        text = (c.get('text') or '').strip()
+        if not text and isinstance(c.get('parts'), list):
+            text = ''.join(p.get('text') or '' for p in c['parts'] if isinstance(p, dict) and not p.get('thought')).strip()
+        if text:
+            msgs.append((start + timedelta(seconds=len(msgs)), 'human' if c['role'] == 'user' else 'assistant', text))
+    if msgs:
+        name = re.sub(r'^\d{8}-\d{6}_', '', os.path.basename(path))
+        yield {'uid': 'aistudio-' + _h(name, 16), 'title': f'AI Studio·{name}', 'title_fallback': False, 'msgs': msgs}
+
+
+PARSERS = {'claude_md': parse_claude_md, 'aistudio_md': parse_aistudio_md, 'aistudio_json': parse_aistudio_json, 'claude_json': parse_claude_json, 'gemini_md': parse_gemini_md,
            'gemini_takeout': parse_gemini_takeout, 'gemini_web': parse_gemini_web, 'chatgpt_export': parse_chatgpt_export}
 
 
@@ -416,6 +441,8 @@ def sniff(path):
         # Google Takeout 的 MyActivity 也是 JSON，但顶层是活动数组，跟 Claude 导出完全两回事
         if '"header"' in head and '"time"' in head and ('Gemini Apps' in head or 'Bard' in head):
             return 'gemini_takeout', 'gemini'
+        if '"chunkedPrompt"' in head or ('"runSettings"' in head and '"systemInstruction"' in head):
+            return 'aistudio_json', 'gemini'          # Google AI Studio 存在 Drive 里的对话
         return 'claude_json', 'claude'
     if '**我**' in head or re.search(r'\*\*(Gemini|模型)\*\* \(\d{4}-', head):
         return 'gemini_md', 'gemini'

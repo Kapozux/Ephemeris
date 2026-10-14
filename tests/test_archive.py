@@ -178,6 +178,19 @@ Model 8:15 AMThinking Process:
                           ('2026-03-03', 'assistant', '结论：混合模式。'),
                           ('2026-03-04', 'human', '这是去年底的对话')])               # 思考过程那段不要
 
+    def test_aistudio_drive_json(self):
+        p = self.write('一日学习总结', json.dumps({'runSettings': {}, 'systemInstruction': {}, 'chunkedPrompt': {'chunks': [
+            {'text': '我今天又废掉了', 'role': 'user'},
+            {'text': '**Considering**', 'role': 'model', 'isThought': True},
+            {'text': '先去睡觉。', 'role': 'model'}]}}, ensure_ascii=False))
+        self.assertEqual(idx.sniff(p), ('aistudio_json', 'gemini'))
+        r = idx.ingest(store.connect(), p)
+        self.assertEqual((r['n_convs'], r['n_msgs']), (1, 2))                 # 思考过程不要
+        self.assertEqual(idx.ingest(store.connect(), p)['n_msgs_new'], 0)     # 再导一次不重复
+        c = store.one('SELECT id, title FROM conversations')
+        self.assertTrue(c['id'].startswith('aistudio-'))
+        self.assertEqual(c['title'], 'AI Studio·一日学习总结')
+
     def test_chatgpt_transcript(self):
         p = self.write('密码强度_transcript.md', '''# Conversation with ChatGPT
 

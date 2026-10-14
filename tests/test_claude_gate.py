@@ -15,13 +15,14 @@ class Gate(unittest.TestCase):
     def setUp(self):
         os.environ['CLAUDE_GATE'] = os.path.join(tempfile.mkdtemp(prefix='gate-'), 'gate.db')
         self.held = []
-        self._cheap = llm._cheap
-        llm._cheap = lambda prompt, why=None: 'deepseek 回的'
+        self._cheap, self._cheap_on = llm._cheap, llm.cheap_on
+        llm._cheap = lambda prompt, why=None, **kw: 'deepseek 回的'
+        llm.cheap_on = lambda: True                   # 别看这台电脑旁边有没有 Verbatim 的 key
 
     def tearDown(self):
         os.environ['CLAUDE_GATE'] = ''
         llm.use_claude(None)
-        llm._cheap = self._cheap
+        llm._cheap, llm.cheap_on = self._cheap, self._cheap_on
         llm._paused.pop('claude', None)
 
     def fake(self, reply):

@@ -12,6 +12,7 @@
 import json
 import os
 import re
+import sys
 import shutil
 import socket
 import subprocess
@@ -23,12 +24,28 @@ import websocket  # websocket-client，venv 里已经有
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROFILE = os.path.join(HERE, '.chrome')
 
+WINDOWS = sys.platform == 'win32'
+
+
+def _win_paths():
+    """Windows 上 Chrome / Edge / Brave 常见的安装位置（给所有用户装的、只给自己装的）。"""
+    out = []
+    for env in ('PROGRAMFILES', 'PROGRAMFILES(X86)', 'LOCALAPPDATA'):
+        base = os.environ.get(env)
+        if base:
+            out += [os.path.join(base, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+                    os.path.join(base, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+                    os.path.join(base, 'BraveSoftware', 'Brave-Browser', 'Application', 'brave.exe')]
+    return out
+
+
 CHROME_CANDIDATES = [
     os.environ.get('EPHEMERIS_CHROME') or '',
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
     '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
     '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
+    *(_win_paths() if WINDOWS else ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/microsoft-edge']),
 ]
 TASKPOLICY = '/usr/sbin/taskpolicy'
 
@@ -60,8 +77,18 @@ class Chrome:
     def kill_stale(self):
         """Chrome 一个 profile 只允许一个实例。上次跑崩留下的进程会让这次静默退出
         （表现是 /json/list 一直 connection refused），所以先清干净。"""
-        subprocess.run(['pkill', '-f', f'--user-data-dir={self.profile}'],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        if WINDOWS:                                     # Windows 没有 pkill：用 PowerShell 按命令行里的 profile 路径找
+            ps = ("Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*--user-data-dir=%s*' } | "
+                  "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }") % self.profile.replace("'", "''")
+            cmd = ['powershell', '-NoProfile', '-Command', ps]
+        elif shutil.which('pkill'):
+            cmd = ['pkill', '-f', f'--user-data-dir={self.profile}']
+        else:
+            return
+        try:
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=20)
+        except (OSError, subprocess.SubprocessError):
+            pass
         time.sleep(0.6)
 
     def __enter__(self):
@@ -87,7 +114,7 @@ class Chrome:
             args = [TASKPOLICY, '-a'] + args
         # stderr 留着：起不来的时候这是唯一的线索（mac 上有一堆 CVDisplayLink 噪音，读的时候滤掉）
         self.log = os.path.join(self.profile, 'chrome.stderr.log')
-        with open(self.log, 'w') as f:
+        with open(self.log, 'w', encoding='utf-8') as f:
             self.proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=f)
         self.ws = websocket.create_connection(self._page_ws(), timeout=self.timeout,
                                               max_size=256 * 1024 * 1024)
@@ -126,7 +153,7 @@ class Chrome:
 
     def stderr_tail(self, n=6):
         try:
-            lines = [l for l in open(self.log, errors='replace').read().splitlines()
+            lines = [l for l in open(self.log, encoding='utf-8', errors='replace').read().splitlines()
                      if l.strip() and not re.search(
                          r'CVDisplayLink|cv_display_link|XNNPACK|gcm/engine|allocator multiple', l)]
             return '\n'.join(lines[-n:])

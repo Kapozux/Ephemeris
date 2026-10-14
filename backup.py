@@ -54,6 +54,12 @@ def dest():
         return os.path.expanduser(env)
     for base in sorted(glob.glob(os.path.expanduser('~/Library/CloudStorage/GoogleDrive-*/My Drive'))):
         return os.path.join(base, 'Ephemeris_备份')
+    if os.name == 'nt':                                  # Windows 的 Google 云端硬盘：挂成一个盘（默认 G:）
+        for letter in 'GHIJKLMNOPQRSTUVWXYZDEF':
+            for mine in ('My Drive', '我的云端硬盘'):
+                base = f'{letter}:\\{mine}'
+                if os.path.isdir(base):
+                    return os.path.join(base, 'Ephemeris_备份')
     return ''
 
 

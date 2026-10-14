@@ -21,8 +21,16 @@ import index as idx
 import store
 
 SOURCE = 'cursor'
-DB = os.path.expanduser(os.environ.get('EPHEMERIS_CURSOR_DB')
-                        or '~/Library/Application Support/Cursor/User/globalStorage/state.vscdb')
+def _default_db():
+    if os.name == 'nt':                                  # Windows：%APPDATA%\Cursor\User\globalStorage\state.vscdb
+        return os.path.join(os.environ.get('APPDATA') or os.path.expanduser('~\\AppData\\Roaming'),
+                            'Cursor', 'User', 'globalStorage', 'state.vscdb')
+    if os.path.isdir(os.path.expanduser('~/Library')):
+        return '~/Library/Application Support/Cursor/User/globalStorage/state.vscdb'
+    return '~/.config/Cursor/User/globalStorage/state.vscdb'          # Linux
+
+
+DB = os.path.expanduser(os.environ.get('EPHEMERIS_CURSOR_DB') or _default_db())
 
 
 def _snapshot():

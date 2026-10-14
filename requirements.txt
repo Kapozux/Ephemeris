@@ -1,5 +1,6 @@
-# Ephemeris 要的第三方包（run.sh 第一次跑会自己装进 ./venv）
+# Ephemeris 要的第三方包（run.sh / Windows 的 run.bat 第一次跑会自己装进 ./venv）
 flask>=3.0
 google-genai>=1.40
 requests>=2.31
 websocket-client>=1.7
+numpy>=1.24

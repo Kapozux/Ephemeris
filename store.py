@@ -61,6 +61,10 @@ CREATE TABLE IF NOT EXISTS imports (
 CREATE TABLE IF NOT EXISTS claude_sync (
   uuid TEXT PRIMARY KEY, updated_at TEXT NOT NULL, synced_at TEXT NOT NULL
 );
+-- ChatGPT 同步（chatgpt_sync.py，2026-10-14）：每个对话上次拉到的 update_time（id 不带 chatgpt- 前缀）
+CREATE TABLE IF NOT EXISTS chatgpt_sync (
+  id TEXT PRIMARY KEY, updated_at TEXT NOT NULL, synced_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS sync_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT, started_at TEXT, finished_at TEXT, ok INTEGER,
   n_listed INTEGER, n_fetched INTEGER, n_msgs_new INTEGER, days_touched INTEGER, note TEXT

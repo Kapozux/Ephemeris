@@ -96,7 +96,7 @@ def _size(r):
 # ---------------------------------------------------------------- 哪些窗口要做
 
 # 哪些消息做卡：「问」的对话不做（回答本来就是从卡里写的，qa.SOURCE）；Claude Code 只做他说的（Claude 的回复多是代码和长解释）
-_CARDABLE = "source <> 'ask' AND NOT (source = 'cc' AND role = 'assistant')"
+_CARDABLE = "source <> 'ask' AND NOT (source IN ('cc', 'cursor') AND role = 'assistant')"
 
 
 def _all_rows(conv_ids=None):

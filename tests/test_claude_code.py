@@ -78,10 +78,10 @@ class Weights(unittest.TestCase):
 
     def test_claude_code_gets_at_most_a_tenth(self):
         text = sl.render_day(self.day(200000), char_budget=60000)
-        cc = text.split('【Claude Code】')[1]
+        cc = text.split(sl.SOURCE_HEAD['cc'])[1]
         self.assertLess(len(cc), 60000 * 0.1 + 3000)                       # 份额 + 题头和窗口行
         self.assertIn('【AI 聊天】', text)
-        self.assertGreater(len(text.split('【Claude Code】')[0]), 40000)
+        self.assertGreater(len(text.split(sl.SOURCE_HEAD['cc'])[0]), 40000)
 
     def test_without_claude_code_chat_gets_it_all_and_no_headers(self):
         text = sl.render_day(self.day(0), char_budget=60000)

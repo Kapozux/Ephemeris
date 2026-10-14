@@ -11,7 +11,8 @@ const B = document.body;
 let THREAD = +B.dataset.thread || null, BUSY = false, POLL = null, LIVE_THREAD = null, THREADS = [], CARDS = null, CARD_POLL = null;
 let DEEP = true;
 try { DEEP = localStorage.getItem('qaDeep') !== '0'; } catch { /* 隐私模式：不记 */ }
-// 模型和 effort（右下角的菜单，照 claude.ai；10-14：自己选，Fable 太贵不放）。列表来自后端 llm.CLAUDE_CHOICES，第一个是默认
+// 模型和 effort（右下角的菜单，照 claude.ai；10-14：自己选，Fable 太贵不放）。列表来自后端 llm.choices()，第一个是默认：
+// 有 Claude 列 Claude 的，只有 DeepSeek 列 DeepSeek 的（那时没有 Effort 这一项，EFFORTS 是空的）
 const MODELS = [...document.querySelectorAll('#chSubModels [data-model]')].map(b => [b.dataset.model, b.textContent.trim()]);
 const EFFORTS = [...document.querySelectorAll('#chSubEffort [data-effort]')].map(b => [b.dataset.effort, b.textContent.trim()]);
 let MODEL = MODELS[0]?.[0], EFFORT = 'high';
@@ -112,9 +113,9 @@ function setMode(deep) {
 function label(list, id) { return (list.find(x => x[0] === id) || [id, id])[1]; }
 
 function renderModel() {
-  $('#chModel').innerHTML = `${esc(label(MODELS, MODEL))} <i>${esc(label(EFFORTS, EFFORT))}</i>`;
+  $('#chModel').innerHTML = esc(label(MODELS, MODEL)) + (EFFORTS.length ? ` <i>${esc(label(EFFORTS, EFFORT))}</i>` : '');
   $('#chMenuCur').textContent = label(MODELS, MODEL);
-  $('#chMenuEffort').textContent = label(EFFORTS, EFFORT);
+  if ($('#chMenuEffort')) $('#chMenuEffort').textContent = label(EFFORTS, EFFORT);
   document.querySelectorAll('#chSubModels [data-model]').forEach(b => { b.classList.toggle('on', b.dataset.model === MODEL); b.setAttribute('aria-checked', b.dataset.model === MODEL); });
   document.querySelectorAll('#chSubEffort [data-effort]').forEach(b => { b.classList.toggle('on', b.dataset.effort === EFFORT); b.setAttribute('aria-checked', b.dataset.effort === EFFORT); });
 }
@@ -276,7 +277,7 @@ async function send(e) {
   setBusy(true);
   scrollEnd(true);
   const r = await fetch('/api/qa/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question: q, deep: DEEP, thread: THREAD, model: MODEL, effort: EFFORT }) }).then(r => r.json()).catch(() => ({ error: '连不上 Ephemeris' }));
+    body: JSON.stringify({ question: q, deep: DEEP, thread: THREAD, model: MODEL, effort: EFFORTS.length ? EFFORT : null }) }).then(r => r.json()).catch(() => ({ error: '连不上 Ephemeris' }));
   if (!r.error && !r.started) r.error = '上一个问题还没答完';
   if (!r.error) { LIVE_THREAD = THREAD; return poll(); }
   $('#chLog .ch-wait').outerHTML = `<div class="ch-a bad">没答上：${esc(r.error)}</div>`;

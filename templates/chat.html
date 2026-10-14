@@ -57,16 +57,16 @@
       <textarea id="chInput" rows="1" placeholder="问问你自己的聊天记录…" autocomplete="off"></textarea>
       <div class="ch-tools">
         <div class="ch-modes" role="radiogroup" aria-label="怎么答">
-          <button type="button" class="ch-mode" data-deep="1" title="Claude 自己翻原文和证据卡，一两分钟">深挖</button>
+          <button type="button" class="ch-mode" data-deep="1" title="{{ 'DeepSeek' if backend == 'deepseek' else 'Claude' }} 自己翻原文和证据卡，一两分钟">深挖</button>
           <button type="button" class="ch-mode" data-deep="0" title="只看证据卡，十来秒">快速</button>
         </div>
         <div class="ch-mm">
-          <button type="button" class="ch-model" id="chModel" aria-haspopup="menu" aria-expanded="false" title="选模型和 effort">Opus 5.5 <i>High</i></button>
+          <button type="button" class="ch-model" id="chModel" aria-haspopup="menu" aria-expanded="false" title="选模型{{ '和 effort' if efforts else '' }}">{{ models[0][1] if models else '' }}{% if efforts %} <i>High</i>{% endif %}</button>
           <div class="ch-menu" id="chMenu" role="menu" hidden>
             <button type="button" class="ch-mi" data-act="cur" role="menuitem"><span class="ch-mi-t" id="chMenuCur"></span><svg class="ch-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>
-            <hr>
+            {% if efforts %}<hr>
             <button type="button" class="ch-mi" data-sub="effort" role="menuitem" aria-haspopup="menu"><span class="ch-mi-t">Effort</span><span class="ch-mi-v" id="chMenuEffort"></span><svg class="ch-gt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 6l6 6-6 6"/></svg></button>
-            <hr>
+            {% endif %}            <hr>
             <button type="button" class="ch-mi" data-sub="models" role="menuitem" aria-haspopup="menu"><span class="ch-mi-t">更多模型</span><svg class="ch-gt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 6l6 6-6 6"/></svg></button>
             <div class="ch-sub" id="chSubEffort" data-sub="effort" role="menu" hidden>
               {% for e in efforts %}<button type="button" class="ch-mi" data-effort="{{ e }}" role="menuitemradio"><span class="ch-mi-t">{{ {'low': 'Low', 'medium': 'Medium', 'high': 'High', 'xhigh': 'Extra high', 'max': 'Max'}[e] }}</span><svg class="ch-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>{% endfor %}

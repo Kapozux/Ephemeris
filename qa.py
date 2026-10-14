@@ -16,6 +16,8 @@ import json
 import math
 import os
 import re
+import shlex
+import subprocess
 import sys
 import threading
 import time
@@ -379,6 +381,37 @@ DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料�
 
 问题：{question}
 """
+# 没有 Claude 时（只有 DeepSeek 的电脑，2026-10-14）深挖走 llm.deepseek_agent：同一套 look.py 命令，包成一个叫 look 的工具
+LOOK_CMDS = ('msgs', 'cards', 'read', 'conv', 'convs', 'sum', 'day', 'stats', 'journal', 'diaries', 'schema', 'sql')
+LOOK_TOOL = {'name': 'look', 'description': '查他的聊天记录、证据卡、日记。command 填一条 look 命令（不带 look 本身），比如 '
+             '「msgs 申请 --old」「cards 我那阵子状态怎么样 --since 2026-03-01」「sql "SELECT COUNT(*) FROM messages"」',
+             'parameters': {'type': 'object', 'properties': {'command': {'type': 'string', 'description': '一条命令'}},
+                            'required': ['command']}}
+
+
+def run_look(args):
+    """工具 look：跑一条 look.py 命令，返回它打出来的字。参数用列表传（不经 shell），Windows 上路径带空格也不怕。"""
+    cmd = str((args or {}).get('command') or '').strip()
+    try:
+        parts = shlex.split(cmd)
+    except ValueError:
+        parts = cmd.split()
+    while parts and parts[0] not in LOOK_CMDS:              # 它把「python look.py」也写上了：去掉
+        parts.pop(0)
+    if not parts:
+        return '没认出命令。能用的：' + ' / '.join(LOOK_CMDS)
+    r = subprocess.run([sys.executable, os.path.join(HERE, 'look.py')] + parts, capture_output=True, text=True,
+                       encoding='utf-8', errors='replace', timeout=90, cwd=HERE, env={**os.environ, 'PYTHONIOENCODING': 'utf-8'})
+    return (r.stdout or '') + (('\n' + r.stderr[-2000:]) if r.returncode else '') or '（没有输出）'
+
+
+def deep_prompt_deepseek(**kw):
+    """DEEP_PROMPT 的 DeepSeek 版：查资料的办法从「用 Bash 跑 look.py」换成「调工具 look」，别的规矩一样。"""
+    return DEEP_PROMPT.format(look='look', **kw) \
+        .replace('用 Bash 运行 `look <命令>`（别的命令都会被拒）', '调用工具 look，参数 command 填一条命令（比如 `msgs 申请 --old`）') \
+        .replace('（照上面的写法原样写全路径）', '').replace('那样会被拒', '那样跑不了')
+
+
 FOLLOW_PROMPT = """追问：{question}
 
 （规矩跟刚才一样：需要就接着用 look.py 查；只根据查到的回答，标 [[m:…]] / [[c:…]]；最后只输出回答正文；还是像聊天那样说，别列流水账。）"""
@@ -443,8 +476,8 @@ def _answer_deep(question, progress, on_text, thread, effort):
     question = (question or '').strip()
     if not question:
         raise ValueError('问题是空的')
-    if not llm.claude_on():
-        raise RuntimeError('Claude 现在用不了（没装 / 没登录 / 额度用完停着），先用普通的「问」')
+    if not llm.claude_on() and not llm.cheap_on():
+        raise RuntimeError('深挖要 Claude 或 DeepSeek，现在两样都用不了，先用「快速」')
     thread = thread or current()
     last = store.one("SELECT sid, ts FROM qa_chat WHERE role='assistant' AND thread_id=? ORDER BY id DESC LIMIT 1", thread)
     sid = last['sid'] if last and last['sid'] and \
@@ -464,6 +497,17 @@ def _answer_deep(question, progress, on_text, thread, effort):
             buf.append(text)
             if on_text:
                 on_text(text)
+    if not llm.claude_on():                                         # 只有 DeepSeek：它自己调 look 工具查，没有会话可接（追问靠前面的对话记录）
+        prompt = deep_prompt_deepseek(name=idx.who(), today=days.today(), history=_history_text(turns), question=question)
+        try:
+            text = llm.deepseek_agent(prompt, LOOK_TOOL, run_look, on_event=say, purpose='qa-deep')
+        except llm.Cancelled:
+            body, cites = _deep_cites(''.join(buf).strip())
+            _say(thread, 'assistant', body, cites)
+            return {'answer': body, 'cites': cites, 'deep': True, 'stopped': True, 'thread': thread}
+        body, cites = _deep_cites(text)
+        _say(thread, 'assistant', body, cites)
+        return {'answer': body, 'cites': cites, 'deep': True, 'thread': thread}
     fresh = DEEP_PROMPT.format(name=idx.who(), today=days.today(), look=LOOK, history=_history_text(turns), question=question)
     try:
         try:
@@ -501,7 +545,7 @@ def start_ask(question, deep=False, thread=None, model=None, effort=None):
         job['result'] = answer_deep(q, progress=job['steps'].append, on_text=text, thread=thread, **pick) if deep \
             else answer(q, on_text=text, thread=thread, **pick)
     return jobs.start(QA_JOB, run, question, deep, steps=[], partial='', result=None, question=question, deep=deep,
-                      thread=thread, model=model or llm.CLAUDE_MODEL, effort=effort or 'high')
+                      thread=thread, model=model or (llm.choices() or ((llm.CLAUDE_MODEL, ''),))[0][0], effort=effort or 'high')
 
 
 def stop():

@@ -189,12 +189,12 @@ def compact(t, head=300, tail=150):
 
 
 # 一天的材料按来源分预算（2026-10-13 用户：「我的思考 80% 都是 AI 聊天，Claude Code 10%，问 10%」）。
-# 'cc' 这一份是所有写代码的加起来：Claude Code + Cursor（10-14 用户：「10% 权重是所有 Coding 加起来」），以后再接别的编程工具也放这一份。
+# 'cc' 这一份是所有写代码的加起来：Claude Code + Cursor + Codex（10-14 用户：「10% 权重是所有 Coding 加起来」），以后再接别的编程工具也放这一份。
 # 哪一类当天用不满，剩下的让给 AI 聊天。日记、「卡得多狠」都吃这一份材料，所以权重一起生效。
 SOURCE_SHARE = {'chat': 0.8, 'cc': 0.1, 'ask': 0.1}
-CODING = ('cc', 'cursor')
+CODING = ('cc', 'cursor', 'codex')
 SOURCE_HEAD = {'chat': '【AI 聊天】（claude.ai / Gemini：主线，日记主要写这部分）',
-               'cc': '【写代码】（Claude Code / Cursor 里做项目时说的话：日记里一两句带过在做什么、卡在哪）',
+               'cc': '【写代码】（Claude Code / Cursor / Codex 里做项目时说的话：日记里一两句带过在做什么、卡在哪）',
                'ask': '【问】（在 Ephemeris 里查自己以前的记录：日记里最多一句）'}
 
 

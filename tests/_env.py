@@ -14,3 +14,4 @@ os.environ['CLAUDE_GATE'] = ''                 # 三个应用共用的 Claude �
 os.environ['CLAUDE_GATE_CC_DIR'] = tempfile.mkdtemp(prefix='ephemeris-ccgate-')   # 也不读真的 ~/.claude 算用量
 os.environ['EPHEMERIS_CC_DIR'] = tempfile.mkdtemp(prefix='ephemeris-cc-')   # Claude Code 的对话：测试里是空目录，不读真的 ~/.claude
 os.environ['EPHEMERIS_CURSOR_DB'] = os.path.join(tempfile.mkdtemp(prefix='ephemeris-cursor-'), 'state.vscdb')   # Cursor：测试里没有，不读真的
+os.environ['EPHEMERIS_CODEX_DIR'] = tempfile.mkdtemp(prefix='ephemeris-codex-')   # Codex：测试里是空目录，不读真的 ~/.codex

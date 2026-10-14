@@ -25,6 +25,7 @@ import backup
 import cards
 import claude_code
 import claude_sync
+import cursor
 import days
 import diary
 import jobs
@@ -46,10 +47,11 @@ def morning(job, force=False):
     def prog(stage, a, b):
         job.update(stage=stage, done=a, total=b)
 
-    try:                                                     # Claude Code 的对话（本机文件，不联网）：先进来，后面写日记才看得到
-        claude_code.sync()
-    except Exception as e:                                   # noqa: BLE001
-        print(f'[claude-code] 失败：{type(e).__name__}: {e}', flush=True)
+    for name, mod in (('claude-code', claude_code), ('cursor', cursor)):   # 写代码的对话（本机文件，不联网）：先进来，后面写日记才看得到
+        try:
+            mod.sync()
+        except Exception as e:                               # noqa: BLE001
+            print(f'[{name}] 失败：{type(e).__name__}: {e}', flush=True)
     try:
         r = claude_sync.sync(force=force, progress=prog)
     except Exception as e:                                   # noqa: BLE001

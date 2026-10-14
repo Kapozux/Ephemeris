@@ -12,7 +12,9 @@
  * Chrome 第一次粘贴会让你先打一行 allow pasting。跑完会下载一个 chatgpt_export_日期.json，
  * 拖进 Ephemeris 的「数据来源 → 导入」就行。登着哪个账号就导哪个账号的。
  *
- * 增量：localStorage 记着每个对话上次拉到的更新时间，第二次起只拉变过的。想全部重拉，把 INCREMENTAL 改成 false。
+ * 增量：localStorage 只记着每个对话上次拉到的更新时间，第二次起只拉、只下载变过的（Ephemeris 导入只加新的，没变的不用再给）；
+ * 每 50 个存一次，中途关掉下次能接着。
+ * 同时拉 3 个，被限速（429）会自己等一会儿再试。想全部重拉，把 INCREMENTAL 改成 false。
  * 这是 OpenAI 没公开的接口，哪天网页改版这个脚本可能就不灵了 —— 那时还可以用官方「导出数据」（Ephemeris 也认那个 zip）。
  */
 async function exportChatGPT(opts = {}) {
@@ -20,8 +22,9 @@ async function exportChatGPT(opts = {}) {
   const INCREMENTAL = opts.incremental ?? true;
   const DOWNLOAD = opts.download ?? true;
   const MAX = opts.max || Infinity;                // 测试用：只拉前几个
-  const DELAY_MS = 600;
-  const STORE_KEY = 'ephemeris_chatgpt_export_v1';
+  const DELAY_MS = 300;
+  const PARALLEL = opts.parallel || 3;               // 同时拉几个（被限速会自己退避）
+  const STORE_KEY = 'ephemeris_chatgpt_export_v2';    // 只记每个对话的更新时间（全文存不下：浏览器给一个网站约 5MB）
   const cutoff = new Date(START_DATE).getTime() / 1000;
   const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -81,19 +84,18 @@ async function exportChatGPT(opts = {}) {
   const list = [...seen.values()].slice(0, MAX);
   if (!list.length) { say('没有符合条件的对话', '#ff9800'); return; }
 
-  // ---- 2. 逐个拉，没变的走缓存 ----
+  // ---- 2. 逐个拉，没变的跳过 ----
   const textOf = m => {
     const c = m.content || {};
     if (!['text', 'multimodal_text'].includes(c.content_type)) return '';   // 代码执行、搜索结果、思考过程、自定义说明都不要
     return (c.parts || []).filter(p => typeof p === 'string').join('\n').trim();
   };
   const conversations = [];
-  let fetched = 0, reused = 0, failed = 0;
-  for (let i = 0; i < list.length; i++) {
-    const c = list[i];
+  let fetched = 0, reused = 0, failed = 0, next = 0, done = 0;
+  const saveCache = () => { if (INCREMENTAL) { try { localStorage.setItem(STORE_KEY, JSON.stringify(cache)); } catch (_) {} } };
+  async function one(c) {
     const upd = String(c.update_time || c.create_time || '');
-    say(`[${i + 1}/${list.length}] ${(c.title || '').slice(0, 36)}<br>拉取 ${fetched} · 复用 ${reused} · 失败 ${failed}`, '#2196F3');
-    if (INCREMENTAL && cache[c.id] && cache[c.id].updated_at === upd) { conversations.push(cache[c.id].data); reused++; continue; }
+    if (INCREMENTAL && cache[c.id] === upd) { reused++; return; }   // 没变：Ephemeris 里已经有了，不用再放进文件
     try {
       const d = await get(`/backend-api/conversation/${c.id}`);
       const chain = [];
@@ -113,12 +115,22 @@ async function exportChatGPT(opts = {}) {
       const obj = { uuid: 'chatgpt-' + c.id, name: d.title || c.title || 'Untitled',
                     created_at: new Date(secs(d.create_time || c.create_time) * 1000).toISOString(), updated_at: upd, messages };
       conversations.push(obj);
-      cache[c.id] = { updated_at: upd, data: obj };
+      cache[c.id] = upd;
       fetched++;
     } catch (e) { console.warn('失败', c.title, c.id, e); failed++; }
-    if (i < list.length - 1) await sleep(DELAY_MS);
+    await sleep(DELAY_MS);
   }
-  if (INCREMENTAL) { try { localStorage.setItem(STORE_KEY, JSON.stringify(cache)); } catch (_) { console.warn('缓存写不下，下次仍是全量'); } }
+  // 几路同时拉；每做完 50 个存一次进度，中途关掉页面下次也能接着（已拉的走缓存）
+  await Promise.all(Array.from({ length: PARALLEL }, async () => {
+    while (next < list.length) {
+      const c = list[next++];
+      await one(c);
+      done++;
+      say(`[${done}/${list.length}] ${(c.title || '').slice(0, 36)}<br>拉取 ${fetched} · 没变跳过 ${reused} · 失败 ${failed}`, '#2196F3');
+      if (done % 50 === 0) saveCache();
+    }
+  }));
+  saveCache();
 
   // ---- 3. 下载 ----
   const nMsg = conversations.reduce((a, c) => a + c.messages.length, 0);
@@ -130,7 +142,7 @@ async function exportChatGPT(opts = {}) {
     a.download = `chatgpt_export_${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
   }
-  say(`<b>完成</b><br>${conversations.length} 个对话 · ${nMsg} 条消息<br>拉取 ${fetched} · 复用 ${reused}` +
+  say(`<b>完成</b><br>${conversations.length} 个对话 · ${nMsg} 条消息<br>拉取 ${fetched} · 没变跳过 ${reused}` +
       (failed ? ` · 失败 ${failed}（控制台里有原因）` : ''), '#4CAF50');
   setTimeout(() => panel.remove(), 8000);
   return payload;

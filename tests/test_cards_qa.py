@@ -343,6 +343,25 @@ class Threads(unittest.TestCase):
         self.assertNotIn('ask-', buf.getvalue())
         self.assertIn('m:m1', buf.getvalue())
 
+    def test_title_rename_pin(self):
+        a = qa.answer('1')['thread']
+        b = qa.new_thread()
+        qa.answer('第二段对话的问题')
+        llm.use(lambda p: '「早申去向」。' if p.startswith('下面是一段对话的开头') else '')
+        self.assertEqual(qa.autotitle(a), '早申去向')                                   # 引号、句号去掉
+        self.assertEqual(store.one('SELECT title FROM conversations WHERE id=?', f'ask-{a}')['title'], '问：早申去向')
+        self.assertIsNone(qa.autotitle(a))                                              # 起过不再起
+        qa.rename(b, '  我自己 起的 ')
+        self.assertIsNone(qa.autotitle(b))                                              # 用户改过的不动
+        self.assertEqual({t['id']: (t['title'], t['named']) for t in qa.threads()},
+                         {a: ('早申去向', 1), b: ('我自己 起的', 2)})
+        self.assertEqual([t['id'] for t in qa.threads()], [b, a])
+        qa.pin(a)
+        self.assertEqual([(t['id'], t['pinned']) for t in qa.threads()], [(a, 1), (b, 0)])   # 置顶的在前
+        self.assertEqual(len(qa.history(thread=a)), 2)                                  # 问答一句没动
+        with self.assertRaises(ValueError):
+            qa.rename(a, '   ')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -222,10 +222,60 @@ SOURCE = 'ask'
 
 
 def threads(n=50):
-    """以前的对话，最近的在前：id、标题（第一个问题）、几句、最后一次问的时间。"""
-    return store.q("""SELECT t.id, t.title, t.created, t.updated, COUNT(q.id) n FROM qa_threads t
+    """以前的对话，置顶的在前、再按最近：id、标题、named（见 SCHEMA）、pinned、几句、最后一次问的时间。"""
+    return store.q("""SELECT t.id, t.title, t.named, t.pinned, t.created, t.updated, COUNT(q.id) n FROM qa_threads t
                        LEFT JOIN qa_chat q ON q.thread_id = t.id GROUP BY t.id HAVING n > 0
-                       ORDER BY t.updated DESC, t.id DESC LIMIT ?""", n)
+                       ORDER BY t.pinned DESC, t.updated DESC, t.id DESC LIMIT ?""", n)
+
+
+# ---------------------------------------------------------------- 标题、置顶（2026-10-16）
+# 用户（看着左栏一排「1」「我啥时候做的证据卡」）：「这个的标题」—— 照 claude.ai：答完第一轮起个短标题，也能自己改、能置顶。
+# 改的只是标题，问答一句不动（规矩 6）；窗口页上那个窗口（问：…）的标题跟着改。
+TITLE_PROMPT = """下面是一段对话的开头。给它起一个简短的标题，像聊天软件左栏里那种：
+- 中文，不超过 14 个字，说清楚聊的是什么事，不要标点结尾，不要引号
+- 只输出标题本身
+
+{turns}"""
+
+
+def _set_title(thread, title, named):
+    store.run('UPDATE qa_threads SET title=?, named=? WHERE id=?', title, named, thread)
+    store.run('UPDATE conversations SET title=? WHERE id=?', f'问：{title}', f'{SOURCE}-{thread}')
+
+
+def rename(thread, title):
+    title = ' '.join((title or '').split())[:60]
+    if not title:
+        raise ValueError('标题是空的')
+    _set_title(thread, title, 2)
+    return title
+
+
+def pin(thread, on=True):
+    store.run('UPDATE qa_threads SET pinned=? WHERE id=?', 1 if on else 0, thread)
+
+
+def autotitle(thread):
+    """还没起过标题（named=0）的对话起一个：一次调用、effort low。用户改过的、起过的不再动。起不出来就留着第一个问题。"""
+    r = store.one('SELECT named FROM qa_threads WHERE id=?', thread)
+    turns = history(4, thread)
+    if not r or r['named'] or not any(t['role'] != 'user' for t in turns):
+        return None
+    text = '\n\n'.join(('我：' if t['role'] == 'user' else '回答：') + re.sub(r'\[\[[^\]]*\]\]', '', t['text'])[:600] for t in turns)
+    out = llm.ask(TITLE_PROMPT.format(turns=text), effort='low', purpose='问·起标题')
+    title = (out or '').strip().splitlines()[0] if (out or '').strip() else ''
+    title = title.strip(' "\'“”「」《》#*。.！!？?')
+    if not title or len(title) > 30:
+        return None
+    if store.one('SELECT named FROM qa_threads WHERE id=?', thread)['named']:   # 起的这几秒里用户自己改了
+        return None
+    _set_title(thread, title, 1)
+    return title
+
+
+def autotitle_all():
+    """老对话补标题（一段一次调用）。"""
+    return {t['id']: autotitle(t['id']) for t in threads(200) if not t['named']}
 
 
 def new_thread():
@@ -544,6 +594,8 @@ def start_ask(question, deep=False, thread=None, model=None, effort=None):
         pick = {'model': model, 'effort': effort or 'high'}
         job['result'] = answer_deep(q, progress=job['steps'].append, on_text=text, thread=thread, **pick) if deep \
             else answer(q, on_text=text, thread=thread, **pick)
+        # 第一轮答完起标题：另开一条线，不拖着这次问答收尾
+        threading.Thread(target=autotitle, args=(thread,), daemon=True).start()
     return jobs.start(QA_JOB, run, question, deep, steps=[], partial='', result=None, question=question, deep=deep,
                       thread=thread, model=model or (llm.choices() or ((llm.CLAUDE_MODEL, ''),))[0][0], effort=effort or 'high')
 

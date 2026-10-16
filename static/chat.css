@@ -46,10 +46,21 @@ body.ch-folded .ch-side { margin-left: -272px; }
 .ch-side > .nav .nav-item { border-radius: 10px; }
 .ch-sec { padding: 16px 10px 6px; font-size: 13px; color: var(--muted); }
 .ch-threads { flex: 1; overflow-y: auto; min-height: 0; }
-.ch-thread { display: block; width: 100%; text-align: left; padding: 7px 10px; border-radius: 10px; white-space: nowrap; overflow: hidden;
+.ch-trow { display: flex; align-items: center; border-radius: 10px; }
+.ch-trow:hover { background: var(--hover); }
+.ch-trow.on { background: var(--line); }
+.ch-thread { display: block; flex: 1; min-width: 0; text-align: left; padding: 7px 10px; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; font-size: 14px; color: var(--text); }
-.ch-thread:hover { background: var(--hover); }
-.ch-thread.on { background: var(--line); }
+/* 「…」：鼠标移上去 / 当前这段 / 菜单开着才露出来（照 claude.ai） */
+.ch-tmore { flex: none; width: 28px; height: 28px; margin-right: 3px; border-radius: 8px; display: grid; place-items: center; color: var(--muted); opacity: 0; }
+.ch-tmore svg { width: 16px; height: 16px; }
+.ch-trow:hover .ch-tmore, .ch-trow.on .ch-tmore, .ch-tmore.open, .ch-tmore:focus-visible { opacity: 1; }
+.ch-tmore:hover, .ch-tmore.open { background: var(--line2); color: var(--text); }
+@media (hover: none) { .ch-tmore { opacity: 1; } }
+.ch-trow.editing .ch-tmore { display: none; }
+.ch-menu.ch-tmenu { position: fixed; right: auto; bottom: auto; width: 150px; }   /* 后面 .ch-menu 是模型菜单的定位，这里要压过它 */
+.ch-tedit { flex: 1; min-width: 0; margin: 2px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--accent); background: var(--box);
+  color: var(--text); font: inherit; font-size: 14px; outline: none; }
 .ch-thread.live::after { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
   margin-left: 8px; vertical-align: middle; animation: ch-pulse 1.2s ease-in-out infinite; }
 .ch-side-foot { position: relative; display: flex; align-items: center; gap: 10px; padding: 10px 8px 2px; border-top: 1px solid var(--line); font-size: 14px; }

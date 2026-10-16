@@ -158,8 +158,10 @@ CREATE TABLE IF NOT EXISTS card_days (
 CREATE TABLE IF NOT EXISTS qa_chat (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, role TEXT, text TEXT, cites TEXT
 );
--- 一段一段的对话（2026-10-13）：qa_chat.thread_id 指这里；title = 第一个问题。每句也写进 messages（来源 ask，窗口 id = ask-<id>）
-CREATE TABLE IF NOT EXISTS qa_threads (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, created TEXT, updated TEXT);
+-- 一段一段的对话（2026-10-13）：qa_chat.thread_id 指这里；title 先是第一个问题，named 0 = 还是它、1 = 模型起的短标题、2 = 用户改的。
+-- 每句也写进 messages（来源 ask，窗口 id = ask-<id>）。pinned：左栏置顶（10-16）
+CREATE TABLE IF NOT EXISTS qa_threads (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, created TEXT, updated TEXT,
+  named INTEGER DEFAULT 0, pinned INTEGER DEFAULT 0);
 
 -- ---------------------------------------------------------------- 重复窗口的存档（dedup.py，2026-10-13）
 -- 同一个窗口手动导入一份（指纹 id）、自动同步又一份（uuid）：多出来的那份整份挪到这里（JSON 原样），正常的表里看不到。
@@ -228,6 +230,7 @@ _ADD_COLUMNS = [
     ('conversations', 'first_import', 'TEXT'), ('conversations', 'last_import', 'TEXT'),
     ('themes', 'desc', 'TEXT'), ('checkins', 'reply', 'TEXT'), ('diaries', 'added_later', 'INTEGER DEFAULT 0'),
     ('journal', 'gone_at', 'TEXT'), ('qa_chat', 'sid', 'TEXT'), ('qa_chat', 'thread_id', 'INTEGER'),
+    ('qa_threads', 'named', 'INTEGER DEFAULT 0'), ('qa_threads', 'pinned', 'INTEGER DEFAULT 0'),
     ('backups', 'files_written', 'INTEGER'), ('backups', 'files_total', 'INTEGER'),
     ('backups', 'bytes_written', 'INTEGER'), ('backups', 'warning', 'TEXT'),
 ]

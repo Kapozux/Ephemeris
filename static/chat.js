@@ -149,11 +149,76 @@ function pick(kind, v) {
 
 function renderThreads(list) {
   THREADS = list;
-  $('#chThreads').innerHTML = list.map(t => `<button class="ch-thread${t.id === THREAD ? ' on' : ''}${t.id === LIVE_THREAD ? ' live' : ''}" data-id="${t.id}"
-    title="${esc(t.title)}">${esc(t.title || '新对话')}</button>`).join('');
   const cur = list.find(t => t.id === THREAD);
   $('#chTitle').textContent = cur ? cur.title : '';
   document.title = (cur ? cur.title + ' · ' : '') + '问 · Ephemeris';
+  if (EDITING) return;                                      // 正在改名：别把输入框冲掉，改完再画
+  const row = t => `<div class="ch-trow${t.id === THREAD ? ' on' : ''}" data-id="${t.id}">
+    <button class="ch-thread${t.id === LIVE_THREAD ? ' live' : ''}" data-id="${t.id}" title="${esc(t.title)}">${esc(t.title || '新对话')}</button>
+    <button type="button" class="ch-tmore" data-id="${t.id}" aria-label="更多" aria-haspopup="menu">${DOTS}</button></div>`;
+  const pinned = list.filter(t => t.pinned), rest = list.filter(t => !t.pinned);
+  $('#chThreads').innerHTML = (pinned.length ? '<div class="ch-sec">置顶</div>' + pinned.map(row).join('') : '')
+    + (rest.length ? '<div class="ch-sec">最近</div>' + rest.map(row).join('') : '');
+}
+
+// ---------- 左栏一段对话的「…」：置顶、改名（10-16） ----------
+const DOTS = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/></svg>';
+let EDITING = false;
+const saveThread = (id, body) => fetch(`/api/qa/thread/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body) }).then(r => r.json()).catch(() => null);
+
+function threadMenu(btn) {
+  const m = $('#chTMenu'), id = +btn.dataset.id, t = THREADS.find(x => x.id === id);
+  if (!m.hidden && +m.dataset.id === id) return closeTMenu();
+  m.dataset.id = id;
+  m.innerHTML = `<button type="button" class="ch-mi" data-act="pin" role="menuitem"><span class="ch-mi-t">${t && t.pinned ? '取消置顶' : '置顶'}</span></button>
+    <button type="button" class="ch-mi" data-act="rename" role="menuitem"><span class="ch-mi-t">改名</span></button>`;
+  m.hidden = false;
+  const r = btn.getBoundingClientRect(), h = m.offsetHeight;
+  m.style.left = Math.max(8, r.right - m.offsetWidth) + 'px';   // 右边跟「…」对齐，不伸出侧栏
+  m.style.top = (r.bottom + 4 + h > innerHeight ? r.top - 4 - h : r.bottom + 4) + 'px';
+  btn.classList.add('open');
+  m.querySelector('.ch-mi').focus();
+}
+function closeTMenu() {
+  $('#chTMenu').hidden = true;
+  document.querySelectorAll('.ch-tmore.open').forEach(b => b.classList.remove('open'));
+}
+
+function renameRow(id) {
+  const row = $(`.ch-trow[data-id="${id}"]`), t = THREADS.find(x => x.id === id);
+  if (!row || !t) return;
+  EDITING = true;
+  const inp = document.createElement('input');
+  inp.className = 'ch-tedit'; inp.value = t.title; inp.maxLength = 60; inp.setAttribute('aria-label', '对话标题');
+  row.classList.add('editing');
+  row.querySelector('.ch-thread').replaceWith(inp);
+  inp.focus(); inp.select();
+  let done = false;
+  const finish = async save => {
+    if (done) return;
+    done = true;
+    const v = inp.value.trim();
+    const r = save && v && v !== t.title ? await saveThread(id, { title: v }) : null;
+    EDITING = false;
+    renderThreads(r && r.threads ? r.threads : THREADS);
+  };
+  inp.addEventListener('keydown', e => {
+    if (e.isComposing) return;
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); }
+  });
+  inp.addEventListener('blur', () => finish(true));
+}
+
+// 第一轮答完，服务器另起一条线起标题（几秒）：隔一会儿看一眼，起好了就换上
+async function waitTitle(id, tries = 6) {
+  const t = THREADS.find(x => x.id === id);
+  if (!t || t.named || tries <= 0) return;
+  await new Promise(ok => setTimeout(ok, 2500));
+  const r = await fetch('/api/qa' + (THREAD ? `?thread=${THREAD}` : '')).then(r => r.json()).catch(() => null);
+  if (r) renderThreads(r.threads);
+  waitTitle(id, tries - 1);
 }
 
 // ---------- 证据卡：左下角「N 张卡」+ 点开的小弹层 ----------
@@ -252,7 +317,7 @@ function poll() {
     renderOther();
     $('#chInput').focus();
     const r = await fetch('/api/qa' + (THREAD ? `?thread=${THREAD}` : '')).then(r => r.json()).catch(() => null);
-    if (r) renderThreads(r.threads);                        // 新对话的标题、顺序跟着变
+    if (r) { renderThreads(r.threads); waitTitle(r.thread); }   // 新对话的标题、顺序跟着变
   }, 500);
 }
 
@@ -301,8 +366,20 @@ $('#chInput').addEventListener('keydown', e => {            // 回车发送，Sh
 document.querySelectorAll('.ch-mode').forEach(b => b.addEventListener('click', () => setMode(b.dataset.deep === '1')));
 $('#chNew').addEventListener('click', () => { closeSide(); go(null); $('#chInput').focus(); });
 $('#chThreads').addEventListener('click', e => {
+  const more = e.target.closest('.ch-tmore');
+  if (more) return threadMenu(more);
   const t = e.target.closest('.ch-thread');
   if (t) { closeSide(); go(+t.dataset.id); }
+});
+$('#chThreads').addEventListener('scroll', closeTMenu);
+$('#chTMenu').addEventListener('click', async e => {
+  const b = e.target.closest('[data-act]');
+  if (!b) return;
+  const id = +$('#chTMenu').dataset.id, t = THREADS.find(x => x.id === id);
+  closeTMenu();
+  if (b.dataset.act === 'rename') return renameRow(id);
+  const r = await saveThread(id, { pinned: !(t && t.pinned) });
+  if (r && r.threads) renderThreads(r.threads);
 });
 $('#chLog').addEventListener('click', e => {
   const sup = e.target.closest('.ch-cite');
@@ -361,13 +438,15 @@ $('#chPop').addEventListener('click', e => {
 });
 document.addEventListener('click', e => {                   // 点弹层外面：收起
   if (!$('#chPop').hidden && e.target.isConnected && !e.target.closest('#chPop, #chCards')) togglePop(false);
+  if (!$('#chTMenu').hidden && !e.target.closest('#chTMenu, .ch-tmore')) closeTMenu();
 });
 const narrow = () => matchMedia('(max-width: 760px)').matches;
 function closeSide() { B.classList.remove('ch-side-open'); }
 $('#chScrim').addEventListener('click', closeSide);
 document.addEventListener('keydown', e => {                 // Esc：先收弹层，再关抽屉
   if (e.key !== 'Escape') return;
-  if (!$('#chMenu').hidden) {                               // 模型菜单：先收子菜单，再收菜单
+  if (!$('#chTMenu').hidden) closeTMenu();
+  else if (!$('#chMenu').hidden) {                               // 模型菜单：先收子菜单，再收菜单
     const open = $('#chMenu .ch-mi.open');
     if (open) { openSub(null); open.focus(); } else { toggleMenu(false); $('#chModel').focus(); }
   } else if (!$('#chPop').hidden) togglePop(false);

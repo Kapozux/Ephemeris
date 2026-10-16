@@ -26,8 +26,8 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>新对话
   </button>
   {% set nav_cur = 'ask' %}{% include '_nav.html' %}
-  <div class="ch-sec">最近</div>
   <div class="ch-threads" id="chThreads"></div>
+  <div class="ch-menu ch-tmenu" id="chTMenu" role="menu" hidden></div>
   <div class="ch-side-foot">
     <span class="ch-avatar">{{ name[:1] }}</span><span>{{ name }}</span>
     <button type="button" class="ch-cards" id="chCards" aria-haspopup="dialog" aria-expanded="false" hidden></button>

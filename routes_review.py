@@ -150,6 +150,20 @@ def api_qa_new():
     return jsonify({'ok': True, 'thread': qa.new_thread()})
 
 
+@bp.route('/api/qa/thread/<int:thread>', methods=['POST'])
+def api_qa_thread(thread):
+    """左栏那段对话：改标题（title）、置顶 / 取消（pinned）。"""
+    body = request.get_json(silent=True) or {}
+    if 'title' in body:
+        try:
+            qa.rename(thread, body['title'])
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
+    if 'pinned' in body:
+        qa.pin(thread, bool(body['pinned']))
+    return jsonify({'ok': True, 'threads': qa.threads()})
+
+
 @bp.route('/api/qa/cards', methods=['POST'])
 def api_qa_cards():
     """做卡：把还差的窗口都做了（新窗口整个做，老窗口只做后来的消息）。花钱的，前端先问过再调。"""

@@ -89,8 +89,9 @@ class Pick(unittest.TestCase):
             if not qa.live()['running']:
                 break
             time.sleep(0.02)
-        self.assertEqual(arg(self.calls[-1], '--model'), 'claude-opus-4-8')
-        self.assertEqual(arg(self.calls[-1], '--effort'), 'xhigh')
+        ans = [c for c in list(self.calls) if arg(c, '--effort') != 'low'][-1]     # 答完另开一条线起标题（effort low），不算
+        self.assertEqual(arg(ans, '--model'), 'claude-opus-4-8')
+        self.assertEqual(arg(ans, '--effort'), 'xhigh')
         self.assertEqual(qa.live()['model'], 'claude-opus-4-8')
         page = c.get('/chat').get_data(as_text=True)
         self.assertIn('Sonnet 5.5', page)                            # 菜单列表跟着后端的 CLAUDE_CHOICES

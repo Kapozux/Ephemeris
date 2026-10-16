@@ -35,7 +35,7 @@ async function loadConvs() {
   CONVS = d.conversations;
   // 每个来源新到哪天：小标签。太久没新数据的标红，提示怎么补（账号要是没了就导不出来了）
   const HOW = { gemini: '用「导入…」里的「复制导出脚本」在 gemini.google.com 导一份拖进来', claude: '看看上面的 claude.ai 同步是不是坏了' };
-  const NAME = { claude: 'Claude', gemini: 'Gemini', ask: '问', cc: 'Claude Code', cursor: 'Cursor', codex: 'Codex', chatgpt: 'ChatGPT', deepseek: 'DeepSeek' };
+  const NAME = { claude: 'Claude', gemini: 'Gemini', ask: '问', cc: 'Claude Code', cursor: 'Cursor', codex: 'Codex', chatgpt: 'ChatGPT', deepseek: 'DeepSeek', lobehub: 'LobeHub' };
   $('#cvSrcs').innerHTML = Object.entries(d.by_source).map(([k, v]) => {
     const last = (d.latest || {})[k], ago = last ? Math.round((Date.now() - new Date(last + 'T12:00:00')) / 864e5) : null;
     const stale = ago > 30, tip = `${v} 个窗口${stale ? ` · ${HOW[k] || '导一份新的补上'}` : ''}`;

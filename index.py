@@ -381,6 +381,30 @@ def parse_deepseek_export(path):
             yield {'uid': f'deepseek-{cid}', 'title': c.get('title') or 'Untitled', 'title_fallback': not c.get('title'), 'msgs': msgs}
 
 
+def parse_lobehub(path):
+    """LobeHub（自己用 Docker 部署的 LobeChat）「设置 → 数据 → 导出」的 JSON：{exportType, state: {topics, messages}}（2026-10-16 用户不用它了，存进来当备份）。
+    一个 topic 一个窗口；消息靠 parentId 连成树（重新生成会分叉），从根往下每层走最晚的那个孩子；只要 user / assistant 的正文（tool、思考过程不要）。
+    LobeHub 自动起的标题有时把模型的 <thinking>…</thinking> 也带进去了，只留后面那句。窗口 id 用 lobehub-<topic id>。"""
+    state = _load_claude_json(path).get('state') or {}
+    titles = {t['id']: re.sub(r'(?s)^.*</thinking>', '', t.get('title') or '').strip() for t in state.get('topics') or []}
+    kids, roots = {}, {}
+    for m in sorted(state.get('messages') or [], key=lambda m: m.get('createdAt') or 0):
+        if m.get('parentId'):
+            kids.setdefault(m['parentId'], []).append(m)
+        else:
+            roots.setdefault(m.get('topicId') or m.get('sessionId') or 'inbox', []).append(m)
+    for tid, rs in roots.items():
+        msgs, node = [], rs[-1]
+        while node:
+            text = (node.get('content') or '').strip()
+            if text and node.get('role') in ('user', 'assistant') and node.get('createdAt'):
+                msgs.append((datetime.fromtimestamp(node['createdAt'] / 1000, timezone.utc),
+                             'human' if node['role'] == 'user' else 'assistant', text))
+            node = (kids.get(node['id']) or [None])[-1]
+        if msgs:
+            yield {'uid': f'lobehub-{tid}', 'title': titles.get(tid) or 'Untitled', 'title_fallback': not titles.get(tid), 'msgs': msgs}
+
+
 _AS_MARK = re.compile(r'^\*\*(User|Model):\*\*[ \t]*$', re.M)
 _AS_TIME = re.compile(r'^(User|Model) (\d{1,2}):(\d{2})\s*(AM|PM)')
 _AS_STAMP = re.compile(r'(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})')
@@ -455,7 +479,8 @@ def parse_aistudio_json(path):
 
 PARSERS = {'claude_md': parse_claude_md, 'aistudio_md': parse_aistudio_md, 'aistudio_json': parse_aistudio_json,
            'deepseek_export': parse_deepseek_export, 'claude_json': parse_claude_json, 'gemini_md': parse_gemini_md,
-           'gemini_takeout': parse_gemini_takeout, 'gemini_web': parse_gemini_web, 'chatgpt_export': parse_chatgpt_export}
+           'gemini_takeout': parse_gemini_takeout, 'gemini_web': parse_gemini_web, 'chatgpt_export': parse_chatgpt_export,
+           'lobehub': parse_lobehub}
 
 
 def sniff(path):
@@ -473,6 +498,8 @@ def sniff(path):
         return 'gemini_web', 'gemini'                 # export_gemini.js
     if '"exporter":"ephemeris-chatgpt"' in head.replace(' ', ''):
         return 'claude_json', 'chatgpt'               # export_chatgpt.js：格式跟 export_claude.js 一样（messages + role）
+    if '"exportType":' in head.replace(' ', '') and '"state"' in head:
+        return 'lobehub', 'lobehub'                   # LobeHub「设置 → 数据 → 导出」
     if head.lstrip().startswith('[') and '"mapping"' in head and '"fragments"' in head:
         return 'deepseek_export', 'deepseek'          # DeepSeek 网页导出的 conversations.json（也有 mapping，先认它）
     if head.lstrip().startswith('[') and '"mapping"' in head and '"children"' in head:

@@ -30,7 +30,7 @@ import ledger
 import llm
 import store
 
-NAMES = {'claude': 'Claude', 'gemini': 'Gemini', 'chatgpt': 'ChatGPT', 'deepseek': 'DeepSeek'}
+NAMES = {'claude': 'Claude', 'gemini': 'Gemini', 'chatgpt': 'ChatGPT', 'deepseek': 'DeepSeek', 'lobehub': 'LobeHub'}
 KINDS = ('full', 'handoff')
 
 

@@ -381,3 +381,23 @@ class DeepSeekExport(unittest.TestCase):
         rows = store.q('SELECT conv_id, source, role, text FROM messages ORDER BY ts')
         self.assertEqual([(x['conv_id'], x['source'], x['role'], x['text']) for x in rows],
                          [('deepseek-abc', 'deepseek', 'human', '物理选难的还是简单的'), ('deepseek-abc', 'deepseek', 'assistant', '选难的')])
+
+    def test_lobehub(self):
+        """LobeHub 导出：重新生成的分叉走最晚那支；tool、空的不要；标题去掉带进来的 <thinking>。"""
+        t0 = 1785000000000
+        m = lambda i, role, content, parent, dt: {'id': i, 'role': role, 'content': content, 'parentId': parent,
+                                                   'topicId': 'tpc_1', 'createdAt': t0 + dt}
+        data = {'exportType': 'all', 'state': {
+            'topics': [{'id': 'tpc_1', 'title': '<thinking>\n起个标题\n</thinking>\n\n宿舍吃什么'}],
+            'messages': [m('a', 'user', '宿舍吃什么', None, 0), m('b', 'assistant', '旧的回答', 'a', 1000),
+                         m('c', 'assistant', '', 'a', 2000), m('d', 'tool', '{"x":1}', 'c', 3000),
+                         m('e', 'assistant', '吃鸡蛋', 'd', 4000)]}}
+        p = os.path.join(self.tmp, 'lobehub-export.json')
+        with open(p, 'w') as f:
+            json.dump(data, f, ensure_ascii=False)
+        self.assertEqual(idx.sniff(p), ('lobehub', 'lobehub'))
+        idx.ingest(store.connect(), p)
+        rows = store.q('SELECT conv_id, source, role, text FROM messages ORDER BY ts')
+        self.assertEqual([(x['conv_id'], x['source'], x['role'], x['text']) for x in rows],
+                         [('lobehub-tpc_1', 'lobehub', 'human', '宿舍吃什么'), ('lobehub-tpc_1', 'lobehub', 'assistant', '吃鸡蛋')])
+        self.assertEqual(store.one('SELECT title FROM conversations')['title'], '宿舍吃什么')

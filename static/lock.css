@@ -1,31 +1,50 @@
 /* 隐私锁的锁屏（static/lock.js 画的）。三页共用，类名都带 lock- 前缀；颜色只用下面这几个变量，深色在下面的 media 里。
-   整个盖住、不透明：锁着的时候底下什么都不该看得到。 */
+   磨砂玻璃（10-16）：底下的页面只透出颜色和大块轮廓，糊到认不出一个字。
+   不用 backdrop-filter —— 试过，有的图层（滚动区、固定定位的侧栏底部）它糊不到，日记原文清清楚楚露出来；
+   改成直接给底下的页面本身加 filter: blur，再盖一层半透明。锁屏页（新开的标签）底下本来就没有内容。 */
 :root {
   --lock-bg:#FAF9F5; --lock-card:#FFFFFF; --lock-ink:#141413; --lock-muted:#79756C; --lock-line:#E1DED2;
-  --lock-accent:#D97757; --lock-btn:#B05230; --lock-btn-press:#933F22; --lock-on-btn:#fff; --lock-bad:#B05230;
+  --lock-accent:#D97757; --lock-bad:#B05230;
+  --lock-glow-a:rgba(217,119,87,.16); --lock-glow-b:rgba(176,140,82,.18); --lock-tile:#FFFFFF; --lock-shadow:rgba(20,20,19,.10);
+  --lock-field:#FFFFFF; --lock-ring:#5B8BD6; --lock-ring-soft:rgba(91,139,214,.25); --lock-badge:#1F1E1C; --lock-finger:#F0566E;
+  --lock-veil:rgba(250,249,245,.62);
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --lock-bg:#1F1E1C; --lock-card:#2A2926; --lock-ink:#ECEAE3; --lock-muted:#A39F95; --lock-line:#3B3935;
-    --lock-accent:#D97757; --lock-btn:#C9653F; --lock-btn-press:#B05230; --lock-on-btn:#fff; --lock-bad:#E59572;
+    --lock-accent:#D97757; --lock-bad:#E59572;
+    --lock-glow-a:rgba(140,120,100,.22); --lock-glow-b:rgba(176,130,60,.22); --lock-tile:#2A2926; --lock-shadow:rgba(0,0,0,.35);
+    --lock-field:#2A2926; --lock-ring:#5B8BD6; --lock-ring-soft:rgba(91,139,214,.3); --lock-badge:#141413; --lock-finger:#F0566E;
+    --lock-veil:rgba(31,30,28,.66);
   }
 }
 
 html.lock-on, html.lock-on body { overflow:hidden; }
 .lock-page { margin:0; background:var(--lock-bg); }
+/* 照 macOS「密码」App 的锁屏（10-16）：没有卡片框，图标 + 标题 + 一句话 + 一个输入框，居中；底子是不透明的暖色渐变 */
 .lock-scrim { position:fixed; inset:0; z-index:2147483647; display:flex; align-items:center; justify-content:center;
-  padding:16px; background:var(--lock-bg); color:var(--lock-ink);
+  padding:16px; color:var(--lock-ink); background-color:var(--lock-veil);
+  background-image:radial-gradient(120% 90% at 0% 0%, var(--lock-glow-a), transparent 60%),
+                   radial-gradient(110% 90% at 100% 100%, var(--lock-glow-b), transparent 60%);
   font:14px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif; }
-.lock-card { box-sizing:border-box; width:100%; max-width:320px; display:flex; flex-direction:column; align-items:center; gap:10px;
-  padding:32px 24px 24px; background:var(--lock-card); border:1px solid var(--lock-line); border-radius:14px; }
-.lock-logo { width:36px; height:36px; color:var(--lock-ink); }
-.lock-title { font-size:17px; font-weight:600; }
-.lock-sub { margin-top:-6px; font-size:12.5px; color:var(--lock-muted); text-align:center; }
-.lock-input { box-sizing:border-box; width:100%; margin-top:6px; padding:9px 12px; font:inherit; color:var(--lock-ink);
-  background:var(--lock-bg); border:1px solid var(--lock-line); border-radius:8px; outline:none; }
-.lock-input:focus { border-color:var(--lock-accent); }
-.lock-btn { box-sizing:border-box; width:100%; padding:9px 12px; font:inherit; font-weight:600; color:var(--lock-on-btn);
-  background:var(--lock-btn); border:0; border-radius:8px; cursor:pointer; }
-.lock-btn:active { background:var(--lock-btn-press); }
-.lock-btn:disabled { opacity:.6; cursor:default; }
+html.lock-on body > :not(.lock-scrim) { filter:blur(40px) saturate(1.4); }
+.lock-page .lock-scrim { background-color:var(--lock-bg); }
+.lock-card { box-sizing:border-box; width:100%; max-width:340px; display:flex; flex-direction:column; align-items:center; gap:8px; margin-top:-6vh; }
+.lock-icon { position:relative; width:76px; height:76px; margin-bottom:18px; display:flex; align-items:center; justify-content:center;
+  background:var(--lock-tile); border:1px solid var(--lock-line); border-radius:19px; box-shadow:0 6px 18px var(--lock-shadow); }
+.lock-logo { width:42px; height:42px; color:var(--lock-ink); }
+.lock-touch { position:absolute; right:-14px; bottom:-14px; width:40px; height:40px; padding:7px; box-sizing:border-box;
+  display:flex; align-items:center; justify-content:center; color:var(--lock-finger); background:var(--lock-badge);
+  border:2px solid var(--lock-tile); border-radius:50%; cursor:pointer; }
+.lock-touch[hidden] { display:none; }
+.lock-touch svg { width:100%; height:100%; }
+.lock-touch:focus-visible { outline:2px solid var(--lock-accent); outline-offset:2px; }
+.lock-title { font-size:20px; font-weight:650; letter-spacing:.01em; }
+.lock-sub { font-size:13.5px; color:var(--lock-muted); text-align:center; }
+.lock-input { box-sizing:border-box; width:220px; max-width:100%; margin-top:14px; padding:7px 12px; font:inherit; text-align:center;
+  color:var(--lock-ink); background:var(--lock-field); border:1px solid var(--lock-line); border-radius:8px; outline:none;
+  transition:border-color .12s, box-shadow .12s; }
+.lock-input::placeholder { color:var(--lock-muted); }
+.lock-input:focus { border-color:var(--lock-ring); box-shadow:0 0 0 3px var(--lock-ring-soft); }
+.lock-input:disabled { opacity:.6; }
 .lock-msg { min-height:1.6em; font-size:12.5px; color:var(--lock-bad); text-align:center; }

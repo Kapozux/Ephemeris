@@ -220,6 +220,8 @@ CREATE TABLE IF NOT EXISTS backup_keys (path TEXT NOT NULL, key TEXT NOT NULL, h
 
 -- ---------------------------------------------------------------- 隐私锁（lock.py，2026-10-16）：只一行，密码的 PBKDF2 哈希
 CREATE TABLE IF NOT EXISTS app_lock (id INTEGER PRIMARY KEY CHECK (id = 1), hash TEXT NOT NULL, set_at TEXT);
+-- Touch ID 解锁（10-16）：这台 Mac 上登记过的通行密钥，只存公钥（SPKI DER）和算法号；去掉密码时一起清掉
+CREATE TABLE IF NOT EXISTS app_lock_keys (id TEXT PRIMARY KEY, spki BLOB NOT NULL, alg INTEGER NOT NULL, added_at TEXT);
 """
 
 # 老库补列：(表, 列, 类型)。新库的 SCHEMA 里已经有了，这里只对老库起作用。

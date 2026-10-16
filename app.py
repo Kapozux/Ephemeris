@@ -78,7 +78,7 @@ def _privacy_lock():
 def _static_version():
     """模板里的 {{ v }}：static 下最新的修改时间，拼在 ?v= 上。改了任何前端文件，浏览器就拿新的。"""
     newest = max(os.path.getmtime(os.path.join(root, f)) for root, _, files in os.walk(STATIC) for f in files)
-    return {'v': int(newest), 'lock_on': lock.enabled(), 'lock_ping': lock.PING, 'lock_touch': bool(lock.touch_ids())}
+    return {'v': int(newest), 'lock_on': lock.enabled(), 'lock_ping': lock.PING}
 
 
 if __name__ == '__main__':

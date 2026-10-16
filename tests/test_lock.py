@@ -1,7 +1,5 @@
 """隐私锁（2026-10-16）：设了密码，没解锁的请求看不到内容；切走（上锁）、关掉、太久没人报到都要重新输。"""
 import _env  # noqa: F401
-import hashlib
-import json
 import unittest
 from unittest import mock
 
@@ -15,7 +13,6 @@ H = {'Origin': 'http://localhost:5055'}
 class PrivacyLock(unittest.TestCase):
     def setUp(self):
         store.run('DELETE FROM app_lock')
-        store.run('DELETE FROM app_lock_keys')
         lock.lock()
         lock._st.update(fails=0, wait_until=0.0)
         self.c = ephemeris.app.test_client()
@@ -89,81 +86,6 @@ class PrivacyLock(unittest.TestCase):
         self.set_pw()
         other = ephemeris.app.test_client()
         self.assertEqual(other.post('/api/lock/password', json={'old': 'abcd', 'new': 'zzzz'}, headers=H).status_code, 423)
-
-
-class TouchID(unittest.TestCase):
-    """Touch ID（WebAuthn）：这里自己当「指纹设备」，用一把 P-256 私钥按浏览器的格式签。"""
-    def setUp(self):
-        from cryptography.hazmat.primitives.asymmetric import ec
-        store.run('DELETE FROM app_lock')
-        store.run('DELETE FROM app_lock_keys')
-        lock.lock()
-        lock._st.update(fails=0, wait_until=0.0)
-        self.key = ec.generate_private_key(ec.SECP256R1())
-        self.c = ephemeris.app.test_client()
-        self.c.post('/api/lock/password', json={'new': 'abcd'}, headers=H)
-
-    def tearDown(self):
-        store.run('DELETE FROM app_lock')
-        store.run('DELETE FROM app_lock_keys')
-        lock.lock()
-
-    def cd(self, kind, ch, origin='http://localhost:5055'):
-        return lock._b64(json.dumps({'type': f'webauthn.{kind}', 'challenge': ch, 'origin': origin}).encode())
-
-    def register(self):
-        from cryptography.hazmat.primitives import serialization
-        ch = self.c.post('/api/lock/touch/begin', json={'kind': 'create'}, headers=H).get_json()['challenge']
-        spki = self.key.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
-        r = self.c.post('/api/lock/touch/add', headers=H,
-                        json={'id': 'cred1', 'spki': lock._b64(spki), 'alg': -7, 'clientData': self.cd('create', ch)})
-        self.assertEqual(r.status_code, 200, r.get_json())
-
-    def assertion(self, client, flags=0x05, origin='http://localhost:5055', key=None):
-        from cryptography.hazmat.primitives import hashes
-        from cryptography.hazmat.primitives.asymmetric import ec
-        ch = client.post('/api/lock/touch/begin', json={'kind': 'get'}, headers=H).get_json()['challenge']
-        cd = self.cd('get', ch, origin)
-        ad = hashlib.sha256(b'localhost').digest() + bytes([flags]) + b'\0\0\0\1'
-        sig = (key or self.key).sign(ad + hashlib.sha256(lock._unb64(cd)).digest(), ec.ECDSA(hashes.SHA256()))
-        return {'id': 'cred1', 'clientData': cd, 'authData': lock._b64(ad), 'sig': lock._b64(sig)}
-
-    def test_touch_unlocks_other_page(self):
-        self.register()
-        other = ephemeris.app.test_client()
-        self.assertEqual(other.get('/api/days').status_code, 423)
-        r = other.post('/api/lock/touch/unlock', json=self.assertion(other), headers=H)
-        self.assertEqual(r.status_code, 200, r.get_json())
-        self.assertEqual(other.get('/api/days').status_code, 200)
-
-    def test_bad_signature_wrong_origin_or_no_fingerprint_fail(self):
-        from cryptography.hazmat.primitives.asymmetric import ec
-        self.register()
-        other = ephemeris.app.test_client()
-        for a in (self.assertion(other, key=ec.generate_private_key(ec.SECP256R1())),
-                  self.assertion(other, origin='http://evil.example'),
-                  self.assertion(other, flags=0x01)):                     # 碰了但没验指纹
-            self.assertEqual(other.post('/api/lock/touch/unlock', json=a, headers=H).status_code, 400)
-        self.assertEqual(other.get('/api/days').status_code, 423)
-
-    def test_challenge_used_once(self):
-        self.register()
-        other = ephemeris.app.test_client()
-        a = self.assertion(other)
-        self.assertEqual(other.post('/api/lock/touch/unlock', json=a, headers=H).status_code, 200)
-        lock.lock()
-        self.assertEqual(other.post('/api/lock/touch/unlock', json=a, headers=H).status_code, 400)
-
-    def test_register_needs_unlocked(self):
-        other = ephemeris.app.test_client()
-        self.assertEqual(other.post('/api/lock/touch/begin', json={'kind': 'create'}, headers=H).status_code, 400)
-        self.assertEqual(other.post('/api/lock/touch/add', json={}, headers=H).status_code, 423)
-
-    def test_removing_password_drops_keys(self):
-        self.register()
-        self.assertEqual(len(lock.touch_ids()), 1)
-        self.c.post('/api/lock/password', json={'old': 'abcd', 'new': ''}, headers=H)
-        self.assertEqual(lock.touch_ids(), [])
 
 
 if __name__ == '__main__':

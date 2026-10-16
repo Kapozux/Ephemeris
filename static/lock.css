@@ -6,7 +6,7 @@
   --lock-bg:#FAF9F5; --lock-card:#FFFFFF; --lock-ink:#141413; --lock-muted:#79756C; --lock-line:#E1DED2;
   --lock-accent:#D97757; --lock-bad:#B05230;
   --lock-glow-a:rgba(217,119,87,.16); --lock-glow-b:rgba(176,140,82,.18); --lock-tile:#FFFFFF; --lock-shadow:rgba(20,20,19,.10);
-  --lock-field:#FFFFFF; --lock-ring:#5B8BD6; --lock-ring-soft:rgba(91,139,214,.25); --lock-badge:#1F1E1C; --lock-finger:#F0566E;
+  --lock-field:#FFFFFF; --lock-ring:#5B8BD6; --lock-ring-soft:rgba(91,139,214,.25);
   --lock-veil:rgba(250,249,245,.42);
 }
 @media (prefers-color-scheme: dark) {
@@ -14,7 +14,7 @@
     --lock-bg:#1F1E1C; --lock-card:#2A2926; --lock-ink:#ECEAE3; --lock-muted:#A39F95; --lock-line:#3B3935;
     --lock-accent:#D97757; --lock-bad:#E59572;
     --lock-glow-a:rgba(140,120,100,.22); --lock-glow-b:rgba(176,130,60,.22); --lock-tile:#2A2926; --lock-shadow:rgba(0,0,0,.35);
-    --lock-field:#2A2926; --lock-ring:#5B8BD6; --lock-ring-soft:rgba(91,139,214,.3); --lock-badge:#141413; --lock-finger:#F0566E;
+    --lock-field:#2A2926; --lock-ring:#5B8BD6; --lock-ring-soft:rgba(91,139,214,.3);
     --lock-veil:rgba(31,30,28,.48);
   }
 }
@@ -33,12 +33,6 @@ html.lock-on body > :not(.lock-scrim) { filter:blur(14px) saturate(1.3); }
 .lock-icon { position:relative; width:76px; height:76px; margin-bottom:18px; display:flex; align-items:center; justify-content:center;
   background:var(--lock-tile); border:1px solid var(--lock-line); border-radius:19px; box-shadow:0 6px 18px var(--lock-shadow); }
 .lock-logo { width:42px; height:42px; color:var(--lock-ink); }
-.lock-touch { position:absolute; right:-14px; bottom:-14px; width:40px; height:40px; padding:7px; box-sizing:border-box;
-  display:flex; align-items:center; justify-content:center; color:var(--lock-finger); background:var(--lock-badge);
-  border:2px solid var(--lock-tile); border-radius:50%; cursor:pointer; }
-.lock-touch[hidden] { display:none; }
-.lock-touch svg { width:100%; height:100%; }
-.lock-touch:focus-visible { outline:2px solid var(--lock-accent); outline-offset:2px; }
 .lock-title { font-size:20px; font-weight:650; letter-spacing:.01em; }
 .lock-sub { font-size:13.5px; color:var(--lock-muted); text-align:center; }
 .lock-input { box-sizing:border-box; width:220px; max-width:100%; margin-top:14px; padding:7px 12px; font:inherit; text-align:center;

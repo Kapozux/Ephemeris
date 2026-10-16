@@ -258,7 +258,7 @@ def pin(thread, on=True):
 def autotitle(thread):
     """还没起过标题（named=0）的对话起一个：一次调用、effort low。用户改过的、起过的不再动。起不出来就留着第一个问题。"""
     r = store.one('SELECT named FROM qa_threads WHERE id=?', thread)
-    turns = history(4, thread)
+    turns = store.q('SELECT role, text FROM qa_chat WHERE thread_id=? ORDER BY id LIMIT 4', thread)   # 开头几句，不是最近几句
     if not r or r['named'] or not any(t['role'] != 'user' for t in turns):
         return None
     text = '\n\n'.join(('我：' if t['role'] == 'user' else '回答：') + re.sub(r'\[\[[^\]]*\]\]', '', t['text'])[:600] for t in turns)

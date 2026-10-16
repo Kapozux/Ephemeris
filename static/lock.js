@@ -83,6 +83,19 @@
     } else box?.querySelector('.lock-input')?.focus();
   });
 
+  // 窗口还露在屏幕上、但你去用别的了（点了终端、别的窗口）也锁（10-16）。
+  // 等一下再看 hasFocus：点进页面里的 iframe 也会先来 blur，那种焦点还在这一页。选文件的系统对话框也会抢走焦点，那段不算。
+  let picking = false;
+  document.addEventListener('click', e => { if (e.target.closest?.('input[type=file]')) picking = true; }, true);
+  addEventListener('focus', () => { picking = false; box?.querySelector('.lock-input')?.focus(); });
+  addEventListener('blur', () => {
+    if (!on || box || leaving || picking) return;
+    setTimeout(() => {
+      if (!on || box || leaving || picking || document.hasFocus()) return;
+      show(); beacon('/api/lock/lock');
+    }, 150);
+  });
+
   // 亮着的页面定时报到：服务器那头超过一分钟没人报到（标签都关了、电脑睡了）也算锁上
   async function ping() {
     if (!on || box || isLockPage || document.visibilityState !== 'visible') return;

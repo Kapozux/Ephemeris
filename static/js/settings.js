@@ -45,6 +45,39 @@ export async function pollKeys() {
   if (s) keysStatus(s);
 }
 
+// ---------------------------------------------------------------- 隐私锁（lock.py / static/lock.js）
+// 设了密码：页面一切走就锁上，回来要输密码。改 / 去掉都要先输原来的密码。
+export async function pollLock() {
+  const box = $('#lockBox'); if (!box) return;
+  const s = await fetch('/api/lock/status').then(r => r.json()).catch(() => null);
+  if (!s) return;
+  const pw = (id, ph, ac) => `<input id="${id}" class="set-pw" type="password" placeholder="${ph}" autocomplete="${ac}">`;
+  box.innerHTML = `
+    <div class="set-row">
+      <span class="set-text"><b>切走就上锁</b><span class="set-key-st${s.on ? ' ok' : ''}">${s.on ? '开着' : '没开'}</span>
+        <span class="set-what">设了密码以后，这个页面一被切走（换标签、最小化、新开一个 Ephemeris）就锁上，回来要输密码；一直开着看就不打扰。
+          锁着的时候接口也不给数据。忘了密码：在 ephemeris 目录运行 <code>python3 lock.py --reset</code>。</span>
+        <span class="set-res" id="lockMsg" role="status"></span></span>
+      <span class="set-act">${s.on ? pw('lockOld', '原来的密码', 'current-password') : ''}${pw('lockNew', s.on ? '新密码（换一个）' : '设一个密码', 'new-password')}
+        <button class="btn-secondary btn-small" data-lk="set">${s.on ? '改密码' : '设好'}</button>
+        ${s.on ? '<button class="btn-secondary btn-small" data-lk="off">去掉锁</button>' : ''}</span>
+    </div>`;
+  const msg = $('#lockMsg');
+  box.querySelectorAll('button[data-lk]').forEach(b => b.onclick = async () => {
+    const off = b.dataset.lk === 'off', nw = off ? '' : $('#lockNew').value;
+    msg.classList.remove('bad');
+    if (!off && !nw) { msg.textContent = '先输一个密码'; $('#lockNew').focus(); return; }
+    b.disabled = true;
+    const r = await fetch('/api/lock/password', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ old: $('#lockOld')?.value || '', new: nw }) }).then(r => r.json()).catch(() => null);
+    b.disabled = false;
+    if (!r || !r.ok) { msg.textContent = r?.error || '没存上：Ephemeris 还开着吗？'; msg.classList.add('bad'); return; }
+    window.ephLock?.set(r.on);
+    await pollLock();
+    $('#lockMsg').textContent = r.on ? '设好了：切到别的标签再回来试试' : '锁去掉了';
+  });
+}
+
 // ---------------------------------------------------------------- 导出
 
 let POLL = null, ESTMR = null, LAST = null;

@@ -1,0 +1,3 @@
+{#- 隐私锁（lock.py / static/lock.js）：三页和锁屏页都在 <head> 里 include 这一份。没设密码 lock.js 只是待命。 -#}
+<link rel="stylesheet" href="/static/lock.css?v={{ v }}">
+<script src="/static/lock.js?v={{ v }}" data-on="{{ 1 if lock_on else 0 }}" data-ping="{{ lock_ping }}"{% if lock_page %} data-page="lock"{% endif %}></script>

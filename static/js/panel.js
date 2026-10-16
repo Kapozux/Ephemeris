@@ -7,7 +7,7 @@ import { loadThemes } from './themes.js';
 import { loadRiver } from './river.js';
 import { ensureConvs, pollCSync } from './convs.js';
 import { ensureNotion } from './notion.js';
-import { pollExport, pollKeys } from './settings.js';
+import { pollExport, pollKeys, pollLock } from './settings.js';
 
 // 「问」2026-10-13 起是单独的全屏聊天页（/chat，做证据卡也在那里），入口在主导航；老链接 #/panel/qa 跳过去
 const toChat = () => { location.href = '/chat'; };
@@ -21,7 +21,7 @@ export function openModal(pane, arg) {
   ensureReflect();                     // 「回顾」「数据」两栏共用，哪栏进来都先拿着
   if (pane === 'convs') { pollCSync(); ensureConvs(); }
   if (pane === 'notion') ensureNotion();
-  if (pane === 'settings') { pollKeys(); pollExport(); }
+  if (pane === 'settings') { pollKeys(); pollLock(); pollExport(); }
 }
 export function closeModal() { $('#overlay').classList.add('hidden'); stopReflect(); }
 $('#reflectOpen').onclick = () => navigate('panel/reflect');

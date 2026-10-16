@@ -217,6 +217,9 @@ CREATE TABLE IF NOT EXISTS backups (
 CREATE TABLE IF NOT EXISTS backup_files (path TEXT PRIMARY KEY, sha1 TEXT, size INTEGER, written_at TEXT);
 -- 备份里每个核心数据文件现在有哪些行（键 + 内容指纹）：本地少了 / 改了哪行，不用去读 Drive 就知道（backup.py）
 CREATE TABLE IF NOT EXISTS backup_keys (path TEXT NOT NULL, key TEXT NOT NULL, h TEXT, PRIMARY KEY (path, key));
+
+-- ---------------------------------------------------------------- 隐私锁（lock.py，2026-10-16）：只一行，密码的 PBKDF2 哈希
+CREATE TABLE IF NOT EXISTS app_lock (id INTEGER PRIMARY KEY CHECK (id = 1), hash TEXT NOT NULL, set_at TEXT);
 """
 
 # 老库补列：(表, 列, 类型)。新库的 SCHEMA 里已经有了，这里只对老库起作用。

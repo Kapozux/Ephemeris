@@ -1,0 +1,31 @@
+/* 隐私锁的锁屏（static/lock.js 画的）。三页共用，类名都带 lock- 前缀；颜色只用下面这几个变量，深色在下面的 media 里。
+   整个盖住、不透明：锁着的时候底下什么都不该看得到。 */
+:root {
+  --lock-bg:#FAF9F5; --lock-card:#FFFFFF; --lock-ink:#141413; --lock-muted:#79756C; --lock-line:#E1DED2;
+  --lock-accent:#D97757; --lock-btn:#B05230; --lock-btn-press:#933F22; --lock-on-btn:#fff; --lock-bad:#B05230;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --lock-bg:#1F1E1C; --lock-card:#2A2926; --lock-ink:#ECEAE3; --lock-muted:#A39F95; --lock-line:#3B3935;
+    --lock-accent:#D97757; --lock-btn:#C9653F; --lock-btn-press:#B05230; --lock-on-btn:#fff; --lock-bad:#E59572;
+  }
+}
+
+html.lock-on, html.lock-on body { overflow:hidden; }
+.lock-page { margin:0; background:var(--lock-bg); }
+.lock-scrim { position:fixed; inset:0; z-index:2147483647; display:flex; align-items:center; justify-content:center;
+  padding:16px; background:var(--lock-bg); color:var(--lock-ink);
+  font:14px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif; }
+.lock-card { box-sizing:border-box; width:100%; max-width:320px; display:flex; flex-direction:column; align-items:center; gap:10px;
+  padding:32px 24px 24px; background:var(--lock-card); border:1px solid var(--lock-line); border-radius:14px; }
+.lock-logo { width:36px; height:36px; color:var(--lock-ink); }
+.lock-title { font-size:17px; font-weight:600; }
+.lock-sub { margin-top:-6px; font-size:12.5px; color:var(--lock-muted); text-align:center; }
+.lock-input { box-sizing:border-box; width:100%; margin-top:6px; padding:9px 12px; font:inherit; color:var(--lock-ink);
+  background:var(--lock-bg); border:1px solid var(--lock-line); border-radius:8px; outline:none; }
+.lock-input:focus { border-color:var(--lock-accent); }
+.lock-btn { box-sizing:border-box; width:100%; padding:9px 12px; font:inherit; font-weight:600; color:var(--lock-on-btn);
+  background:var(--lock-btn); border:0; border-radius:8px; cursor:pointer; }
+.lock-btn:active { background:var(--lock-btn-press); }
+.lock-btn:disabled { opacity:.6; cursor:default; }
+.lock-msg { min-height:1.6em; font-size:12.5px; color:var(--lock-bad); text-align:center; }

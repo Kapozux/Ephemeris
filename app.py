@@ -10,6 +10,7 @@
     routes_review.py   回顾面板、话题河流、按窗口回顾                 → reflect_chat / river / conv_review
     routes_checkin.py  打卡页、星座图                                 → checkin / days
     routes_data.py     窗口与导入、claude.ai 同步、备份、Notion       → index / daily / backup / to_notion
+    routes_lock.py     隐私锁：解锁、上锁、报到、设密码                → lock
 后台常驻的只有两样：启动时把回顾面板算好（reflect_chat.warm），和每分钟看一眼的调度（daily.scheduler）。
 """
 import os
@@ -18,14 +19,16 @@ import threading
 
 from urllib.parse import urlsplit
 
-from flask import Flask, abort, request
+from flask import Flask, abort, jsonify, render_template, request
 
 import daily
 import llm
+import lock
 import reflect_chat
 import routes_checkin
 import routes_data
 import routes_day
+import routes_lock
 import routes_review
 import store
 
@@ -34,7 +37,7 @@ STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
 app = Flask(__name__)
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0   # 本地工具，改完就要看到
 app.config['TEMPLATES_AUTO_RELOAD'] = True   # 上面那条只管 static；模板不加这条要重启才生效
-for _bp in (routes_day.bp, routes_review.bp, routes_checkin.bp, routes_data.bp):
+for _bp in (routes_day.bp, routes_review.bp, routes_checkin.bp, routes_data.bp, routes_lock.bp):
     app.register_blueprint(_bp)
 
 
@@ -58,11 +61,24 @@ def _same_origin_only():
         abort(403)
 
 
+@app.before_request
+def _privacy_lock():
+    """隐私锁（lock.py）：设了密码又没解锁，接口回 423，页面换成锁屏页。静态文件和锁自己的接口放行。"""
+    p = request.path
+    if p.startswith('/static/') or p.startswith('/api/lock/') and p != '/api/lock/password':
+        return
+    if lock.ok(request.cookies.get(lock.COOKIE)):
+        return
+    if p.startswith('/api/'):
+        return jsonify(locked=True, error='锁着：先输密码'), 423
+    return render_template('lock.html'), 200, {'Cache-Control': 'no-store'}
+
+
 @app.context_processor
 def _static_version():
     """模板里的 {{ v }}：static 下最新的修改时间，拼在 ?v= 上。改了任何前端文件，浏览器就拿新的。"""
     newest = max(os.path.getmtime(os.path.join(root, f)) for root, _, files in os.walk(STATIC) for f in files)
-    return {'v': int(newest)}
+    return {'v': int(newest), 'lock_on': lock.enabled(), 'lock_ping': lock.PING}
 
 
 if __name__ == '__main__':

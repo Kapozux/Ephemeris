@@ -3,29 +3,79 @@
 python ask.py                    一直问，空行 / Ctrl-D 退出。/new 开一段新对话；/list 以前的对话；/open 编号 打开那段接着问
 python ask.py 问题……              问 Claude：它自己去搜原文、翻卡、读前后文再答（一两分钟，用 Claude 订阅额度）
 问过的都记着（跟网页同一份），也会写进当天的日记。
+设了隐私锁（lock.py）的话，服务器回 423 时这里问一次密码，解锁令牌只在这个进程里；开着的时候每 20 秒报到一次，
+不然打一个长问题的工夫（超过 lock.IDLE）就又锁了。网页那边一解锁 / 一上锁，这边的令牌作废，下次请求再问密码。
 """
+import getpass
 import json
 import re
 import sys
+import threading
 import time
+import urllib.error
 import urllib.request
 
 BASE = 'http://127.0.0.1:5055'
+TOKEN = [None]                                           # 隐私锁的解锁令牌（cookie eph_unlock）
+
+
+def _send(path, body=None, timeout=60):
+    """→ (状态码, JSON)。body=None 是 GET。"""
+    head = {'Content-Type': 'application/json'}
+    if TOKEN[0]:
+        head['Cookie'] = f'eph_unlock={TOKEN[0]}'
+    req = urllib.request.Request(BASE + path, headers=head, method='GET' if body is None else 'POST',
+                                 data=None if body is None else json.dumps(body).encode())
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            for c in r.headers.get_all('Set-Cookie') or []:
+                m = re.match(r'eph_unlock=([^;]+)', c)
+                if m:
+                    TOKEN[0] = m.group(1)
+            return r.status, json.load(r)
+    except urllib.error.HTTPError as e:                 # 409 / 423 之类：后端把原因放在 JSON 里
+        try:
+            return e.code, json.load(e)
+        except ValueError:
+            return e.code, {'error': f'HTTP {e.code}'}
+
+
+def _unlock():
+    while True:
+        try:
+            pw = getpass.getpass('\nEphemeris 锁着，输密码（直接回车退出）：')
+        except EOFError:
+            pw = ''
+        if not pw:
+            sys.exit()
+        code, r = _send('/api/lock/unlock', {'password': pw})
+        if r.get('ok'):
+            return
+        print(r.get('error') or '没解开')
+
+
+def _call(path, body=None, timeout=60):
+    while True:
+        code, r = _send(path, body, timeout)
+        if code != 423:
+            return r
+        TOKEN[0] = None
+        _unlock()
 
 
 def _post(path, body):
-    req = urllib.request.Request(BASE + path, data=json.dumps(body).encode(), method='POST',
-                                 headers={'Content-Type': 'application/json'})
-    try:
-        with urllib.request.urlopen(req, timeout=300) as r:
-            return json.load(r)
-    except urllib.error.HTTPError as e:                 # 409 之类：后端把原因放在 JSON 里
-        return json.load(e)
+    return _call(path, body, timeout=300)
 
 
 def _get(path):
-    with urllib.request.urlopen(BASE + path, timeout=60) as r:
-        return json.load(r)
+    return _call(path)
+
+
+def _keepalive():
+    while True:
+        time.sleep(20)
+        if TOKEN[0]:
+            _send('/api/lock/ping', {})
 
 
 CITE = re.compile(r'\[\[[^\]]*\]\]|\[c\d+[^\[\]\n]{0,80}\]')
@@ -108,6 +158,7 @@ def show_thread():
 
 
 if __name__ == '__main__':
+    threading.Thread(target=_keepalive, daemon=True).start()
     args = sys.argv[1:]
     if args:
         ask(' '.join(args))
@@ -121,7 +172,7 @@ if __name__ == '__main__':
         if not q:
             break
         if q in ('/new', '/clear'):
-            THREAD[0] = _post('/api/qa/new', {})['thread']
+            THREAD[0] = _post('/api/qa/new', {}).get('thread') or THREAD[0]
             print('开了一段新对话（以前的用 /list 看）。\n')
             continue
         if q == '/list':

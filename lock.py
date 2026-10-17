@@ -14,8 +14,6 @@
 10-17 又加了一种、优先用它：macOS 自己的指纹框（touchid.swift，LocalAuthentication，跟 sudo 那个一样）——
 用户嫌浏览器那个通行密钥框难用、要点一下才弹也麻烦。不用登记；服务器跑在这台 Mac 上，直接弹，按对了发令牌。
 第一次用时现编译 touchid（要 Xcode 命令行工具），编不出来 / 这台没指纹就只剩上面那两种。
-10-17 还有 Mac App（mac/Ephemeris.swift）：锁屏是原生的，指纹嵌在窗口里（LAAuthenticationView，跟「密码」App 一样不弹框）。
-App 自己验过指纹后拿 APP_KEY_FILE 里的钥匙换令牌（app_unlock）。钥匙文件只有这个用户能读；能读它的程序本来也能直接读 chats.db。
 忘了密码：`python3 lock.py --reset` 把锁去掉（能碰到这台电脑的文件，本来也就能直接读 chats.db）。
 """
 import base64
@@ -267,34 +265,6 @@ def native_unlock():
     if code != 0:
         return None, '没按指纹'                         # 取消、切走、按错几次：系统自己管次数，这里不算「输错密码」
     return _grant(time.time()), None
-
-
-# ---------------------------------------------------------------- Mac App（mac/Ephemeris.swift）
-APP_KEY_FILE = os.path.join(HERE, '.app_key')           # 白名单外，不进仓库
-
-
-def app_key():
-    """App 和服务器之间的钥匙：没有就生成一把，文件只给本人读写。"""
-    if not os.path.exists(APP_KEY_FILE):
-        fd = os.open(APP_KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, 'w', encoding='utf-8') as f:
-            f.write(secrets.token_urlsafe(32))
-    with open(APP_KEY_FILE, encoding='utf-8') as f:
-        return f.read().strip()
-
-
-def app_unlock(key):
-    """App 那边验过指纹了：拿钥匙换令牌。→ (令牌, 错误句)。钥匙不对跟输错密码一样算次数。"""
-    if not _hash():
-        return None, '没设密码'
-    now = time.time()
-    err = _throttled(now)
-    if err:
-        return None, err
-    if not key or not secrets.compare_digest(str(key), app_key()):
-        _fail(now)
-        return None, '钥匙不对'
-    return _grant(now), None
 
 
 def cancel_native():

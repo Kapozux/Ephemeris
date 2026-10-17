@@ -93,8 +93,6 @@ if __name__ == '__main__':
     threading.Timer(3.0, reflect_chat.warm).start()               # 提前算好，打开面板不用等
     threading.Thread(target=daily.scheduler, daemon=True).start()
     threading.Thread(target=lock.native_probe, daemon=True).start()   # 隐私锁的系统指纹框：头一次要编译几秒，别卡启动
-    if sys.platform == 'darwin':
-        lock.app_key()                                             # Mac App 解锁用的钥匙（mac/Ephemeris.swift 读它）
     err = llm.check()
     print(f"[llm] 后端 {llm.backend()}：{'不可用 —— ' + err if err else '正常'}", flush=True)
     print(f'Ephemeris -> http://localhost:{port}')

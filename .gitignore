@@ -18,7 +18,6 @@
 !/static/
 !/templates/
 !/tests/
-!/mac/
 
 # 白名单里的目录也只放行代码类型
 /static/*
@@ -35,7 +34,3 @@
 !/templates/*.html
 /tests/*
 !/tests/*.py
-/mac/*
-!/mac/*.swift
-!/mac/*.sh
-!/mac/*.plist

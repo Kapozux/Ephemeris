@@ -268,7 +268,7 @@ def pin(thread, on=True):
 def autotitle(thread):
     """还没起过标题（named=0）的对话起一个：一次调用、effort low。用户改过的、起过的不再动。起不出来就留着第一个问题。"""
     r = store.one('SELECT named FROM qa_threads WHERE id=?', thread)
-    turns = store.q('SELECT role, text FROM qa_chat WHERE thread_id=? ORDER BY id LIMIT 4', thread)   # 开头几句，不是最近几句
+    turns = store.q('SELECT role, text FROM qa_chat WHERE thread_id=? AND replaced IS NULL ORDER BY id LIMIT 4', thread)   # 开头几句，不是最近几句
     if not r or r['named'] or not any(t['role'] != 'user' for t in turns):
         return None
     text = '\n\n'.join(('我：' if t['role'] == 'user' else '回答：') + re.sub(r'\[\[[^\]]*\]\]', '', no_viz(t['text']))[:600] for t in turns)
@@ -299,8 +299,10 @@ def current():
     return r['id'] if r else new_thread()
 
 
-def history(n=60, thread=None):
-    rows = store.q('SELECT id, ts, role, text, cites, trace FROM qa_chat WHERE thread_id=? ORDER BY id DESC LIMIT ?',
+def history(n=60, thread=None, versions=False):
+    """这段对话最近 n 句。versions=True 连旧版本（replaced）一起给（聊天页翻版本用）；不然只有现在这一版（给模型的前文）。"""
+    rows = store.q(f"""SELECT id, ts, role, text, cites, trace, replaced FROM qa_chat
+                       WHERE thread_id=? {'' if versions else 'AND replaced IS NULL'} ORDER BY id DESC LIMIT ?""",
                    thread or current(), n)[::-1]
     for r in rows:
         r['cites'] = json.loads(r['cites'] or '[]')
@@ -356,8 +358,23 @@ def answer(question, on_text=None, thread=None, model=None, effort='high', again
 
 def unanswered(thread):
     """这段对话最后一句是问题、后面没有回答（问到一半服务重启了 / 出错了）→ 那句问题；不是 → None。"""
-    r = store.one('SELECT role, text FROM qa_chat WHERE thread_id=? ORDER BY id DESC LIMIT 1', thread)
+    r = store.one('SELECT role, text FROM qa_chat WHERE thread_id=? AND replaced IS NULL ORDER BY id DESC LIMIT 1', thread)
     return r['text'] if r and r['role'] == 'user' else None
+
+
+def rewind(thread, edited=None):
+    """重新跑（edited=None）/ 改了问题再跑（edited=新问题）：只对这段对话的最后一问（10-17，照 claude.ai）。
+    把最后一问的回答（改问题时连问题本身）标成旧版本（replaced），不删 —— 界面上还翻得到，messages 里也还在（规矩 6）。
+    → (这次要问的问题, again)：重新跑是 again（问题还用原来那句，不再记一遍）；改问题是新问一句。没有可重跑的 → None。"""
+    q = store.one("SELECT id, text FROM qa_chat WHERE thread_id=? AND role='user' AND replaced IS NULL ORDER BY id DESC LIMIT 1", thread)
+    if not q:
+        return None
+    ids = [r['id'] for r in store.q('SELECT id FROM qa_chat WHERE thread_id=? AND replaced IS NULL AND id > ?', thread, q['id'])]
+    if edited:
+        ids.append(q['id'])
+    if ids:
+        store.run(f"UPDATE qa_chat SET replaced=1 WHERE id IN ({','.join('?' * len(ids))})", *ids)
+    return (edited, False) if edited else (q['text'], True)
 
 
 def _turns(thread, again):
@@ -604,12 +621,13 @@ def _step(kind, text):
             'd': ' · '.join([w for w in [words[:80]] if w] + notes)}
 
 
-def answer_deep(question, progress=None, on_text=None, thread=None, model=None, effort='max', again=False):
+def answer_deep(question, progress=None, on_text=None, thread=None, model=None, effort='max', again=False, fresh=False):
+    """fresh：不接上一轮的 Claude 会话（重新跑 / 改问题时：上一轮会话里有被换掉的那版回答）。"""
     with llm.using(model):
-        return _answer_deep(question, progress, on_text, thread, effort, again)
+        return _answer_deep(question, progress, on_text, thread, effort, again, fresh)
 
 
-def _answer_deep(question, progress, on_text, thread, effort, again=False):
+def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh=False):
     """让 Claude 自己查着回答。progress(一行文字) 报进度；on_text(一小段字) 是正在写的回答，on_text(None) = 这段作废、重新开始
     （它查一步说一句再查，每段话开头都会重置，最后留下的就是回答）。追问（DEEP_TTL 以内）接着上一轮的会话。"""
     question = (question or '').strip()
@@ -618,8 +636,8 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False):
     if not llm.claude_on() and not llm.cheap_on():
         raise RuntimeError('深挖要 Claude 或 DeepSeek，现在两样都用不了')
     thread = thread or current()
-    last = store.one("SELECT sid, ts FROM qa_chat WHERE role='assistant' AND thread_id=? ORDER BY id DESC LIMIT 1", thread)
-    sid = last['sid'] if last and last['sid'] and \
+    last = store.one("SELECT sid, ts FROM qa_chat WHERE role='assistant' AND thread_id=? AND replaced IS NULL ORDER BY id DESC LIMIT 1", thread)
+    sid = last['sid'] if not fresh and last and last['sid'] and \
         time.time() - datetime.fromisoformat(last['ts']).timestamp() < DEEP_TTL else None
     turns = _turns(thread, again)
     if not again:
@@ -688,7 +706,7 @@ def can_dig():
     return llm.claude_on() or llm.cheap_on()
 
 
-def start_ask(question, thread=None, model=None, effort=None, again=False):
+def start_ask(question, thread=None, model=None, effort=None, again=False, fresh=False):
     """后台问（一两分钟；只有 Gemini 时凭卡答，十来秒）。前端 / ask.py 轮询 live()：steps 是查找进度，partial 是正在写的回答，
     result 是写完、出处认好的最终版；问答照样记进 history()。同一时间只问一个。"""
     thread = thread or current()
@@ -701,7 +719,7 @@ def start_ask(question, thread=None, model=None, effort=None, again=False):
         def text(piece):
             job['partial'] = '' if piece is None else job['partial'] + piece
         pick = {'model': model, 'effort': effort or 'max', 'again': again}          # 问默认 Max（10-17：思考不要限制）
-        job['result'] = answer_deep(q, progress=job['steps'].append, on_text=text, thread=thread, **pick) if deep \
+        job['result'] = answer_deep(q, progress=job['steps'].append, on_text=text, thread=thread, fresh=fresh, **pick) if deep \
             else answer(q, on_text=text, thread=thread, **pick)
         # 第一轮答完起标题：另开一条线，不拖着这次问答收尾
         threading.Thread(target=autotitle, args=(thread,), daemon=True).start()

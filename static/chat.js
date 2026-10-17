@@ -94,7 +94,129 @@ const qHtml = t => `<div class="ch-q"><div>${esc(t)}</div></div>`;
 const lostHtml = last => `<div class="ch-lost"><span>这个问题没答完（出错了，或者那时服务重启了）</span>`
   + (last ? '<button type="button" class="ch-lost-go">重新问</button>' : '') + '</div>';
 const aHtml = (t, cites, stopped, trace) => `<div class="ch-a${stopped ? ' stopped' : ''}">${traceHtml(trace)}${body(t, cites || [])}${sources(cites || [])}</div>`;
-const turnHtml = t => t.role === 'user' ? qHtml(t.text) : aHtml(t.text, t.cites, false, t.trace);
+
+// ---------- 一轮一轮（10-17，照 claude.ai）：问题下面「多久前 · ‹ 1/2 › · 重新跑 · 改 · 复制」，回答下面「复制」 ----------
+// 重新跑 / 改了问题，旧的那版不删（qa.rewind 标成 replaced），挂在这一轮上能翻回去看。重新跑和改只对最后一轮、没在写的时候。
+let TURNS = [], LIVE_LAST = false;
+const VIEW = new Map();                                     // 这一轮在看第几版（key：这一轮现在那句问题的 id）
+
+function turnsOf(rows) {
+  const turns = [];
+  let pend = [];
+  const pairs = rs => rs.reduce((out, r) => {
+    if (r.role === 'user') out.push({ q: r, a: null });
+    else if (out.length && !out.at(-1).a) out.at(-1).a = r;
+    else out.push({ q: out.at(-1)?.q || null, a: r });
+    return out;
+  }, []);
+  const answersTo = t => pend.filter(r => r.role === 'assistant').map(a => ({ q: t.q, a }));
+  for (const r of rows) {
+    if (r.replaced) { pend.push(r); continue; }
+    if (r.role === 'user') { turns.push({ q: r, a: null, old: pairs(pend) }); pend = []; continue; }
+    const t = turns.at(-1);
+    if (!t || t.a) { turns.push({ q: null, a: r, old: [] }); continue; }
+    t.old.push(...answersTo(t));
+    pend = [];
+    t.a = r;
+  }
+  if (pend.length && turns.length) turns.at(-1).old.push(...answersTo(turns.at(-1)));   // 正在重新跑：旧回答已经换下来了
+  return turns;
+}
+
+const ago = ts => {
+  const d = new Date(ts), s = (Date.now() - d) / 1000;
+  if (s < 60) return '刚刚';
+  if (s < 3600) return `${Math.floor(s / 60)} 分钟前`;
+  if (s < 86400) return `${Math.floor(s / 3600)} 小时前`;
+  const hm = `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return s < 172800 ? `昨天 ${hm}` : `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
+};
+const SVG = p => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+const I_RETRY = SVG('<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4h-4"/>');
+const I_EDIT = SVG('<path d="M14.5 5.5l4 4L9 19H5v-4z"/>');
+const I_COPY = SVG('<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V6.5a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/>');
+const I_OK = SVG('<path d="M5 12.5l4.5 4.5L19 7"/>');
+const btn = (cls, label, icon) => `<button type="button" class="ch-act ${cls}" title="${label}" aria-label="${label}">${icon}</button>`;
+const plain = t => (t || '').replace(/```html[^\n]*\n[\s\S]*?(```|$)/g, '（图）').replace(/\[\[[^\]]*\]\]/g, '').replace(/ +([，。；！？])/g, '$1');
+
+function turnBlock(t, i) {
+  const vs = [...t.old, { q: t.q, a: t.a }], key = t.q?.id ?? `a${t.a?.id}`;
+  const at = Math.min(VIEW.get(key) ?? vs.length - 1, vs.length - 1), v = vs[at], latest = at === vs.length - 1;
+  const lastTurn = i === TURNS.length - 1;
+  const ver = vs.length > 1 ? `<span class="ch-ver"><button type="button" class="ch-act ch-prev" aria-label="上一版"${at ? '' : ' disabled'}>‹</button>`
+    + `<span>${at + 1} / ${vs.length}</span><button type="button" class="ch-act ch-next" aria-label="下一版"${latest ? ' disabled' : ''}>›</button></span>` : '';
+  const qActs = v.q ? `<div class="ch-acts ch-q-acts"><span class="ch-when" title="${esc(v.q.ts.replace('T', ' '))}">${ago(v.q.ts)}</span>${ver}`
+    + (latest && lastTurn ? btn('ch-retry', '重新跑', I_RETRY) + btn('ch-edit', '改一下再问', I_EDIT) : '') + btn('ch-copy', '复制', I_COPY) + '</div>' : '';
+  const pending = latest && lastTurn && LIVE_LAST;
+  const ans = v.a ? aHtml(v.a.text, v.a.cites, false, v.a.trace) + `<div class="ch-acts ch-a-acts">${btn('ch-copy', '复制', I_COPY)}</div>`
+    : v.q && !pending && latest ? lostHtml(lastTurn) : '';
+  return `<div class="ch-turn" data-k="${key}" data-i="${i}">${v.q ? qHtml(v.q.text) + qActs : ''}<div class="ch-ans">${ans}</div></div>`;
+}
+
+function renderLog() { $('#chLog').innerHTML = TURNS.map(turnBlock).join(''); }
+const turnText = (el, which) => {
+  const t = TURNS[+el.closest('.ch-turn').dataset.i], vs = [...t.old, { q: t.q, a: t.a }];
+  const v = vs[Math.min(VIEW.get(t.q?.id ?? `a${t.a?.id}`) ?? vs.length - 1, vs.length - 1)];
+  return which === 'q' ? v.q?.text || '' : plain(v.a?.text);
+};
+
+// 问题 / 回答下面那排按钮
+async function turnAct(b) {
+  const turn = b.closest('.ch-turn'), t = TURNS[+turn.dataset.i];
+  if (!t) return;
+  if (b.classList.contains('ch-copy')) {
+    try { await navigator.clipboard.writeText(turnText(b, b.closest('.ch-q-acts') ? 'q' : 'a')); } catch { return; }
+    b.innerHTML = I_OK;
+    b.classList.add('done');
+    setTimeout(() => { b.innerHTML = I_COPY; b.classList.remove('done'); }, 1500);
+    return;
+  }
+  if (b.classList.contains('ch-prev') || b.classList.contains('ch-next')) {
+    const key = t.q?.id ?? `a${t.a?.id}`, n = t.old.length + 1;
+    const at = Math.min(VIEW.get(key) ?? n - 1, n - 1) + (b.classList.contains('ch-next') ? 1 : -1);
+    VIEW.set(key, Math.max(0, Math.min(n - 1, at)));
+    turn.outerHTML = turnBlock(t, +turn.dataset.i);
+    return;
+  }
+  if (BUSY || other()) return;
+  if (b.classList.contains('ch-retry')) {
+    VIEW.delete(t.q.id);
+    LIVE_LAST = true;
+    turn.querySelector('.ch-q-acts')?.remove();
+    turn.querySelector('.ch-ans').innerHTML = `<div class="ch-a ch-wait">${waitHtml({ deep: true })}</div>`;
+    launch({ redo: 'retry' });
+  } else if (b.classList.contains('ch-edit')) editTurn(turn, t);
+}
+
+// 改一下再问：气泡变成输入框 +「取消 / 保存」（照 claude.ai）；保存 = 旧的那版留着（能翻回去看），用新问题再跑
+function editTurn(turn, t) {
+  turn.querySelector('.ch-q').outerHTML = `<div class="ch-q ch-q-edit"><div><textarea class="ch-edit-box" rows="1" aria-label="改问题">${esc(t.q.text)}</textarea>
+    <div class="ch-edit-bar"><span class="ch-edit-note">旧的那版留着，能翻回去看</span>
+    <button type="button" class="ch-edit-no">取消</button><button type="button" class="ch-edit-ok">保存</button></div></div></div>`;
+  turn.querySelector('.ch-q-acts')?.remove();
+  const box = turn.querySelector('.ch-edit-box');
+  const fit = () => { box.style.height = 'auto'; box.style.height = box.scrollHeight + 'px'; };
+  fit();
+  box.focus();
+  box.setSelectionRange(box.value.length, box.value.length);
+  box.addEventListener('input', fit);
+  const cancel = () => { turn.outerHTML = turnBlock(t, +turn.dataset.i); };
+  const save = () => {
+    const v = box.value.trim();
+    if (!v || BUSY || other()) return;
+    VIEW.delete(t.q.id);
+    LIVE_LAST = true;
+    turn.innerHTML = qHtml(v) + `<div class="ch-ans"><div class="ch-a ch-wait">${waitHtml({ deep: true })}</div></div>`;
+    launch({ redo: 'edit', question: v });
+  };
+  turn.querySelector('.ch-edit-no').onclick = cancel;
+  turn.querySelector('.ch-edit-ok').onclick = save;
+  box.addEventListener('keydown', e => {                   // 回车保存、Shift+回车换行、Esc 取消（输入法选字时不算）
+    if (e.isComposing) return;
+    if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); }
+  });
+}
 
 // 写到一半：出处还是模型的记号（[c12]、[[c:id]]），先按出现顺序临时编号
 function draftHtml(text) {
@@ -321,12 +443,13 @@ async function load(thread) {
   renderThreads(r.threads);
   const hist = THREAD ? r.history : [];
   B.classList.toggle('ch-empty', !hist.length && !(LIVE_THREAD && LIVE_THREAD === THREAD));
-  // 问了没答上的（问到一半服务重启了 / 出错了）：问题下面一行说明；是最后一句的话带「重新问」
-  const live = LIVE_THREAD && LIVE_THREAD === THREAD, last = hist.length - 1;
-  $('#chLog').innerHTML = hist.map((t, i) => turnHtml(t)
-    + (t.role === 'user' && hist[i + 1]?.role !== 'assistant' && !(live && i === last) ? lostHtml(i === last) : '')).join('');
-  if (LIVE_THREAD && LIVE_THREAD === THREAD) {           // 关了页面再打开时还在写：接着显示
-    $('#chLog').insertAdjacentHTML('beforeend', `<div class="ch-a ch-wait">${waitHtml(r.live)}</div>`);
+  // 问了没答上的（问到一半服务重启了 / 出错了）：问题下面一行说明；是最后一轮的话带「重新问」（turnBlock 里）
+  LIVE_LAST = !!(LIVE_THREAD && LIVE_THREAD === THREAD);
+  TURNS = turnsOf(hist);
+  renderLog();
+  if (LIVE_LAST) {                                         // 关了页面再打开时还在写：接着显示
+    const box = $('#chLog .ch-turn:last-child .ch-ans') || $('#chLog');
+    box.insertAdjacentHTML('beforeend', `<div class="ch-a ch-wait">${waitHtml(r.live)}</div>`);
     setBusy(true);
     poll();
   } else {
@@ -364,8 +487,16 @@ function poll() {
     setBusy(false);
     renderOther();
     $('#chInput').focus();
+    LIVE_LAST = false;
     const r = await fetch('/api/qa' + (THREAD ? `?thread=${THREAD}` : '')).then(r => r.json()).catch(() => null);
     if (r) { renderThreads(r.threads); waitTitle(r.thread); }   // 新对话的标题、顺序跟着变
+    // 写完了：按存下来的重画这一段（问题下面那排按钮、翻版本），停在原来滚到的地方；出错的那句「没答上」先留着给你看
+    if (r && wait && !d.error && d.thread === THREAD) {
+      const s = $('#chScroll'), top = s.scrollTop;
+      TURNS = turnsOf(r.history);
+      renderLog();
+      s.scrollTop = top;
+    }
   }, 500);
 }
 
@@ -384,7 +515,8 @@ async function send(e) {
     history.pushState({}, '', `/chat/${THREAD}`);
   }
   B.classList.remove('ch-empty');
-  $('#chLog').insertAdjacentHTML('beforeend', qHtml(q) + `<div class="ch-a ch-wait">${waitHtml({ deep: true })}</div>`);
+  LIVE_LAST = true;
+  $('#chLog').insertAdjacentHTML('beforeend', `<div class="ch-turn">${qHtml(q)}<div class="ch-ans"><div class="ch-a ch-wait">${waitHtml({ deep: true })}</div></div></div>`);
   $('#chInput').value = '';
   grow();
   launch({ question: q }, () => { $('#chInput').value = q; });   // 没发出去：问题还给你，改一下再问
@@ -437,10 +569,13 @@ $('#chLog').addEventListener('click', e => {
   const again = e.target.closest('.ch-lost-go');
   if (again) {
     if (BUSY || other()) return;
+    LIVE_LAST = true;
     again.closest('.ch-lost').outerHTML = `<div class="ch-a ch-wait">${waitHtml({ deep: true })}</div>`;
     launch({ again: true });
     return;
   }
+  const act = e.target.closest('.ch-act');
+  if (act) return turnAct(act);
   const sup = e.target.closest('.ch-cite');
   if (!sup) return;
   const a = sup.closest('.ch-a'), d = a.querySelector('.ch-src');

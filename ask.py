@@ -153,7 +153,7 @@ def threads():
 
 def show_thread():
     d = _get(f'/api/qa?thread={THREAD[0]}')
-    for t in d['history'][-6:]:
+    for t in [t for t in d['history'] if not t.get('replaced')][-6:]:      # 重新跑 / 改问题换下来的旧版本不打
         n = {c['id']: i for i, c in enumerate(t['cites'], 1)}
         text = re.sub(r'\[\[([^\]]+)\]\]', lambda m: f'[{n[m.group(1)]}]' if m.group(1) in n else '', VIZ.sub(NO_VIZ, t['text']))
         print(('> ' if t['role'] == 'user' else '') + text + '\n')

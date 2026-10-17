@@ -96,7 +96,7 @@ def api_window_day(conv_id, date):
 def api_qa():
     """「问」那一栏：证据卡做到哪了（还差几天、估价、正在做的进度）+ 对话记录。"""
     thread = request.args.get('thread', type=int) or qa.current()
-    return jsonify({'cards': cards.status(), 'history': qa.history(thread=thread), 'live': qa.live(),
+    return jsonify({'cards': cards.status(), 'history': qa.history(thread=thread, versions=True), 'live': qa.live(),
                     'thread': thread, 'threads': qa.threads()})
 
 
@@ -111,6 +111,14 @@ def api_qa_ask():
     body = request.get_json(silent=True) or {}
     again = bool(body.get('again'))                    # 重问这段对话里没答完的最后那句（问到一半服务重启了 / 出错了）
     q = ((qa.unanswered(body.get('thread')) if again and body.get('thread') else body.get('question')) or '').strip()
+    redo = body.get('redo')                            # 'retry' 重新跑最后一问 / 'edit' 改了最后一问再跑（问题在 question 里）
+    if redo in ('retry', 'edit') and body.get('thread'):
+        if qa.live().get('running'):
+            return jsonify({'error': '上一个问题还没答完'}), 409
+        got = qa.rewind(body['thread'], q if redo == 'edit' else None) if redo == 'retry' or q else None
+        if not got:
+            return jsonify({'error': '问题是空的' if redo == 'edit' else '没有能重新跑的问题'}), 400
+        q, again = got
     if not q:
         return jsonify({'error': '没有没答完的问题' if again else '问题是空的'}), 400
     model, effort = body.get('model') or None, body.get('effort') or None     # 聊天页的模型菜单；没给 = 默认
@@ -119,7 +127,7 @@ def api_qa_ask():
     if effort and effort not in llm.EFFORTS:
         return jsonify({'error': f'不认识的 effort：{effort}'}), 400
     # 后台问、边写边看：进度在 /api/qa/live
-    return jsonify({'started': qa.start_ask(q, body.get('thread'), model, effort, again), 'live': qa.live()})
+    return jsonify({'started': qa.start_ask(q, body.get('thread'), model, effort, again, fresh=bool(redo)), 'live': qa.live()})
 
 
 @bp.route('/api/qa/stop', methods=['POST'])

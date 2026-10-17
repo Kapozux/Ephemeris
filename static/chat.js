@@ -46,9 +46,51 @@ function sources(cites) {
       <a class="ch-go" href="${isJournal(c) ? `/#/day/${c.date}/journal` : `/#/day/${c.date}/conv/${encodeURIComponent(c.conv_id)}/msg/${encodeURIComponent(c.msg_id)}`}">${isJournal(c) ? '去日记' : '去原话'} →</a></div>`).join('')}</details>`;
 }
 
+// ---------- 怎么查的（10-17，照 claude.ai：查的时候一步一行、带计时；答完折成回答上面一行「查了 N 步 · 用时」，点开看全部） ----------
+// 一步是 {k: look 的命令（挑图标）, t: 在干什么, d: 细节}；k = 'say' 是它查的中途说的话。老记录是一行字。
+const ICON = {
+  search: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.2-4.2"/>',
+  cards: '<rect x="4" y="8" width="12" height="12" rx="2"/><path d="M8 4.5h9.5A2.5 2.5 0 0 1 20 7v9.5"/>',
+  doc: '<path d="M7 3.5h7l4 4V20.5H7z"/><path d="M10 12h5M10 16h5"/>',
+  chat: '<path d="M4.5 5.5h15v10h-9l-4 3.5v-3.5h-2z"/>',
+  calc: '<path d="M5 20V12M12 20V5M19 20v-6"/>',
+  day: '<rect x="4" y="5.5" width="16" height="14.5" rx="2"/><path d="M4 10.5h16M9 3.5v4M15 3.5v4"/>',
+  pen: '<path d="M14.5 5.5l4 4L9 19H5v-4z"/>',
+};
+const KIND_ICON = { msgs: 'search', look: 'search', cards: 'cards', read: 'doc', conv: 'chat', convs: 'chat', sum: 'calc', stats: 'calc',
+  sql: 'calc', schema: 'calc', day: 'day', diaries: 'day', journal: 'pen' };
+const icon = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICON[KIND_ICON[k] || 'search']}</svg>`;
+const asStep = s => typeof s === 'string' ? { k: 'look', t: s.replace(/^🔎\s*/, ''), d: '' } : s;
+const clock = ms => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+const took = s => s < 60 ? `${s} 秒` : `${Math.floor(s / 60)} 分${s % 60 ? ` ${s % 60} 秒` : '钟'}`;
+
+function stepHtml(s, live) {
+  s = asStep(s);
+  if (s.k === 'say') return `<li class="ch-step say"><span class="ch-step-i"><i></i></span><span class="ch-step-b">${esc(s.t)}</span></li>`;
+  return `<li class="ch-step${live ? ' live' : ''}"><span class="ch-step-i">${icon(s.k)}</span><span class="ch-step-b">`
+    + `<span class="ch-step-t">${esc(s.t)}</span>${s.d ? `<span class="ch-step-d">${esc(s.d)}</span>` : ''}</span></li>`;
+}
+
+function trailHtml(steps, running) {
+  const SHOW = 8, hidden = running ? Math.max(0, steps.length - SHOW) : 0, shown = steps.slice(hidden);
+  return `<ol class="ch-trail">${hidden ? `<li class="ch-step more"><span class="ch-step-i"><i></i></span><span class="ch-step-b">更早的 ${hidden} 步</span></li>` : ''}`
+    + shown.map((s, i) => stepHtml(s, running && i === shown.length - 1)).join('') + '</ol>';
+}
+
+const nSteps = steps => steps.filter(s => asStep(s).k !== 'say').length;
+
+function traceHtml(trace) {
+  const steps = (trace && trace.steps) || [], n = nSteps(steps);
+  if (!n) return '';
+  return `<details class="ch-trace"><summary><span class="ch-trace-i">${icon('search')}</span>`
+    + `<span>查了 ${n} 步${trace.secs ? ` · 用时 ${took(trace.secs)}` : ''}</span>`
+    + `<svg class="ch-trace-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 6l6 6-6 6"/></svg></summary>`
+    + trailHtml(steps, false) + '</details>';
+}
+
 const qHtml = t => `<div class="ch-q"><div>${esc(t)}</div></div>`;
-const aHtml = (t, cites, stopped) => `<div class="ch-a${stopped ? ' stopped' : ''}">${body(t, cites || [])}${sources(cites || [])}</div>`;
-const turnHtml = t => t.role === 'user' ? qHtml(t.text) : aHtml(t.text, t.cites);
+const aHtml = (t, cites, stopped, trace) => `<div class="ch-a${stopped ? ' stopped' : ''}">${traceHtml(trace)}${body(t, cites || [])}${sources(cites || [])}</div>`;
+const turnHtml = t => t.role === 'user' ? qHtml(t.text) : aHtml(t.text, t.cites, false, t.trace);
 
 // 写到一半：出处还是模型的记号（[c12]、[[c:id]]），先按出现顺序临时编号
 function draftHtml(text) {
@@ -67,12 +109,17 @@ function draftHtml(text) {
 }
 
 const SPIN = '<svg class="ch-spin" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="12" rx="9.4" ry="5.4" stroke="currentColor" stroke-width="1.6" transform="rotate(-32 12 12)"/><circle cx="17.4" cy="7.2" r="3" fill="var(--accent)"/></svg>';
+// 写的时候：顶上一行（转圈、在干什么、计时 · 几步），下面是步骤；开始写回答了就只留顶上那行，下面是正在写的字
 function waitHtml(live) {
-  const steps = live.steps || [], text = live.partial || '';
-  if (text) return draftHtml(text);
-  return `<div class="ch-wait-head">${SPIN}${live.deep ? '在翻你的聊天记录…' : '在翻证据卡…'}</div>`
-    + (steps.length ? `<ul class="ch-steps">${steps.slice(-6).map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : '');
+  const steps = live.steps || [], text = live.partial || '', n = nSteps(steps);
+  const since = (live.started && Date.parse(live.started)) || Date.now();
+  const what = text ? '在写回答' : live.deep === false ? '在翻证据卡' : n ? '在查你的聊天记录' : '在想先查什么';
+  return `<div class="ch-run${text ? ' writing' : ''}"><div class="ch-run-h">${SPIN}<span class="ch-run-t">${what}</span>`
+    + `<span class="ch-run-meta"><span data-since="${since}">${clock(Date.now() - since)}</span>${n ? ` · ${n} 步` : ''}</span></div>`
+    + (!text && steps.length ? trailHtml(steps, true) : '') + '</div>'
+    + (text ? draftHtml(text) : '');
 }
+setInterval(() => document.querySelectorAll('[data-since]').forEach(e => { e.textContent = clock(Date.now() - +e.dataset.since); }), 1000);
 
 // ---------- 页面状态 ----------
 function greet() {
@@ -296,13 +343,15 @@ function poll() {
     if (!d) return poll();
     const wait = $('#chLog .ch-wait');
     if (d.running) {
-      if (wait && d.thread === THREAD) { wait.innerHTML = waitHtml(d); scrollEnd(); }
+      // 有新的一步 / 新写的字才重画（计时自己走），不然每半秒整块重画、新的一步的淡入动画也会一直重播
+      const key = `${(d.steps || []).length}|${(d.partial || '').length}`;
+      if (wait && d.thread === THREAD && wait.dataset.key !== key) { wait.dataset.key = key; wait.innerHTML = waitHtml(d); scrollEnd(); }
       if (d.thread !== LIVE_THREAD) { LIVE_THREAD = d.thread; renderOther(); }
       return poll();
     }
     if (wait) {
       wait.outerHTML = d.error || !d.result ? `<div class="ch-a bad">没答上：${esc(d.error || '没有结果')}</div>`
-        : aHtml(d.result.answer, d.result.cites, d.result.stopped);
+        : aHtml(d.result.answer, d.result.cites, d.result.stopped, d.result.trace);
     }
     LIVE_THREAD = null;
     setBusy(false);

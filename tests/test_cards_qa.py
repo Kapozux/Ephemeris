@@ -232,8 +232,24 @@ class Deep(unittest.TestCase):
         args = self.calls[0][0]
         self.assertEqual(args[args.index('--allowedTools') + 1], f'Bash({qa.LOOK}:*)')
         self.assertEqual(args[args.index('--tools') + 1], 'Bash')
-        self.assertEqual(steps, ['🔎 搜原文：MIT --old'])                      # 中途的话不进进度
+        self.assertEqual(steps, [{'k': 'msgs', 't': '搜原文', 'd': 'MIT · 从最早的看'}])   # 最后那段话是回答本身，不进步骤
         self.assertEqual(qa.history()[-1]['cites'][0]['quote'], 'ED 交 MIT')
+        self.assertEqual(qa.history()[-1]['trace']['steps'], steps)               # 怎么查的跟回答一起存着（10-17）
+
+    def test_words_between_steps_are_kept(self):
+        def run(args, stdin):
+            cmd = f'{qa.LOOK} read m2'
+            return {'result': '查完了 [[m:m2]]。', 'session_id': 's1', 'events': [
+                {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': '我先看看那条 [[m:m2]] 前后。'},
+                                                              {'type': 'tool_use', 'input': {'command': cmd}}]}},
+                {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': '查完了 [[m:m2]]。'}]}}]}
+        llm.use_claude(run)
+        r = qa.answer_deep('那条是什么')
+        say, read = r['trace']['steps']
+        self.assertEqual(say, {'k': 'say', 't': '我先看看那条 前后。', 'd': ''})
+        self.assertEqual(read['k'], 'read')
+        self.assertIn('《', read['d'])                                            # 消息 id 换成窗口标题
+        self.assertGreaterEqual(r['trace']['secs'], 0)
 
     def test_follow_up_resumes_the_session(self):
         qa.answer_deep('我早申交的哪')

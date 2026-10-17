@@ -300,10 +300,11 @@ def current():
 
 
 def history(n=60, thread=None):
-    rows = store.q('SELECT id, ts, role, text, cites FROM qa_chat WHERE thread_id=? ORDER BY id DESC LIMIT ?',
+    rows = store.q('SELECT id, ts, role, text, cites, trace FROM qa_chat WHERE thread_id=? ORDER BY id DESC LIMIT ?',
                    thread or current(), n)[::-1]
     for r in rows:
         r['cites'] = json.loads(r['cites'] or '[]')
+        r['trace'] = json.loads(r['trace']) if r['trace'] else None
     return rows
 
 
@@ -312,11 +313,12 @@ def clear():
     return new_thread()
 
 
-def _say(thread, role, text, cites=(), sid=None):
-    """记一句：进 qa_chat（界面、追问用），也进 messages（日记、搜索、窗口页用）。"""
+def _say(thread, role, text, cites=(), sid=None, trace=None):
+    """记一句：进 qa_chat（界面、追问用），也进 messages（日记、搜索、窗口页用）。trace：深挖怎么查的（步骤、用时），只给界面看。"""
     now = datetime.now(days.LOCAL_TZ)
-    qid = store.run('INSERT INTO qa_chat (ts, role, text, cites, sid, thread_id) VALUES (?,?,?,?,?,?)',
-                    now.strftime('%Y-%m-%dT%H:%M:%S'), role, text, json.dumps(list(cites), ensure_ascii=False), sid, thread)
+    qid = store.run('INSERT INTO qa_chat (ts, role, text, cites, sid, thread_id, trace) VALUES (?,?,?,?,?,?,?)',
+                    now.strftime('%Y-%m-%dT%H:%M:%S'), role, text, json.dumps(list(cites), ensure_ascii=False), sid, thread,
+                    json.dumps(trace, ensure_ascii=False) if trace else None)
     if role == 'user':
         store.run("UPDATE qa_threads SET title = CASE WHEN title = '' THEN ? ELSE title END, updated=? WHERE id=?",
                   ' '.join(text.split())[:40], now.strftime('%Y-%m-%dT%H:%M:%S'), thread)   # 跟 new_thread 同一个格式（不带时区），才比得了先后
@@ -518,22 +520,74 @@ def _snapshot(kind, ref):
             'conv_id': m['conv_id'], 'msg_id': m['id'], 'title': m['title']}
 
 
+STEP_LABEL = {'msgs': '搜原文', 'cards': '翻证据卡', 'read': '读原话前后', 'conv': '看一个窗口', 'convs': '找聊过的窗口',
+              'sum': '加字数', 'day': '看那天', 'stats': '看总量', 'journal': '翻手写日记', 'diaries': '读日记',
+              'schema': '看库里有哪些表', 'sql': '自己算'}
+_TABLE_NAME = {'messages': '聊天记录', 'conversations': '窗口', 'cards': '证据卡', 'diaries': '日记', 'journal': '手写日记',
+               'checkins': '打卡', 'themes': '主题', 'card_convs': '窗口小结'}
+
+
+def _flags(args):
+    """look 命令的参数 → (正文词, 给人看的条件)。--n / --before 这类只管多少的不说。"""
+    words, notes, i = [], [], 0
+    while i < len(args):
+        a = args[i]
+        val = args[i + 1] if i + 1 < len(args) else ''
+        if a in ('--since', '--until'):
+            notes.append(f"{val}{'起' if a == '--since' else '止'}")
+            i += 2
+        elif a == '--who':
+            notes.append('只看你说的' if val == 'me' else '只看 AI 说的')
+            i += 2
+        elif a == '--kw':
+            words.append(val.replace(',', ' '))
+            i += 2
+        elif a == '--old':
+            notes.append('从最早的看')
+            i += 1
+        elif a in ('--n', '--before', '--after'):
+            i += 2
+        elif a.startswith('--'):
+            i += 1
+        else:
+            words.append(a)
+            i += 1
+    return ' '.join(words), notes
+
+
+def _title_of(ref, msg):
+    """窗口 / 消息 id → 窗口标题 + 日期（id 本身人看不懂）。"""
+    r = store.one("""SELECT c.title, m.date FROM messages m JOIN conversations c ON c.id = m.conv_id WHERE m.id=?""", ref) if msg \
+        else store.one('SELECT title, substr(first_ts, 1, 10) date FROM conversations WHERE id=?', ref)
+    if not r:
+        return ''
+    return f"《{r['title'] or '无标题'}》" + (f" {r['date']}" if r['date'] else '')
+
+
 def _step(kind, text):
-    """Claude 的一步 → 给人看的一行进度。"""
-    if kind == 'text':                                # 它中途说的话多半就是最后的回答，进度里不重复
+    """Claude 的一步 → 给人看的一步：{k: 命令（界面按它挑图标）, t: 在干什么, d: 细节}。认不出来的返回 None。"""
+    if kind != 'tool':
         return None
     cmd = text.split('look.py', 1)[-1].strip()
-    verb, _, rest = cmd.partition(' ')
-    if verb == 'schema':
-        return '🔎 看库里有哪些表'
-    if verb == 'sql':                                 # SQL 原文人看不懂：只说在算，带上它查的是哪张表
-        tables = list(dict.fromkeys(re.findall(r'\b(?:FROM|JOIN)\s+(\w+)', rest, re.I)))
-        return f"🔎 自己算：{'、'.join(tables[:3]) or '统计'}"
+    try:
+        parts = shlex.split(cmd)
+    except ValueError:
+        parts = cmd.split()
+    if not parts:
+        return None
+    verb, args = parts[0], parts[1:]
+    if verb == 'sql':                                 # SQL 原文人看不懂：只说在算，带上它查的是哪些表
+        tables = list(dict.fromkeys(re.findall(r'\b(?:FROM|JOIN)\s+(\w+)', ' '.join(args), re.I)))
+        return {'k': 'sql', 't': '自己算', 'd': '、'.join(_TABLE_NAME.get(t, t) for t in tables[:3]) or '统计'}
     if verb == 'sum':
-        return f'🔎 加字数：{len(rest.split())} 个窗口'
-    label = {'msgs': '搜原文', 'cards': '翻证据卡', 'read': '读原话前后', 'conv': '看窗口目录', 'convs': '找聊过的窗口',
-             'day': '看那天', 'stats': '看总量', 'journal': '翻手写日记', 'diaries': '读日记'}.get(verb, '查')
-    return f'🔎 {label}：{rest[:100]}'
+        return {'k': 'sum', 't': '加字数', 'd': f'{len([a for a in args if not a.startswith("--")])} 个窗口'}
+    words, notes = _flags(args)
+    if verb == 'read' and words:
+        words = _title_of(words.split()[0], True) or words
+    elif verb == 'conv' and words:
+        words = _title_of(words.split()[0], False) or words
+    return {'k': verb if verb in STEP_LABEL else 'look', 't': STEP_LABEL.get(verb, '查'),
+            'd': ' · '.join([w for w in [words[:80]] if w] + notes)}
 
 
 def answer_deep(question, progress=None, on_text=None, thread=None, model=None, effort='high'):
@@ -555,11 +609,24 @@ def _answer_deep(question, progress, on_text, thread, effort):
         time.time() - datetime.fromisoformat(last['ts']).timestamp() < DEEP_TTL else None
     turns = history(HISTORY_TURNS * 2, thread)
     _say(thread, 'user', question)
-    buf = []
+    buf, steps, held, t0 = [], [], [], time.time()
 
+    def add(step):
+        steps.append(step)
+        if progress:
+            progress(step)
+
+    # 它查的时候说的话（「我先找 TEDx 那段」）也进步骤：一段话写完先压着，后面又跑了命令才算「中途的话」；
+    # 压到最后都没跑命令的那段就是回答本身，不进步骤（照 claude.ai：几步之间夹着它说的话）
     def say(kind, text):
-        if kind == 'tool' and progress and _step(kind, text):
-            progress(_step(kind, text))
+        if kind == 'text':
+            held[:] = [text]
+        elif kind == 'tool':
+            if held:
+                add({'k': 'say', 't': re.sub(r'\s+', ' ', CITE_ANY.sub('', held.pop()))[:300], 'd': ''})
+            step = _step(kind, text)
+            if step:
+                add(step)
         elif kind == 'message':
             buf.clear()
             if on_text:
@@ -568,17 +635,20 @@ def _answer_deep(question, progress, on_text, thread, effort):
             buf.append(text)
             if on_text:
                 on_text(text)
+
+    def done(body, cites, stopped=False, sid=None):
+        """存下回答，连同这次怎么查的（步骤 + 用时，聊天页回答上面那行「查了 N 步 · 用时」点开看）。"""
+        trace = {'steps': steps, 'secs': round(time.time() - t0)}
+        _say(thread, 'assistant', body, cites, sid, trace)
+        return {'answer': body, 'cites': cites, 'deep': True, 'thread': thread, 'trace': trace, **({'stopped': True} if stopped else {})}
+
     if not llm.claude_on():                                         # 只有 DeepSeek：它自己调 look 工具查，没有会话可接（追问靠前面的对话记录）
         prompt = deep_prompt_deepseek(name=idx.who(), today=days.today(), history=_history_text(turns), question=question)
         try:
             text = llm.deepseek_agent(prompt, LOOK_TOOL, run_look, on_event=say, purpose='qa-deep')
         except llm.Cancelled:
-            body, cites = _deep_cites(''.join(buf).strip())
-            _say(thread, 'assistant', body, cites)
-            return {'answer': body, 'cites': cites, 'deep': True, 'stopped': True, 'thread': thread}
-        body, cites = _deep_cites(text)
-        _say(thread, 'assistant', body, cites)
-        return {'answer': body, 'cites': cites, 'deep': True, 'thread': thread}
+            return done(*_deep_cites(''.join(buf).strip()), stopped=True)
+        return done(*_deep_cites(text))
     fresh = DEEP_PROMPT.format(name=idx.who(), today=days.today(), look=LOOK, history=_history_text(turns), question=question)
     try:
         try:
@@ -591,12 +661,8 @@ def _answer_deep(question, progress, on_text, thread, effort):
                 raise
             text, new_sid = llm.claude_agent(fresh, LOOK, on_event=say, purpose='qa-deep', effort=effort)    # 会话接不上：从头问
     except llm.Cancelled:                                           # 写到一半点了停止：留下写出来的那段
-        body, cites = _deep_cites(''.join(buf).strip())
-        _say(thread, 'assistant', body, cites)
-        return {'answer': body, 'cites': cites, 'deep': True, 'stopped': True, 'thread': thread}
-    body, cites = _deep_cites(text)
-    _say(thread, 'assistant', body, cites, new_sid)
-    return {'answer': body, 'cites': cites, 'deep': True, 'thread': thread}
+        return done(*_deep_cites(''.join(buf).strip()), stopped=True)
+    return done(*_deep_cites(text), sid=new_sid)
 
 
 QA_JOB = 'qa'

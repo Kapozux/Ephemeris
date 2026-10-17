@@ -113,8 +113,9 @@ def ask(q):
         while True:                                      # 边写边打：查找进度一行一行，回答一个字一个字
             time.sleep(0.4)
             d = _get('/api/qa/live')
-            for line in d['steps'][steps:]:
-                print('  ' + line, flush=True)
+            for s in d['steps'][steps:]:                 # 一步：{k, t, d}（qa._step）；它中途说的话（say）上面已经流出来了
+                if isinstance(s, dict) and s.get('k') != 'say':
+                    print(f"  · {s['t']}" + (f"：{s['d']}" if s.get('d') else ''), flush=True)
             steps = len(d['steps'])
             text = _draft(d['partial'], nums)
             if text.startswith(shown):

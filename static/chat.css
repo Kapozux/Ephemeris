@@ -139,10 +139,48 @@ sup .ch-cite:hover { color: var(--text); }
 .ch-src-q { color: var(--muted); }
 .ch-go { flex: none; color: var(--accent); cursor: pointer; white-space: nowrap; text-decoration: none; }
 
-/* 写的时候：查找进度 + 一个慢慢转的小星轨 */
-.ch-wait-head { display: flex; align-items: center; gap: 10px; font: 14px var(--font); color: var(--muted); }
-.ch-spin { width: 22px; height: 22px; color: var(--faint); animation: ch-turn 2.4s linear infinite; }
-.ch-steps { list-style: none; margin: 6px 0 10px; padding: 0 0 0 32px; font: 13px/1.7 var(--font); color: var(--faint); }
+/* 写的时候：顶上一行（慢慢转的小星轨、在干什么、计时 · 几步），下面一条步骤时间线（10-17，照 claude.ai） */
+.ch-run { margin: 2px 0 14px; }
+.ch-run-h { display: flex; align-items: center; gap: 10px; font: 14px var(--font); color: var(--muted); }
+.ch-run-t { background: linear-gradient(90deg, var(--muted) 0%, var(--text) 50%, var(--muted) 100%); background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent; animation: ch-shine 2.2s linear infinite; }
+.ch-run-meta { margin-left: auto; font-size: 12.5px; color: var(--faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ch-spin { width: 22px; height: 22px; flex: none; color: var(--faint); animation: ch-turn 2.4s linear infinite; }
+
+/* 步骤时间线：左边一列小图标，用细线串起来；它中途说的话是正文色的一句 */
+.ch-trail { list-style: none; margin: 8px 0 0; padding: 0; font: 13.5px/1.55 var(--font); }
+.ch-step { position: relative; display: flex; gap: 10px; padding: 3px 0 7px; }
+.ch-step.live { animation: ch-in .25s ease-out; }
+.ch-step::before { content: ""; position: absolute; left: 10.5px; top: 26px; bottom: -3px; border-left: 1px solid var(--line); }
+.ch-step:last-child::before { display: none; }
+.ch-step-i { flex: none; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; color: var(--muted);
+  background: var(--bg); border: 1px solid var(--line); }
+.ch-step-i svg { width: 13px; height: 13px; }
+.ch-step-i i { width: 5px; height: 5px; border-radius: 50%; background: var(--faint); }
+.ch-step-b { flex: 1; min-width: 0; padding-top: 1px; }
+.ch-step-t { color: var(--muted); margin-right: 8px; }
+.ch-step-d { color: var(--faint); word-break: break-word; }
+.ch-step.say .ch-step-i { border-color: transparent; }
+.ch-step.say .ch-step-b { color: var(--text); }
+.ch-step.more .ch-step-i { border-style: dashed; }
+.ch-step.more .ch-step-b { color: var(--faint); }
+.ch-step.live .ch-step-i { color: var(--accent); border-color: var(--accent); animation: ch-pulse 1.6s ease-in-out infinite; }
+.ch-step.live .ch-step-t { color: var(--text); }
+
+/* 答完：回答上面一行「查了 N 步 · 用时」，点开是同一条时间线 */
+.ch-trace { margin: 0 0 12px; }
+.ch-trace summary { display: inline-flex; align-items: center; gap: 8px; list-style: none; cursor: pointer; padding: 4px 10px 4px 6px;
+  border-radius: 999px; font: 13.5px var(--font); color: var(--muted); }
+.ch-trace summary::-webkit-details-marker { display: none; }
+.ch-trace summary:hover { background: var(--hover); color: var(--text); }
+.ch-trace-i { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--line); }
+.ch-trace-i svg { width: 13px; height: 13px; }
+.ch-trace-chev { width: 14px; height: 14px; transition: transform .15s ease; }
+.ch-trace[open] .ch-trace-chev { transform: rotate(90deg); }
+.ch-trace[open] .ch-trail { padding: 4px 0 6px 6px; margin-bottom: 6px; border-bottom: 1px solid var(--line); }
+@keyframes ch-shine { to { background-position: -200% 0; } }
+@keyframes ch-in { from { opacity: 0; transform: translateY(3px); } }
+@media (prefers-reduced-motion: reduce) { .ch-run-t, .ch-step, .ch-step.live .ch-step-i, .ch-spin { animation: none; } .ch-run-t { color: var(--muted); } }
 @keyframes ch-turn { to { transform: rotate(360deg); } }
 @keyframes ch-pulse { 50% { opacity: .3; } }
 

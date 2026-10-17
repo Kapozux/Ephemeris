@@ -55,13 +55,20 @@ export async function pollLock() {
   box.innerHTML = `
     <div class="set-row">
       <span class="set-text"><b>切走就上锁</b><span class="set-key-st${s.on ? ' ok' : ''}">${s.on ? '开着' : '没开'}</span>
-        <span class="set-what">设了密码以后，这个页面一被切走（换标签、最小化、点了别的应用或窗口、新开一个 Ephemeris）就锁上，回来要输密码；一直开着看就不打扰。
+        <span class="set-what">设了密码以后，这个页面一被切走（换标签、最小化、点了别的应用或窗口、新开一个 Ephemeris）就锁上，回来要输密码或按 Touch ID；一直开着看就不打扰。
           锁着的时候接口也不给数据。忘了密码：在 ephemeris 目录运行 <code>python3 lock.py --reset</code>。</span>
         <span class="set-res" id="lockMsg" role="status"></span></span>
       <span class="set-act">${s.on ? pw('lockOld', '原来的密码', 'current-password') : ''}${pw('lockNew', s.on ? '新密码（换一个）' : '设一个密码', 'new-password')}
         <button class="btn-secondary btn-small" data-lk="set">${s.on ? '改密码' : '设好'}</button>
         ${s.on ? '<button class="btn-secondary btn-small" data-lk="off">去掉锁</button>' : ''}</span>
-    </div>`;
+    </div>${s.on ? `
+    <div class="set-row">
+      <span class="set-text"><b>用 Touch ID 解锁</b><span class="set-key-st${s.touch ? ' ok' : ''}">${s.touch ? '开着' : '没开'}</span>
+        <span class="set-what">锁屏上点指纹（或者密码框空着按回车）才弹系统的指纹框，不会自己弹；取消了照样能输密码。要从 <code>localhost</code> 打开（127.0.0.1 用不了）。</span>
+        <span class="set-res" id="touchMsg" role="status"></span></span>
+      <span class="set-act">${s.touch ? '<button class="btn-secondary btn-small" data-tid="off">去掉 Touch ID</button>'
+        : '<button class="btn-secondary btn-small" data-tid="on">加上 Touch ID</button>'}</span>
+    </div>` : ''}`;
   const msg = $('#lockMsg');
   box.querySelectorAll('button[data-lk]').forEach(b => b.onclick = async () => {
     const off = b.dataset.lk === 'off', nw = off ? '' : $('#lockNew').value;
@@ -75,6 +82,17 @@ export async function pollLock() {
     window.ephLock?.set(r.on);
     await pollLock();
     $('#lockMsg').textContent = r.on ? '设好了：切到别的标签再回来试试' : '锁去掉了';
+  });
+  box.querySelectorAll('button[data-tid]').forEach(b => b.onclick = async () => {
+    const tm = $('#touchMsg'), lk = window.ephLock;
+    tm.classList.remove('bad');
+    if (b.dataset.tid === 'on' && !lk?.canTouch()) { tm.textContent = '要从 http://localhost:5055 打开才能用 Touch ID'; tm.classList.add('bad'); return; }
+    b.disabled = true;
+    const r = b.dataset.tid === 'on' ? await lk.addTouch() : await lk.removeTouch();
+    b.disabled = false;
+    if (!r.ok) { tm.textContent = r.error; tm.classList.add('bad'); return; }
+    await pollLock();
+    $('#touchMsg').textContent = b.dataset.tid === 'on' ? '加好了：点一下别的窗口再回来，在锁屏上点指纹试试' : 'Touch ID 去掉了';
   });
 }
 

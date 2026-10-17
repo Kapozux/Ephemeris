@@ -556,6 +556,10 @@ def current_model():
 
 CLAUDE_PARALLEL = int(idx.env('EPHEMERIS_CLAUDE_PARALLEL') or 3)
 CLAUDE_TIMEOUT = 900
+# 流式调用（问、问 Claude）：多久一个事件都没有才算卡住；总时长另有上限（timeout）。
+# 10-17：「把十几个活动从 8 月到现在完整挖一遍」查了 10 分钟还在查，被总时长掐掉、查到的全丢了 —— 一直在干活的不该掐。
+CLAUDE_IDLE = 300
+AGENT_TIMEOUT = 3600
 CLAUDE_CWD = os.path.expanduser('~/.ephemeris-claude')     # 会话存在这个目录名下，不混进用户自己的 Claude Code 项目
 CLAUDE_SYSTEM = '你是 Ephemeris（一个人的私人日记应用）里的文本处理程序。只按用户消息里的要求输出，不寒暄，不加额外说明。'
 _claude_sem = threading.BoundedSemaphore(CLAUDE_PARALLEL)
@@ -712,9 +716,26 @@ def _claude_events(args, prompt, on_event, timeout):
         _procs.pop(threading.get_ident(), None)
 
 
-def _claude_read(p, seen, t, timeout):
+def _claude_read(p, seen, t, timeout, idle=None):
+    """读到 result 为止。旁边一条看门的线：超过 idle 秒没有一行输出、或者总共超过 timeout 秒，就掐掉进程。"""
+    idle = idle or CLAUDE_IDLE
     d = {'is_error': True, 'result': ''}
+    last, why = [time.time()], []
+
+    def watch():
+        while p.poll() is None:
+            now = time.time()
+            if now - last[0] > idle:
+                why.append(f'超过 {idle} 秒没有动静')
+            elif now - t > timeout:
+                why.append(f'查了 {timeout // 60} 分钟还没写完')
+            if why:
+                p.kill()
+                return
+            time.sleep(1)
+    threading.Thread(target=watch, daemon=True).start()
     for line in p.stdout:
+        last[0] = time.time()
         if cancelled():
             break
         try:
@@ -725,10 +746,8 @@ def _claude_read(p, seen, t, timeout):
             d = ev
         else:
             seen(ev)
-        if time.time() - t > timeout:
-            p.kill()
-            d = {'is_error': True, 'result': f'超过 {timeout} 秒没写完'}
-            break
+    if why:
+        d = {'is_error': True, 'result': why[0]}
     if cancelled():
         p.kill()
         p.wait()
@@ -764,7 +783,7 @@ def claude_stream(prompt, on_text, effort='medium', purpose=''):
     return _claude_finish(d, effort, purpose, t)
 
 
-def claude_agent(prompt, allow, effort='high', session=None, on_event=None, purpose='', timeout=600):
+def claude_agent(prompt, allow, effort='high', session=None, on_event=None, purpose='', timeout=AGENT_TIMEOUT):
     """让 Claude 自己用工具干活（「问 Claude」）：只给 Bash，且只放行 allow 开头的命令（别的命令一律被拒）。
     on_event(kind, text) 见 _claude_events：'tool' 给界面报进度，'message' / 'delta' 是正在写的字。
     返回 (最后的回答, 会话 id)。会话留着，追问时传 session 接着问（前面查到的材料走缓存）。失败抛异常。"""

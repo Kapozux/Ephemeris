@@ -347,25 +347,39 @@ def _mirror(qid, thread, role, text, when):
             WHERE id = ?""", (cid,))
 
 
-def answer(question, on_text=None, thread=None, model=None, effort='high'):
-    """model / effort：聊天页选的（None = 默认 Opus 5.5）。model 管这一次的所有调用，effort 只管写回答那步。"""
+def answer(question, on_text=None, thread=None, model=None, effort='high', again=False):
+    """model / effort：聊天页选的（None = 默认 Opus 5.5）。model 管这一次的所有调用，effort 只管写回答那步。
+    again：重问没答完的那句（问题已经存着了，不再记一遍）。"""
     with llm.using(model):
-        return _answer(question, on_text, thread, effort)
+        return _answer(question, on_text, thread, effort, again)
 
 
-def _answer(question, on_text, thread, effort):
+def unanswered(thread):
+    """这段对话最后一句是问题、后面没有回答（问到一半服务重启了 / 出错了）→ 那句问题；不是 → None。"""
+    r = store.one('SELECT role, text FROM qa_chat WHERE thread_id=? ORDER BY id DESC LIMIT 1', thread)
+    return r['text'] if r and r['role'] == 'user' else None
+
+
+def _turns(thread, again):
+    """给模型看的前文。重问时最后那句就是这次的问题，不算前文。"""
+    turns = history(HISTORY_TURNS * 2 + (1 if again else 0), thread)
+    return turns[:-1] if again and turns and turns[-1]['role'] == 'user' else turns
+
+
+def _answer(question, on_text, thread, effort, again=False):
     question = (question or '').strip()
     if not question:
         raise ValueError('问题是空的')
     thread = thread or current()
-    turns = history(HISTORY_TURNS * 2, thread)
+    turns = _turns(thread, again)
     htext = _history_text(turns)
     plan = llm.ask_json(PLAN_PROMPT.format(today=days.today(), history=htext, question=question), want=dict,
                          effort='low', purpose='qa-plan') or {}
     plan.setdefault('keywords', [question])
     follow = [c['id'] for t in turns[-1:] if t['role'] == 'assistant' for c in t['cites']][:FOLLOW_UP]
     picked = select(plan, follow)
-    _say(thread, 'user', question)
+    if not again:
+        _say(thread, 'user', question)
     if not picked:
         text, cites = '卡里没找到跟这个有关的。可能是那段时间的卡还没做（看上面的「证据卡」那一行），或者换个说法再问。', []
     else:
@@ -590,12 +604,12 @@ def _step(kind, text):
             'd': ' · '.join([w for w in [words[:80]] if w] + notes)}
 
 
-def answer_deep(question, progress=None, on_text=None, thread=None, model=None, effort='high'):
+def answer_deep(question, progress=None, on_text=None, thread=None, model=None, effort='high', again=False):
     with llm.using(model):
-        return _answer_deep(question, progress, on_text, thread, effort)
+        return _answer_deep(question, progress, on_text, thread, effort, again)
 
 
-def _answer_deep(question, progress, on_text, thread, effort):
+def _answer_deep(question, progress, on_text, thread, effort, again=False):
     """让 Claude 自己查着回答。progress(一行文字) 报进度；on_text(一小段字) 是正在写的回答，on_text(None) = 这段作废、重新开始
     （它查一步说一句再查，每段话开头都会重置，最后留下的就是回答）。追问（DEEP_TTL 以内）接着上一轮的会话。"""
     question = (question or '').strip()
@@ -607,8 +621,9 @@ def _answer_deep(question, progress, on_text, thread, effort):
     last = store.one("SELECT sid, ts FROM qa_chat WHERE role='assistant' AND thread_id=? ORDER BY id DESC LIMIT 1", thread)
     sid = last['sid'] if last and last['sid'] and \
         time.time() - datetime.fromisoformat(last['ts']).timestamp() < DEEP_TTL else None
-    turns = history(HISTORY_TURNS * 2, thread)
-    _say(thread, 'user', question)
+    turns = _turns(thread, again)
+    if not again:
+        _say(thread, 'user', question)
     buf, steps, held, t0 = [], [], [], time.time()
 
     def add(step):
@@ -673,7 +688,7 @@ def can_dig():
     return llm.claude_on() or llm.cheap_on()
 
 
-def start_ask(question, thread=None, model=None, effort=None):
+def start_ask(question, thread=None, model=None, effort=None, again=False):
     """后台问（一两分钟；只有 Gemini 时凭卡答，十来秒）。前端 / ask.py 轮询 live()：steps 是查找进度，partial 是正在写的回答，
     result 是写完、出处认好的最终版；问答照样记进 history()。同一时间只问一个。"""
     thread = thread or current()
@@ -685,7 +700,7 @@ def start_ask(question, thread=None, model=None, effort=None):
         llm.uncancel()
         def text(piece):
             job['partial'] = '' if piece is None else job['partial'] + piece
-        pick = {'model': model, 'effort': effort or 'high'}
+        pick = {'model': model, 'effort': effort or 'high', 'again': again}
         job['result'] = answer_deep(q, progress=job['steps'].append, on_text=text, thread=thread, **pick) if deep \
             else answer(q, on_text=text, thread=thread, **pick)
         # 第一轮答完起标题：另开一条线，不拖着这次问答收尾

@@ -89,6 +89,8 @@ function traceHtml(trace) {
 }
 
 const qHtml = t => `<div class="ch-q"><div>${esc(t)}</div></div>`;
+const lostHtml = last => `<div class="ch-lost"><span>这个问题没答完（出错了，或者那时服务重启了）</span>`
+  + (last ? '<button type="button" class="ch-lost-go">重新问</button>' : '') + '</div>';
 const aHtml = (t, cites, stopped, trace) => `<div class="ch-a${stopped ? ' stopped' : ''}">${traceHtml(trace)}${body(t, cites || [])}${sources(cites || [])}</div>`;
 const turnHtml = t => t.role === 'user' ? qHtml(t.text) : aHtml(t.text, t.cites, false, t.trace);
 
@@ -317,7 +319,10 @@ async function load(thread) {
   renderThreads(r.threads);
   const hist = THREAD ? r.history : [];
   B.classList.toggle('ch-empty', !hist.length && !(LIVE_THREAD && LIVE_THREAD === THREAD));
-  $('#chLog').innerHTML = hist.map(turnHtml).join('');
+  // 问了没答上的（问到一半服务重启了 / 出错了）：问题下面一行说明；是最后一句的话带「重新问」
+  const live = LIVE_THREAD && LIVE_THREAD === THREAD, last = hist.length - 1;
+  $('#chLog').innerHTML = hist.map((t, i) => turnHtml(t)
+    + (t.role === 'user' && hist[i + 1]?.role !== 'assistant' && !(live && i === last) ? lostHtml(i === last) : '')).join('');
   if (LIVE_THREAD && LIVE_THREAD === THREAD) {           // 关了页面再打开时还在写：接着显示
     $('#chLog').insertAdjacentHTML('beforeend', `<div class="ch-a ch-wait">${waitHtml(r.live)}</div>`);
     setBusy(true);
@@ -380,14 +385,19 @@ async function send(e) {
   $('#chLog').insertAdjacentHTML('beforeend', qHtml(q) + `<div class="ch-a ch-wait">${waitHtml({ deep: true })}</div>`);
   $('#chInput').value = '';
   grow();
+  launch({ question: q }, () => { $('#chInput').value = q; });   // 没发出去：问题还给你，改一下再问
+}
+
+// 发出去、等着写完：新问题（send）和「重新问」（again：服务器拿这段对话里没答完的最后那句）共用
+async function launch(body, failed) {
   setBusy(true);
   scrollEnd(true);
   const r = await fetch('/api/qa/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question: q, thread: THREAD, model: MODEL, effort: EFFORTS.length ? EFFORT : null }) }).then(r => r.json()).catch(() => ({ error: '连不上 Ephemeris' }));
+    body: JSON.stringify({ ...body, thread: THREAD, model: MODEL, effort: EFFORTS.length ? EFFORT : null }) }).then(r => r.json()).catch(() => ({ error: '连不上 Ephemeris' }));
   if (!r.error && !r.started) r.error = '上一个问题还没答完';
   if (!r.error) { LIVE_THREAD = THREAD; return poll(); }
   $('#chLog .ch-wait').outerHTML = `<div class="ch-a bad">没答上：${esc(r.error)}</div>`;
-  $('#chInput').value = q;                                  // 问题还给你，改一下再问
+  failed?.();
   setBusy(false);
 }
 
@@ -422,6 +432,13 @@ $('#chTMenu').addEventListener('click', async e => {
   if (r && r.threads) renderThreads(r.threads);
 });
 $('#chLog').addEventListener('click', e => {
+  const again = e.target.closest('.ch-lost-go');
+  if (again) {
+    if (BUSY || other()) return;
+    again.closest('.ch-lost').outerHTML = `<div class="ch-a ch-wait">${waitHtml({ deep: true })}</div>`;
+    launch({ again: true });
+    return;
+  }
   const sup = e.target.closest('.ch-cite');
   if (!sup) return;
   const a = sup.closest('.ch-a'), d = a.querySelector('.ch-src');

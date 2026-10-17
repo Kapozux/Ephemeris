@@ -123,6 +123,10 @@ body.ch-empty .ch-note { visibility: hidden; }
 .ch-viz.wait { font-size: 14px; color: var(--muted); padding: 10px 0; }
 .ch-a.stopped::after { content: "（已停止）"; display: block; font: 13px var(--font); color: var(--faint); }
 .ch-a.bad { font: 14px var(--font); color: var(--accent); }
+/* 问了没答上的（服务重启了 / 出错了）：问题下面一行，最后一句带「重新问」 */
+.ch-lost { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 8px 0 22px; font: 13.5px var(--font); color: var(--muted); }
+.ch-lost-go { padding: 3px 12px; border: 1px solid var(--line2); border-radius: 999px; font-size: 13.5px; color: var(--text); }
+.ch-lost-go:hover { background: var(--hover); }
 sup .ch-cite, sup.ch-cite { display: inline-block; min-width: 17px; padding: 0 4px; margin: 0 1px; border-radius: 6px; background: var(--cite);
   font: 400 11px/17px var(--font); text-align: center; color: var(--muted); cursor: pointer; vertical-align: 2px; }
 sup .ch-cite:hover { color: var(--text); }

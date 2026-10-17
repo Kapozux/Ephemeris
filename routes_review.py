@@ -109,16 +109,17 @@ def api_qa_live():
 @bp.route('/api/qa/ask', methods=['POST'])
 def api_qa_ask():
     body = request.get_json(silent=True) or {}
-    q = (body.get('question') or '').strip()
+    again = bool(body.get('again'))                    # 重问这段对话里没答完的最后那句（问到一半服务重启了 / 出错了）
+    q = ((qa.unanswered(body.get('thread')) if again and body.get('thread') else body.get('question')) or '').strip()
     if not q:
-        return jsonify({'error': '问题是空的'}), 400
+        return jsonify({'error': '没有没答完的问题' if again else '问题是空的'}), 400
     model, effort = body.get('model') or None, body.get('effort') or None     # 聊天页的模型菜单；没给 = 默认
     if model and model not in dict(llm.choices()):
         return jsonify({'error': f'不认识的模型：{model}'}), 400
     if effort and effort not in llm.EFFORTS:
         return jsonify({'error': f'不认识的 effort：{effort}'}), 400
     # 后台问、边写边看：进度在 /api/qa/live
-    return jsonify({'started': qa.start_ask(q, body.get('thread'), model, effort), 'live': qa.live()})
+    return jsonify({'started': qa.start_ask(q, body.get('thread'), model, effort, again), 'live': qa.live()})
 
 
 @bp.route('/api/qa/stop', methods=['POST'])

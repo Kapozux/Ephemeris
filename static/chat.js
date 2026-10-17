@@ -14,7 +14,7 @@ let THREAD = +B.dataset.thread || null, BUSY = false, POLL = null, LIVE_THREAD =
 // 有 Claude 列 Claude 的，只有 DeepSeek 列 DeepSeek 的（那时没有 Effort 这一项，EFFORTS 是空的）
 const MODELS = [...document.querySelectorAll('#chSubModels [data-model]')].map(b => [b.dataset.model, b.textContent.trim()]);
 const EFFORTS = [...document.querySelectorAll('#chSubEffort [data-effort]')].map(b => [b.dataset.effort, b.textContent.trim()]);
-let MODEL = MODELS[0]?.[0], EFFORT = 'high';
+let MODEL = MODELS[0]?.[0], EFFORT = 'max';          // 默认 Max（10-17：思考不要限制）
 try {
   const m = localStorage.getItem('qaModel'), e = localStorage.getItem('qaEffort');
   if (MODELS.some(x => x[0] === m)) MODEL = m;
@@ -81,7 +81,9 @@ const nSteps = steps => steps.filter(s => asStep(s).k !== 'say').length;
 
 function traceHtml(trace) {
   const steps = (trace && trace.steps) || [], n = nSteps(steps);
-  if (!n) return '';
+  if (!trace) return '';
+  if (!n) return trace.secs ? `<div class="ch-trace"><span class="ch-trace-plain"><span class="ch-trace-i">${icon('search')}</span>`
+    + `<span>这次没查资料 · 用时 ${took(trace.secs)}</span></span></div>` : '';
   return `<details class="ch-trace"><summary><span class="ch-trace-i">${icon('search')}</span>`
     + `<span>查了 ${n} 步${trace.secs ? ` · 用时 ${took(trace.secs)}` : ''}</span>`
     + `<svg class="ch-trace-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 6l6 6-6 6"/></svg></summary>`

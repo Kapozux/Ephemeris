@@ -1,5 +1,5 @@
 """聊天页能自己选模型和 effort（2026-10-14：照 claude.ai 那个菜单，除了 Fable 太贵）。
-选的模型管这一次问的所有 Claude 调用；effort 只管写回答那一步（拆问题那一步还是 low）。没选就跟以前一样（Opus 5.5 · High）。"""
+选的模型管这一次问的所有 Claude 调用；effort 只管写回答那一步（拆问题那一步还是 low）。没选就是 Opus 5.5 · Max（10-17 起；之前默认 High）。"""
 import _env  # noqa: F401
 import json
 import threading

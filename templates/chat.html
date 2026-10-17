@@ -58,7 +58,7 @@
       <textarea id="chInput" rows="1" placeholder="问问你自己的聊天记录…" autocomplete="off"></textarea>
       <div class="ch-tools">
         <div class="ch-mm">
-          <button type="button" class="ch-model" id="chModel" aria-haspopup="menu" aria-expanded="false" title="选模型{{ '和 effort' if efforts else '' }}">{{ models[0][1] if models else '' }}{% if efforts %} <i>High</i>{% endif %}</button>
+          <button type="button" class="ch-model" id="chModel" aria-haspopup="menu" aria-expanded="false" title="选模型{{ '和 effort' if efforts else '' }}">{{ models[0][1] if models else '' }}{% if efforts %} <i>Max</i>{% endif %}</button>
           <div class="ch-menu" id="chMenu" role="menu" hidden>
             <button type="button" class="ch-mi" data-act="cur" role="menuitem"><span class="ch-mi-t" id="chMenuCur"></span><svg class="ch-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>
             {% if efforts %}<hr>

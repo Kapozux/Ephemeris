@@ -443,7 +443,7 @@ DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料�
 - 同一件事换几种说法都搜：中英文、简称、别名（比如「证据卡 / evidence card」「立党 / Lidang」）。
 - 关键的地方用 read 看前后文再下结论，别只看片段就猜。注意分清是他说的还是 AI 说的、是他贴进来的还是自己写的。
 - 每次只跑一条完整的命令（照上面的写法原样写全路径）：不要用 shell 变量、不要用 ; && | 把几条连起来——那样会被拒。
-- 查到能回答就停，别为了凑数一直查；但要算数的问题，宁可多查几步把数算准。
+- 别怕查得多、想得久：宁可多搜几种说法、多读几段前后文，把事情弄准、弄全再答；要算数的问题更要把数算准。（10-17：思考不要限制）
 
 回答：
 - 只根据查到的内容。查不到就直说没查到，并说查了哪些。
@@ -501,7 +501,7 @@ def deep_prompt_deepseek(**kw):
 
 FOLLOW_PROMPT = """追问：{question}
 
-（规矩跟刚才一样：需要就接着用 look.py 查；只根据查到的回答，标 [[m:…]] / [[c:…]]；最后只输出回答正文；还是像聊天那样说，别列流水账；画图也照刚才的规矩。）"""
+（规矩跟刚才一样：追问也照样去查——问的是新的事、或者前面查到的不够，就接着用 look.py 查，别只凭前面的印象答；只根据查到的回答，标 [[m:…]] / [[c:…]]；最后只输出回答正文；还是像聊天那样说，别列流水账；画图也照刚才的规矩。）"""
 CITE_ANY = re.compile(r'\[\[\s*([mc]):([^\]\s]+)\s*\]\]')
 
 
@@ -604,7 +604,7 @@ def _step(kind, text):
             'd': ' · '.join([w for w in [words[:80]] if w] + notes)}
 
 
-def answer_deep(question, progress=None, on_text=None, thread=None, model=None, effort='high', again=False):
+def answer_deep(question, progress=None, on_text=None, thread=None, model=None, effort='max', again=False):
     with llm.using(model):
         return _answer_deep(question, progress, on_text, thread, effort, again)
 
@@ -700,13 +700,13 @@ def start_ask(question, thread=None, model=None, effort=None, again=False):
         llm.uncancel()
         def text(piece):
             job['partial'] = '' if piece is None else job['partial'] + piece
-        pick = {'model': model, 'effort': effort or 'high', 'again': again}
+        pick = {'model': model, 'effort': effort or 'max', 'again': again}          # 问默认 Max（10-17：思考不要限制）
         job['result'] = answer_deep(q, progress=job['steps'].append, on_text=text, thread=thread, **pick) if deep \
             else answer(q, on_text=text, thread=thread, **pick)
         # 第一轮答完起标题：另开一条线，不拖着这次问答收尾
         threading.Thread(target=autotitle, args=(thread,), daemon=True).start()
     return jobs.start(QA_JOB, run, question, deep, steps=[], partial='', result=None, question=question, deep=deep,
-                      thread=thread, model=model or (llm.choices() or ((llm.CLAUDE_MODEL, ''),))[0][0], effort=effort or 'high')
+                      thread=thread, model=model or (llm.choices() or ((llm.CLAUDE_MODEL, ''),))[0][0], effort=effort or 'max')
 
 
 def stop():

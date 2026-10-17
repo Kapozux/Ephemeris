@@ -62,5 +62,27 @@ class AskUnlock(unittest.TestCase):
             ask._get('/api/qa')
 
 
+class Commands(unittest.TestCase):
+    """/ 开头的是命令，不当问题发给 Claude（10-17：「python ask.py /new」被问了两遍）。"""
+    def setUp(self):
+        self.sent = []
+        self.p = mock.patch.object(ask, '_post', side_effect=lambda path, body: (self.sent.append(path), {'thread': 7})[1])
+        self.p.start()
+
+    def tearDown(self):
+        self.p.stop()
+
+    def test_new_opens_thread_not_question(self):
+        ask.command('/new')
+        self.assertEqual(self.sent, ['/api/qa/new'])
+        self.assertEqual(ask.THREAD[0], 7)
+
+    def test_unknown_command_not_sent(self):
+        with mock.patch('builtins.print') as pr:
+            ask.command('/neww')
+        self.assertEqual(self.sent, [])
+        self.assertIn('不认识', pr.call_args[0][0])
+
+
 if __name__ == '__main__':
     unittest.main()

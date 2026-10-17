@@ -1,6 +1,7 @@
 """在终端里用「问」（2026-10-13：网页打不开时应急用）。调本机 5055 的 /api/qa/ask，记录跟网页那边是同一份。
 
 python ask.py                    一直问，空行 / Ctrl-D 退出。/new 开一段新对话；/list 以前的对话；/open 编号 打开那段接着问
+python ask.py /new               先开一段新对话，再接着一直问（/list、/open 编号 也能这样直接跟在后面）
 python ask.py 问题……              问 Claude：它自己去搜原文、翻卡、读前后文再答（一两分钟，用 Claude 订阅额度）
 问过的都记着（跟网页同一份），也会写进当天的日记。
 设了隐私锁（lock.py）的话，服务器回 423 时这里问一次密码，解锁令牌只在这个进程里；开着的时候每 20 秒报到一次，
@@ -157,13 +158,33 @@ def show_thread():
         print(('> ' if t['role'] == 'user' else '') + text + '\n')
 
 
+HELP = '/new 新对话，/list 以前的对话，/open 编号 打开那段接着问'
+
+
+def command(q):
+    """/ 开头的是命令，不当问题发出去（10-17：「python ask.py /new」被当成问题问了 Claude 两遍）。"""
+    word, _, rest = q.partition(' ')
+    if word in ('/new', '/clear'):
+        THREAD[0] = _post('/api/qa/new', {}).get('thread') or THREAD[0]
+        print('开了一段新对话（以前的用 /list 看）。\n')
+    elif word == '/list':
+        threads()
+    elif word == '/open' and rest.strip().isdigit():
+        THREAD[0] = int(rest.strip())
+        show_thread()
+    else:
+        print(f'不认识这个命令。能用的：{HELP}\n')
+
+
 if __name__ == '__main__':
     threading.Thread(target=_keepalive, daemon=True).start()
-    args = sys.argv[1:]
-    if args:
-        ask(' '.join(args))
+    q = ' '.join(sys.argv[1:]).strip()
+    if q and not q.startswith('/'):                      # python ask.py 问题……：问完就走
+        ask(q)
         sys.exit()
-    print('问吧（空行退出；/new 新对话，/list 以前的对话，/open 编号 打开那段）。[n] 是出处。\n')
+    print(f'问吧（空行退出；{HELP}）。[n] 是出处。\n')
+    if q:                                                # python ask.py /new：先做这条命令，再接着问
+        command(q)
     while True:
         try:
             q = input('> ').strip()
@@ -171,16 +192,8 @@ if __name__ == '__main__':
             break
         if not q:
             break
-        if q in ('/new', '/clear'):
-            THREAD[0] = _post('/api/qa/new', {}).get('thread') or THREAD[0]
-            print('开了一段新对话（以前的用 /list 看）。\n')
-            continue
-        if q == '/list':
-            threads()
-            continue
-        if q.startswith('/open'):
-            THREAD[0] = int(q.split()[1]) if len(q.split()) > 1 and q.split()[1].isdigit() else THREAD[0]
-            show_thread()
+        if q.startswith('/'):
+            command(q)
             continue
         print('Claude 在查…', end='', flush=True)
         ask(q)

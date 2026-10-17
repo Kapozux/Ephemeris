@@ -1,7 +1,8 @@
 """「问」：一个聊天窗口，只凭证据卡（cards.py）回答，每句带出处，点了回到那天那条消息。2026-10-11，照 Verbatim 的 ask.answer。
 
-    answer(question)   → {answer, cites, cost}；问和答都记进 qa_chat（也进 messages，来源 ask，算进日记）
-    answer_deep(question) → 问 Claude：它自己查（look.py）再答
+    answer_deep(question) → 让 Claude（没有就 DeepSeek）自己查（look.py）再答。聊天页和 ask.py 只走这个（10-17 用户去掉了「快速」）
+    answer(question)   → 只凭证据卡答；只在两样都没有（只有 Gemini 的电脑）时由 start_ask 退回来用
+    问和答都记进 qa_chat（也进 messages，来源 ask，算进日记）
     threads() / current() / new_thread() / history(thread)   一段一段的对话
 
 一轮问答：
@@ -385,7 +386,7 @@ def _answer(question, on_text, thread, effort):
 # 问得宽还会塞进几百张沾边的卡、答成大杂烩（10-13）。
 # 这里让 Claude Code 自己查：只放行 look.py（只读：搜原文 / 搜卡 / 读前后文 / 看某天），它决定先搜什么、读哪段，
 # 够了再答，出处可以是卡（[[c:id]]）也可以是原话（[[m:id]]）。追问接着同一个会话（--resume），前面查到的东西走缓存。
-# 一问一两分钟、等值几毛钱（订阅额度），所以是个开关，不是默认。
+# 一问一两分钟、等值几毛钱（订阅额度）。10-17 起是唯一的问法。
 DEEP_TTL = 50 * 60                       # 追问在这么久以内就接着上一轮的会话（缓存 1 小时）
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOOK = f'{sys.executable} {os.path.join(HERE, "look.py")}'
@@ -527,7 +528,7 @@ def _answer_deep(question, progress, on_text, thread, effort):
     if not question:
         raise ValueError('问题是空的')
     if not llm.claude_on() and not llm.cheap_on():
-        raise RuntimeError('深挖要 Claude 或 DeepSeek，现在两样都用不了，先用「快速」')
+        raise RuntimeError('深挖要 Claude 或 DeepSeek，现在两样都用不了')
     thread = thread or current()
     last = store.one("SELECT sid, ts FROM qa_chat WHERE role='assistant' AND thread_id=? ORDER BY id DESC LIMIT 1", thread)
     sid = last['sid'] if last and last['sid'] and \
@@ -581,10 +582,17 @@ def _answer_deep(question, progress, on_text, thread, effort):
 QA_JOB = 'qa'
 
 
-def start_ask(question, deep=False, thread=None, model=None, effort=None):
-    """后台问（快的十来秒，问 Claude 一两分钟）。前端 / ask.py 轮询 live()：steps 是查找进度，partial 是正在写的回答，
+def can_dig():
+    """能不能让模型自己查（深挖）：有 Claude 或 DeepSeek。都没有只能凭卡答。"""
+    return llm.claude_on() or llm.cheap_on()
+
+
+def start_ask(question, thread=None, model=None, effort=None):
+    """后台问（一两分钟；只有 Gemini 时凭卡答，十来秒）。前端 / ask.py 轮询 live()：steps 是查找进度，partial 是正在写的回答，
     result 是写完、出处认好的最终版；问答照样记进 history()。同一时间只问一个。"""
     thread = thread or current()
+
+    deep = can_dig()
 
     def run(job, q, deep):
         job['tid'] = threading.get_ident()

@@ -9,8 +9,6 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const B = document.body;
 let THREAD = +B.dataset.thread || null, BUSY = false, POLL = null, LIVE_THREAD = null, THREADS = [], CARDS = null, CARD_POLL = null;
-let DEEP = true;
-try { DEEP = localStorage.getItem('qaDeep') !== '0'; } catch { /* 隐私模式：不记 */ }
 // 模型和 effort（右下角的菜单，照 claude.ai；10-14：自己选，Fable 太贵不放）。列表来自后端 llm.choices()，第一个是默认：
 // 有 Claude 列 Claude 的，只有 DeepSeek 列 DeepSeek 的（那时没有 Effort 这一项，EFFORTS 是空的）
 const MODELS = [...document.querySelectorAll('#chSubModels [data-model]')].map(b => [b.dataset.model, b.textContent.trim()]);
@@ -20,7 +18,7 @@ try {
   const m = localStorage.getItem('qaModel'), e = localStorage.getItem('qaEffort');
   if (MODELS.some(x => x[0] === m)) MODEL = m;
   if (EFFORTS.some(x => x[0] === e)) EFFORT = e;
-} catch { /* 同上 */ }
+} catch { /* 隐私模式：不记 */ }
 
 // ---------- 正文：[[id]] → 上标数字，**粗体**、换行、「- 」列表 ----------
 function body(text, cites) {
@@ -98,16 +96,6 @@ function renderOther() {
     + `<a href="/chat/${LIVE_THREAD}" data-act="look">去看看</a><span class="ch-other-sep">·</span><a href="#" data-act="stop">停下</a>`;
   bar.hidden = false;
   syncSend();
-}
-
-function setMode(deep) {
-  DEEP = deep;
-  document.querySelectorAll('.ch-mode').forEach(b => {
-    const on = (b.dataset.deep === '1') === deep;
-    b.classList.toggle('on', on);
-    b.setAttribute('aria-checked', on);
-  });
-  try { localStorage.setItem('qaDeep', deep ? '1' : '0'); } catch { /* 同上 */ }
 }
 
 function label(list, id) { return (list.find(x => x[0] === id) || [id, id])[1]; }
@@ -336,13 +324,13 @@ async function send(e) {
     history.pushState({}, '', `/chat/${THREAD}`);
   }
   B.classList.remove('ch-empty');
-  $('#chLog').insertAdjacentHTML('beforeend', qHtml(q) + `<div class="ch-a ch-wait">${waitHtml({ deep: DEEP })}</div>`);
+  $('#chLog').insertAdjacentHTML('beforeend', qHtml(q) + `<div class="ch-a ch-wait">${waitHtml({ deep: true })}</div>`);
   $('#chInput').value = '';
   grow();
   setBusy(true);
   scrollEnd(true);
   const r = await fetch('/api/qa/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question: q, deep: DEEP, thread: THREAD, model: MODEL, effort: EFFORTS.length ? EFFORT : null }) }).then(r => r.json()).catch(() => ({ error: '连不上 Ephemeris' }));
+    body: JSON.stringify({ question: q, thread: THREAD, model: MODEL, effort: EFFORTS.length ? EFFORT : null }) }).then(r => r.json()).catch(() => ({ error: '连不上 Ephemeris' }));
   if (!r.error && !r.started) r.error = '上一个问题还没答完';
   if (!r.error) { LIVE_THREAD = THREAD; return poll(); }
   $('#chLog .ch-wait').outerHTML = `<div class="ch-a bad">没答上：${esc(r.error)}</div>`;
@@ -363,7 +351,6 @@ $('#chInput').addEventListener('input', grow);
 $('#chInput').addEventListener('keydown', e => {            // 回车发送，Shift+回车换行（输入法选字时不算）
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!BUSY) $('#chForm').requestSubmit(); }
 });
-document.querySelectorAll('.ch-mode').forEach(b => b.addEventListener('click', () => setMode(b.dataset.deep === '1')));
 $('#chNew').addEventListener('click', () => { closeSide(); go(null); $('#chInput').focus(); });
 $('#chThreads').addEventListener('click', e => {
   const more = e.target.closest('.ch-tmore');
@@ -471,6 +458,5 @@ fetch('/api/checkin').then(r => r.json()).then(r => {
 }).catch(() => {});
 
 greet();
-setMode(DEEP);
 load(THREAD);
 $('#chInput').focus();

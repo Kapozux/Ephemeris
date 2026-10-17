@@ -112,20 +112,13 @@ def api_qa_ask():
     q = (body.get('question') or '').strip()
     if not q:
         return jsonify({'error': '问题是空的'}), 400
-    if body.get('deep') and not llm.claude_on():
-        return jsonify({'error': 'Claude 现在用不了（没装 / 没登录 / 额度用完停着），先用普通的「问」'}), 409
-    if body.get('wait'):                               # 老的同步用法：问完才返回
-        try:
-            return jsonify(qa.answer(q))
-        except Exception as e:                           # noqa: BLE001
-            return jsonify({'error': f'{type(e).__name__}: {e}'[:300]}), 500
     model, effort = body.get('model') or None, body.get('effort') or None     # 聊天页的模型菜单；没给 = 默认
     if model and model not in dict(llm.choices()):
         return jsonify({'error': f'不认识的模型：{model}'}), 400
     if effort and effort not in llm.EFFORTS:
         return jsonify({'error': f'不认识的 effort：{effort}'}), 400
     # 后台问、边写边看：进度在 /api/qa/live
-    return jsonify({'started': qa.start_ask(q, bool(body.get('deep')), body.get('thread'), model, effort), 'live': qa.live()})
+    return jsonify({'started': qa.start_ask(q, body.get('thread'), model, effort), 'live': qa.live()})
 
 
 @bp.route('/api/qa/stop', methods=['POST'])
@@ -141,7 +134,7 @@ def chat_page(thread=None):
     # 菜单跟着现在能用的那家：Claude 列 Claude 的模型和 effort；只有 DeepSeek 列 DeepSeek 的、没有 effort（2026-10-14）
     b = llm.chat_backend()
     return render_template('chat.html', thread=thread or '', name=idx.who(), models=llm.choices(),
-                           efforts=llm.EFFORTS if b == 'claude' else (), backend=b)
+                           efforts=llm.EFFORTS if b == 'claude' else ())
 
 
 @bp.route('/api/qa/new', methods=['POST'])

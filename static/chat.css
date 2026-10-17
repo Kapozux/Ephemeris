@@ -155,9 +155,6 @@ sup .ch-cite:hover { color: var(--text); }
   max-height: 40vh; min-height: 26px; padding: 0; }
 .ch-box textarea::placeholder { color: var(--faint); }
 .ch-tools { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
-.ch-modes { display: flex; padding: 3px; border-radius: 10px; background: var(--hover); }
-.ch-mode { padding: 3px 12px; border-radius: 8px; font-size: 14px; color: var(--muted); }
-.ch-mode.on { background: var(--box); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
 /* 模型菜单（照 claude.ai：当前模型 ✓ / Effort › / 更多模型 ›，子菜单在右边展开；窄屏子菜单就地换掉主菜单） */
 .ch-mm { position: relative; margin-left: auto; }
 .ch-model { font-size: 14px; color: var(--text); white-space: nowrap; padding: 4px 8px; border-radius: 8px; }

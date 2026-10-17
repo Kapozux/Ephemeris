@@ -1,9 +1,7 @@
 """在终端里用「问」（2026-10-13：网页打不开时应急用）。调本机 5055 的 /api/qa/ask，记录跟网页那边是同一份。
 
-python ask.py                    一直问，空行 / Ctrl-D 退出。/new 开一段新对话；/list 以前的对话；/open 编号 打开那段接着问；
-                                 /claude 切换「问 Claude」开关
-python ask.py 问题……              问 Claude（默认）：它自己去搜原文、翻卡、读前后文再答（一两分钟，用 Claude 订阅额度）
-python ask.py --fast 问题……       快：只看证据卡，十来秒
+python ask.py                    一直问，空行 / Ctrl-D 退出。/new 开一段新对话；/list 以前的对话；/open 编号 打开那段接着问
+python ask.py 问题……              问 Claude：它自己去搜原文、翻卡、读前后文再答（一两分钟，用 Claude 订阅额度）
 问过的都记着（跟网页同一份），也会写进当天的日记。
 """
 import json
@@ -51,9 +49,9 @@ def sources(cites):
 THREAD = [None]                                          # 正在用的那段对话（None = 服务器上最近那段）
 
 
-def ask(q, deep=True):
+def ask(q):
     try:
-        r = _post('/api/qa/ask', {'question': q, 'deep': deep, 'thread': THREAD[0]})
+        r = _post('/api/qa/ask', {'question': q, 'thread': THREAD[0]})
         if r.get('error') or not r.get('started'):
             print(f"\n没开始：{r.get('error') or '上一个问题还没答完'}\n")
             return
@@ -109,15 +107,13 @@ def show_thread():
 
 if __name__ == '__main__':
     args = sys.argv[1:]
-    deep = '--fast' not in args
-    args = [a for a in args if a not in ('--fast', '--claude')]
     if args:
-        ask(' '.join(args), deep)
+        ask(' '.join(args))
         sys.exit()
-    print('问吧（空行退出；/new 新对话，/list 以前的对话，/open 编号 打开那段，/claude 切换深挖）。[n] 是出处。\n')
+    print('问吧（空行退出；/new 新对话，/list 以前的对话，/open 编号 打开那段）。[n] 是出处。\n')
     while True:
         try:
-            q = input('(Claude) > ' if deep else '> ').strip()
+            q = input('> ').strip()
         except EOFError:
             break
         if not q:
@@ -133,9 +129,5 @@ if __name__ == '__main__':
             THREAD[0] = int(q.split()[1]) if len(q.split()) > 1 and q.split()[1].isdigit() else THREAD[0]
             show_thread()
             continue
-        if q == '/claude':
-            deep = not deep
-            print('问 Claude：开（它自己查，一两分钟）\n' if deep else '问 Claude：关（只看证据卡，十来秒）\n')
-            continue
-        print('Claude 在查…' if deep else '在翻卡…', end='', flush=True)
-        ask(q, deep)
+        print('Claude 在查…', end='', flush=True)
+        ask(q)

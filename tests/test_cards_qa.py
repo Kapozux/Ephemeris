@@ -252,7 +252,7 @@ def deltas(*parts):
 
 
 class Streaming(unittest.TestCase):
-    """边写边看：快的「问」和「问 Claude」都把写到一半的字交出来；后台任务里网页拿得到。"""
+    """边写边看：凭卡答和深挖都把写到一半的字交出来；后台任务里网页拿得到。"""
     def setUp(self):
         seed()
         llm.use(lambda p: out([{'m': 1, 'k': '决定', 'p': '大学申请', 't': '我决定 ED 交 MIT', 'q': 'ED 交 MIT'}]))
@@ -285,14 +285,15 @@ class Streaming(unittest.TestCase):
 
     def test_background_job_exposes_partial_and_result(self):
         import time
-        self.assertTrue(qa.start_ask('我早申交的哪？'))
+        self.assertTrue(qa.start_ask('我早申交的哪？'))                        # 有 Claude：后台问一律深挖（10-17 去掉了快速）
         for _ in range(100):
             if not qa.live()['running']:
                 break
             time.sleep(0.02)
         live = qa.live()
-        self.assertEqual(live['partial'], '你决定 ED 交 MIT [c1]。')
-        self.assertEqual([c['id'] for c in live['result']['cites']], ['m1·1'])
+        self.assertTrue(live['deep'])
+        self.assertEqual(live['partial'], '你决定 ED 交 MIT [[c:m1·1]]。')
+        self.assertEqual([c['id'] for c in live['result']['cites']], ['c:m1·1'])
         self.assertEqual(qa.history()[-1]['role'], 'assistant')
 
 

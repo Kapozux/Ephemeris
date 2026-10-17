@@ -100,3 +100,10 @@ def touch_native():
 @bp.post('/api/lock/touch/cancel')
 def touch_cancel():
     return jsonify(ok=lock.cancel_native())
+
+
+@bp.post('/api/lock/app')
+def app_unlock():
+    """Mac App 用指纹解开后来换令牌（lock.app_unlock）。"""
+    token, err = lock.app_unlock((request.get_json(silent=True) or {}).get('key'))
+    return _with_cookie({'ok': False, 'error': err} if err else {'ok': True}, token, 400 if err else 200)

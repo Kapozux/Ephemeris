@@ -231,5 +231,45 @@ class NativeTouch(unittest.TestCase):
         self.assertTrue(self.c.get('/api/lock/status').get_json()['native'])
 
 
+
+class AppKey(unittest.TestCase):
+    """Mac App（10-17，mac/Ephemeris.swift）：App 自己验过指纹，拿钥匙文件里的钥匙换令牌；钥匙不对算输错次数。"""
+    def setUp(self):
+        store.run('DELETE FROM app_lock')
+        lock.lock()
+        lock._st.update(fails=0, wait_until=0.0)
+        self.keyfile = lock.APP_KEY_FILE
+        lock.APP_KEY_FILE = os.path.join(tempfile.mkdtemp(), '.app_key')
+        self.c = ephemeris.app.test_client()
+        self.assertEqual(self.c.post('/api/lock/password', json={'new': 'abcd'}, headers=H).status_code, 200)
+        lock.lock()
+
+    def tearDown(self):
+        lock.APP_KEY_FILE = self.keyfile
+        store.run('DELETE FROM app_lock')
+        lock.lock()
+
+    def test_key_file_private_and_stable(self):
+        k = lock.app_key()
+        self.assertEqual(os.stat(lock.APP_KEY_FILE).st_mode & 0o777, 0o600)
+        self.assertEqual(lock.app_key(), k)
+
+    def test_right_key_unlocks(self):
+        other = ephemeris.app.test_client()
+        self.assertEqual(other.post('/api/lock/app', json={'key': lock.app_key()}).status_code, 200)
+        self.assertEqual(other.get('/api/days').status_code, 200)
+
+    def test_wrong_key_counts_as_failure(self):
+        other = ephemeris.app.test_client()
+        lock.app_key()
+        for _ in range(5):
+            self.assertEqual(other.post('/api/lock/app', json={'key': 'nope'}).status_code, 400)
+        self.assertIn('秒后再试', other.post('/api/lock/app', json={'key': lock.app_key()}).get_json()['error'])
+
+    def test_no_password_no_unlock(self):
+        store.run('DELETE FROM app_lock')
+        self.assertEqual(ephemeris.app.test_client().post('/api/lock/app', json={'key': lock.app_key()}).status_code, 400)
+
+
 if __name__ == '__main__':
     unittest.main()

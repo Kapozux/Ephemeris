@@ -10,6 +10,8 @@
 //   · 浏览器的通行密钥（WebAuthn，要先在设置里登记）—— 没有系统指纹时才用，只在点了指纹 / 空密码框回车时弹（用户嫌它难用）。
 // 两种都是：切到别的标签就取消；验过了但这一页已经不在前面（你去了别的窗口），令牌当场作废、不解锁。
 // 10-16 第一版的 bug：后台标签、在别的网页时也弹，弹着的时候切走还不锁，在别处一按就开了。
+// 在 Mac App（mac/Ephemeris.swift）里打开时：锁屏是 App 原生画的（指纹嵌在里面，不弹框），这里不画，
+// 该锁的时候告诉 App 一声（webkit.messageHandlers.eph）；App 解开后调 ephLock.appUnlocked()。
 (() => {
   const me = document.currentScript;
   let on = me.dataset.on === '1';
@@ -41,7 +43,10 @@
     <path d="M7.4 18.6c1-1.9 1.4-4 1.4-6.2a3.2 3.2 0 0 1 6.4 0c0 .9 0 1.8-.1 2.6"/><path d="M10.2 20.4c1.3-2.3 1.9-4.9 1.8-7.9"/>
     <path d="M13.6 20.6c.4-.9.8-1.9 1-2.9"/><path d="M17.2 18.4c.4-1.1.7-2.3.8-3.6"/><path d="M8.3 6.1a6 6 0 0 1 8.1 2.4"/></svg>`;
 
+  const app = window.webkit?.messageHandlers?.eph;
+
   function show() {
+    if (app) { if (on) app.postMessage({ lock: true }); return; }
     if (box || !document.body) return;
     box = document.createElement('div');
     box.className = 'lock-scrim';
@@ -207,7 +212,8 @@
 
   // 设置里用：刚设好 / 去掉密码，这一页不用重载就开始 / 停止管；登记 Touch ID（系统弹框会抢焦点，那段别锁）
   window.ephLock = {
-    set(v) { on = !!v; if (!on) { hide(); touchOn = false; } },
+    set(v) { on = !!v; if (!on) { hide(); touchOn = false; } app?.postMessage({ on }); },
+    appUnlocked() { if (isLockPage || missed) location.reload(); },
     canTouch: () => location.hostname === 'localhost' && !!window.PublicKeyCredential,
     async addTouch() {
       const c = await post('/api/lock/touch/begin', { kind: 'create' });

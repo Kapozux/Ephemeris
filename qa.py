@@ -91,10 +91,19 @@ def _like(k):
     return f'%{k}%'
 
 
+# 回答里的图（2026-10-17）：```html 代码块，聊天页放进沙盒 iframe 画（static/viz.js）。代码只给页面看：
+# 进 messages（日记、搜索）、给模型看的前文、起标题时都换成「（图）」
+VIZ_RE = re.compile(r'```html[^\n]*\n.*?(?:```|$)', re.S)
+
+
+def no_viz(text):
+    return VIZ_RE.sub('（图）', text or '')
+
+
 def _history_text(turns):
     lines = []
     for t in turns:
-        one = re.sub(r'\s+', ' ', re.sub(r'\[\[[^\]]+\]\]', '', t['text']))[:600]   # 出处记号不给模型看，不然它照抄卡 id
+        one = re.sub(r'\s+', ' ', re.sub(r'\[\[[^\]]+\]\]', '', no_viz(t['text'])))[:600]   # 出处记号不给模型看，不然它照抄卡 id
         lines.append(('问：' if t['role'] == 'user' else '答：') + one)
     return '\n'.join(lines) or '（无）'
 
@@ -262,7 +271,7 @@ def autotitle(thread):
     turns = store.q('SELECT role, text FROM qa_chat WHERE thread_id=? ORDER BY id LIMIT 4', thread)   # 开头几句，不是最近几句
     if not r or r['named'] or not any(t['role'] != 'user' for t in turns):
         return None
-    text = '\n\n'.join(('我：' if t['role'] == 'user' else '回答：') + re.sub(r'\[\[[^\]]*\]\]', '', t['text'])[:600] for t in turns)
+    text = '\n\n'.join(('我：' if t['role'] == 'user' else '回答：') + re.sub(r'\[\[[^\]]*\]\]', '', no_viz(t['text']))[:600] for t in turns)
     out = llm.ask(TITLE_PROMPT.format(turns=text), effort='low', purpose='问·起标题')
     title = (out or '').strip().splitlines()[0] if (out or '').strip() else ''
     title = title.strip(' "\'“”「」《》#*。.！!？?')
@@ -317,7 +326,7 @@ def _say(thread, role, text, cites=(), sid=None):
 def _mirror(qid, thread, role, text, when):
     cid = f'{SOURCE}-{thread}'
     date, hhmm = days.bucket(when)
-    plain = re.sub(r'\[\[[^\]]*\]\]', '', text or '').strip()       # 出处记号不进聊天记录
+    plain = re.sub(r'\[\[[^\]]*\]\]', '', no_viz(text)).strip()   # 出处记号、图的代码不进聊天记录
     title = (store.one('SELECT title FROM qa_threads WHERE id=?', thread) or {}).get('title') or '问'
     with store.tx() as db:
         db.execute("""INSERT INTO conversations (id, source, title, title_fallback, first_import, last_import)
@@ -425,6 +434,17 @@ DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料�
 - 有依据的话后面标出处：[[m:消息id]] 或 [[c:卡id]]，照抄工具输出里的记号，不要编。
 - 最后只输出给他看的回答正文，不要讲你是怎么查的。
 
+画图（可选）：
+- 问的是趋势、按时间的变化、几样东西的比较、分布，而且你用 sql / stats 真算出了一组数（至少四五个点），可以在回答里放一张图；
+  他说「画个图」就一定画。别的情况不画，一个回答最多一两张。图是帮他看明白的，文字照样要把结论说清楚，不能只甩一张图。
+- 写法：单独一段，用 ```html 开头、``` 结尾的代码块，里面是一小段 HTML（不要 <html> <head>），宽度跟着容器走（100%）。
+  两种画法任选：手写 <svg>（width="100%"，viewBox 宽写 640 左右、字号 12～13，缩放后字才不会太大）；或者 <canvas> 加 <script> 用全局的 Chart（Chart.js 4，已经加载好，
+  默认颜色、字体、网格线都按页面调好了，别再设 animation）。
+- 数据直接写进代码里，只能是你查出来的数，不许编、不许补；每个点的标签写清楚（月份、日期、名字）。
+- 颜色：系列色按顺序用 EPH.colors[0]、EPH.colors[1]…（最多 6 个，不要轮换）；字和线用 CSS 变量 var(--text) / var(--muted) / var(--line)，
+  别写死颜色（他的页面有深浅两种）。只有一组数据就不用图例，标题点明是什么。只用一个 y 轴。
+- 图在沙盒里跑：不能联网、不能引外部的库 / 字体 / 图片。图的代码里不要标出处。
+
 """ + VOICE + """
 
 之前的对话：
@@ -465,7 +485,7 @@ def deep_prompt_deepseek(**kw):
 
 FOLLOW_PROMPT = """追问：{question}
 
-（规矩跟刚才一样：需要就接着用 look.py 查；只根据查到的回答，标 [[m:…]] / [[c:…]]；最后只输出回答正文；还是像聊天那样说，别列流水账。）"""
+（规矩跟刚才一样：需要就接着用 look.py 查；只根据查到的回答，标 [[m:…]] / [[c:…]]；最后只输出回答正文；还是像聊天那样说，别列流水账；画图也照刚才的规矩。）"""
 CITE_ANY = re.compile(r'\[\[\s*([mc]):([^\]\s]+)\s*\]\]')
 
 

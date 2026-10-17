@@ -5,6 +5,7 @@
 // 左下角「N 张卡」点开是做卡的小弹层（进度、做上、停下）；老的浮层「问」栏 10-13 删了，做卡只在这里。
 // 右下角「Opus 5.5 High」点开是模型菜单（10-14）：选的模型和 effort 记在本机浏览器，每次问都带上（/api/qa/ask 的 model / effort）。
 import { ask, usd } from './js/util.js';
+import { pull, place, mount } from './viz.js';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const B = document.body;
@@ -20,17 +21,18 @@ try {
   if (EFFORTS.some(x => x[0] === e)) EFFORT = e;
 } catch { /* 隐私模式：不记 */ }
 
-// ---------- 正文：[[id]] → 上标数字，**粗体**、换行、「- 」列表 ----------
+// ---------- 正文：[[id]] → 上标数字，**粗体**、换行、「- 」列表；```html 块是图（viz.js） ----------
 function body(text, cites) {
   const n = new Map(cites.map((c, i) => [c.id, i + 1]));
-  let h = esc(text).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  const [t, codes] = pull(text);
+  let h = esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
   h = h.replace(/\[\[([^\]]+)\]\]/g, (_, id) => n.has(id) ? `<sup><a class="ch-cite" data-n="${n.get(id)}">${n.get(id)}</a></sup>` : '');
-  return h.split(/\n{2,}/).map(p => {
+  return place(h.split(/\n{2,}/).filter(p => p.trim()).map(p => {
     const lines = p.split('\n');
     return lines.every(l => /^\s*[-•]\s/.test(l))
       ? `<ul>${lines.map(l => `<li>${l.replace(/^\s*[-•]\s/, '')}</li>`).join('')}</ul>`
       : `<p>${lines.join('<br>')}</p>`;
-  }).join('');
+  }).join(''), codes);
 }
 
 const isJournal = c => (c.conv_id || '').startsWith('journal-');     // Notion 手写日记做的卡（cards.JOURNAL）
@@ -51,7 +53,8 @@ const turnHtml = t => t.role === 'user' ? qHtml(t.text) : aHtml(t.text, t.cites)
 // 写到一半：出处还是模型的记号（[c12]、[[c:id]]），先按出现顺序临时编号
 function draftHtml(text) {
   const n = new Map(), cite = /\[\[[^\]]*\]\]|\[c\d+[^\[\]\n]{0,80}\]/g;
-  const t = (text || '').replace(/\[\[?[^\]\n]*$/, '');
+  const [raw, codes] = pull(text);
+  const t = raw.replace(/\[\[?[^\]\n]*$/, '');
   let html = '', at = 0;
   for (const m of t.matchAll(cite)) {
     if (!n.has(m[0])) n.set(m[0], n.size + 1);
@@ -59,7 +62,8 @@ function draftHtml(text) {
     at = m.index + m[0].length;
   }
   html += esc(t.slice(at));
-  return html.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').split(/\n{2,}/).map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+  return place(html.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').split(/\n{2,}/).filter(p => p.trim())
+    .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join(''), codes, true);
 }
 
 const SPIN = '<svg class="ch-spin" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="12" rx="9.4" ry="5.4" stroke="currentColor" stroke-width="1.6" transform="rotate(-32 12 12)"/><circle cx="17.4" cy="7.2" r="3" fill="var(--accent)"/></svg>';
@@ -456,6 +460,10 @@ window.addEventListener('popstate', () => load(+location.pathname.split('/')[2] 
 fetch('/api/checkin').then(r => r.json()).then(r => {
   document.querySelectorAll('#mainNav .nav-dot').forEach(d => d.classList.toggle('hidden', r.items.length > 0));
 }).catch(() => {});
+
+// 回答里的图：插进来就跑起来；系统换深浅色时重画（颜色是画的时候读进去的）
+new MutationObserver(() => mount($('#chLog'))).observe($('#chLog'), { childList: true, subtree: true });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => mount($('#chLog'), true));
 
 greet();
 load(THREAD);

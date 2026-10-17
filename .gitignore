@@ -26,6 +26,9 @@
 !/static/js/
 /static/js/*
 !/static/js/*.js
+!/static/vendor/
+/static/vendor/*
+!/static/vendor/*.js
 /templates/*
 !/templates/*.html
 /tests/*

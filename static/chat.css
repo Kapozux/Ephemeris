@@ -4,6 +4,8 @@
   --bg: #faf9f5; --side: #f3f1ea; --box: #ffffff; --line: #e2dfd5; --line2: #d3cfc3;
   --text: #1f1e1d; --muted: #77746c; --faint: #a19d93; --hover: #ebe8df; --bubble: #efece4;
   --accent: #d97757; --accent-text: #fff; --cite: #e9e5da; --hl: #f6ead9;
+  /* 回答里的图（viz.js）用的系列色：dataviz 默认色板前 6 个，深浅两套都验过色盲区分度；按顺序用，不轮换 */
+  --viz-1: #2a78d6; --viz-2: #eb6834; --viz-3: #1baf7a; --viz-4: #eda100; --viz-5: #e87ba4; --viz-6: #008300;
   --pop-shadow: 0 2px 6px rgba(0,0,0,.06), 0 10px 30px rgba(0,0,0,.10); --scrim: rgba(20,20,19,.32);
   /* 三页共用的主导航（static/nav.css）在这一页的颜色；深色跟着上面几个 token 走，不用再写一遍 */
   --nav-ink: var(--text); --nav-icon: var(--muted); --nav-hover: var(--hover); --nav-on: var(--text); --nav-on-bg: var(--line);
@@ -16,6 +18,7 @@
     --bg: #1a1a19; --side: #1f1f1e; --box: #262624; --line: #33332f; --line2: #44433f;
     --text: #ece9e2; --muted: #9c9890; --faint: #6f6c66; --hover: #2c2c2a; --bubble: #2f2f2c;
     --accent: #d97757; --accent-text: #fff; --cite: #34342f; --hl: #3a3127;
+    --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #199e70; --viz-4: #c98500; --viz-5: #d55181; --viz-6: #008300;
     --pop-shadow: 0 2px 6px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.4); --scrim: rgba(0,0,0,.5);
   }
 }
@@ -114,6 +117,10 @@ body.ch-empty .ch-note { visibility: hidden; }
 .ch-a p { margin: 0 0 .85em; }
 .ch-a ul { margin: 0 0 .85em; padding-left: 1.3em; }
 .ch-a b { font-weight: 400; color: var(--text); }
+/* 回答里的图（viz.js）：沙盒 iframe，高度由里面报回来 */
+.ch-viz { margin: 4px 0 1em; }
+.ch-viz iframe { display: block; width: 100%; height: 120px; border: 0; }
+.ch-viz.wait { font-size: 14px; color: var(--muted); padding: 10px 0; }
 .ch-a.stopped::after { content: "（已停止）"; display: block; font: 13px var(--font); color: var(--faint); }
 .ch-a.bad { font: 14px var(--font); color: var(--accent); }
 sup .ch-cite, sup.ch-cite { display: inline-block; min-width: 17px; padding: 0 4px; margin: 0 1px; border-radius: 6px; background: var(--cite);

@@ -29,11 +29,13 @@ def _get(path):
 
 
 CITE = re.compile(r'\[\[[^\]]*\]\]|\[c\d+[^\[\]\n]{0,80}\]')
+VIZ = re.compile(r'```html[^\n]*\n.*?(?:```|$)', re.S)        # 回答里的图（同 qa.VIZ_RE）：终端画不了
+NO_VIZ = '（这里有张图，去网页上看）'
 
 
 def _draft(text, nums):
     """写到一半的回答：出处记号按出现先后编成 [1] [2]（跟写完后的编号一样），正写到一半的记号先不打。"""
-    text = re.sub(r'\[\[?[^\]\n]*$', '', text or '')
+    text = re.sub(r'\[\[?[^\]\n]*$', '', VIZ.sub(NO_VIZ, text or ''))
     return CITE.sub(lambda m: f'[{nums.setdefault(m.group(0), len(nums) + 1)}]', text)
 
 
@@ -80,7 +82,7 @@ def ask(q):
         final = d['result']
         if not shown.strip():                            # 走的不是 Claude（一次性给的）、或者一个字都没赶上：整段打
             n = {c['id']: i for i, c in enumerate(final['cites'], 1)}
-            print('\n' + re.sub(r'\[\[([^\]]+)\]\]', lambda m: f'[{n[m.group(1)]}]' if m.group(1) in n else '', final['answer']))
+            print('\n' + re.sub(r'\[\[([^\]]+)\]\]', lambda m: f'[{n[m.group(1)]}]' if m.group(1) in n else '', VIZ.sub(NO_VIZ, final['answer'])))
         else:
             print()
         sources(final['cites'])
@@ -101,7 +103,7 @@ def show_thread():
     d = _get(f'/api/qa?thread={THREAD[0]}')
     for t in d['history'][-6:]:
         n = {c['id']: i for i, c in enumerate(t['cites'], 1)}
-        text = re.sub(r'\[\[([^\]]+)\]\]', lambda m: f'[{n[m.group(1)]}]' if m.group(1) in n else '', t['text'])
+        text = re.sub(r'\[\[([^\]]+)\]\]', lambda m: f'[{n[m.group(1)]}]' if m.group(1) in n else '', VIZ.sub(NO_VIZ, t['text']))
         print(('> ' if t['role'] == 'user' else '') + text + '\n')
 
 

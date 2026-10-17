@@ -11,12 +11,17 @@
 （127.0.0.1 上用不了，退回输密码）。只存公钥；解锁时核对 challenge、来源、指纹确实验过（UV），再用公钥验签名。
 跟输密码共用「连错几次要等」。10-16 去掉过一次（回到窗口就自动弹，后台标签也弹）；10-17 加回来，改成只在锁屏上点了才弹（规则在 lock.js）。
 解锁发一个新的随机令牌放 cookie（只这次有效，上锁就作废）。密码只存 PBKDF2 的哈希，在 store 的 app_lock 表。
+10-17 又加了一种、优先用它：macOS 自己的指纹框（touchid.swift，LocalAuthentication，跟 sudo 那个一样）——
+用户嫌浏览器那个通行密钥框难用、要点一下才弹也麻烦。不用登记；服务器跑在这台 Mac 上，直接弹，按对了发令牌。
+第一次用时现编译 touchid（要 Xcode 命令行工具），编不出来 / 这台没指纹就只剩上面那两种。
 忘了密码：`python3 lock.py --reset` 把锁去掉（能碰到这台电脑的文件，本来也就能直接读 chats.db）。
 """
 import base64
 import hashlib
 import json
+import os
 import secrets
+import subprocess
 import sys
 import threading
 import time
@@ -204,6 +209,72 @@ def touch_unlock(cid, client_data, auth_data, sig):
         _fail(now)
         return None, 'Touch ID 没通过，输密码吧'
     return _grant(now), None
+
+
+# ---------------------------------------------------------------- macOS 自己的指纹框（touchid.swift）
+HERE = os.path.dirname(os.path.abspath(__file__))
+NATIVE_SRC = os.path.join(HERE, 'touchid.swift')
+NATIVE_BIN = os.path.join(HERE, 'touchid')            # 编译出来的（.gitignore 白名单外，不进仓库）
+NATIVE_TIMEOUT = 60
+_native = {'ok': None, 'proc': None}
+
+
+def native_ok():
+    """这台 Mac 能不能弹系统指纹框。第一次问的时候编译 + 试一下（几秒），之后记着。还没试过返回 False（别卡住页面）。"""
+    return bool(_native['ok'])
+
+
+def native_probe():
+    """编译（源码比二进制新时）+ check。app 启动时在后台调一次。"""
+    if sys.platform != 'darwin' or not os.path.exists(NATIVE_SRC):
+        _native['ok'] = False
+        return False
+    try:
+        if not os.path.exists(NATIVE_BIN) or os.path.getmtime(NATIVE_BIN) < os.path.getmtime(NATIVE_SRC):
+            subprocess.run(['swiftc', '-O', NATIVE_SRC, '-o', NATIVE_BIN], capture_output=True, timeout=180, check=True)
+        _native['ok'] = subprocess.run([NATIVE_BIN, 'check'], capture_output=True, timeout=10).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        _native['ok'] = False
+    return _native['ok']
+
+
+def native_unlock():
+    """弹系统指纹框，等你按（最多 NATIVE_TIMEOUT 秒）。→ (令牌, 错误句)。同时只弹一个；cancel_native() 能收起来。"""
+    if not _hash():
+        return None, '没设密码'
+    if not native_ok():
+        return None, '这台电脑用不了系统指纹'
+    now = time.time()
+    err = _throttled(now)
+    if err:
+        return None, err
+    with _mu:
+        if _native['proc'] and _native['proc'].poll() is None:
+            return None, '指纹框已经弹着了'
+        p = _native['proc'] = subprocess.Popen([NATIVE_BIN, 'auth', '解锁 Ephemeris'],
+                                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        code = p.wait(timeout=NATIVE_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        p.terminate()
+        code = 1
+    finally:
+        with _mu:
+            if _native['proc'] is p:
+                _native['proc'] = None
+    if code != 0:
+        return None, '没按指纹'                         # 取消、切走、按错几次：系统自己管次数，这里不算「输错密码」
+    return _grant(time.time()), None
+
+
+def cancel_native():
+    """页面切走了：收起还弹着的指纹框（touchid 收到 SIGTERM 会 invalidate 再退出）。"""
+    with _mu:
+        p = _native['proc']
+    if p and p.poll() is None:
+        p.terminate()
+        return True
+    return False
 
 
 def lock():

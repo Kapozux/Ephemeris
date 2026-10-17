@@ -61,7 +61,11 @@ export async function pollLock() {
       <span class="set-act">${s.on ? pw('lockOld', '原来的密码', 'current-password') : ''}${pw('lockNew', s.on ? '新密码（换一个）' : '设一个密码', 'new-password')}
         <button class="btn-secondary btn-small" data-lk="set">${s.on ? '改密码' : '设好'}</button>
         ${s.on ? '<button class="btn-secondary btn-small" data-lk="off">去掉锁</button>' : ''}</span>
-    </div>${s.on ? `
+    </div>${s.on && s.native ? `
+    <div class="set-row">
+      <span class="set-text"><b>用 Touch ID 解锁</b><span class="set-key-st ok">开着</span>
+        <span class="set-what">用这台 Mac 自己的指纹框（跟 sudo 那个一样），不用登记：锁屏一出来、从别处回来就弹，按一下就开；取消了照样能输密码。</span></span>
+    </div>` : s.on ? `
     <div class="set-row">
       <span class="set-text"><b>用 Touch ID 解锁</b><span class="set-key-st${s.touch ? ' ok' : ''}">${s.touch ? '开着' : '没开'}</span>
         <span class="set-what">锁屏上点指纹（或者密码框空着按回车）才弹系统的指纹框，不会自己弹；取消了照样能输密码。要从 <code>localhost</code> 打开（127.0.0.1 用不了）。</span>

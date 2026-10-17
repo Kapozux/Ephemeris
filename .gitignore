@@ -7,6 +7,7 @@
 !/README.md
 !/README.zh-CN.md
 !/*.py
+!/touchid.swift
 !/run.sh
 !/run.bat
 !/requirements.txt

@@ -78,7 +78,8 @@ def _privacy_lock():
 def _static_version():
     """模板里的 {{ v }}：static 下最新的修改时间，拼在 ?v= 上。改了任何前端文件，浏览器就拿新的。"""
     newest = max(os.path.getmtime(os.path.join(root, f)) for root, _, files in os.walk(STATIC) for f in files)
-    return {'v': int(newest), 'lock_on': lock.enabled(), 'lock_ping': lock.PING, 'lock_touch': bool(lock.touch_ids())}
+    return {'v': int(newest), 'lock_on': lock.enabled(), 'lock_ping': lock.PING, 'lock_touch': bool(lock.touch_ids()),
+            'lock_native': lock.native_ok()}
 
 
 if __name__ == '__main__':
@@ -91,6 +92,7 @@ if __name__ == '__main__':
     store.connect()                                                # 建表 / 老库补列，出错就在启动时报
     threading.Timer(3.0, reflect_chat.warm).start()               # 提前算好，打开面板不用等
     threading.Thread(target=daily.scheduler, daemon=True).start()
+    threading.Thread(target=lock.native_probe, daemon=True).start()   # 隐私锁的系统指纹框：头一次要编译几秒，别卡启动
     err = llm.check()
     print(f"[llm] 后端 {llm.backend()}：{'不可用 —— ' + err if err else '正常'}", flush=True)
     print(f'Ephemeris -> http://localhost:{port}')

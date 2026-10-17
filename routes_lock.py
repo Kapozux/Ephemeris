@@ -16,7 +16,7 @@ def _with_cookie(body, token, status=200):
 @bp.get('/api/lock/status')
 def status():
     return jsonify(on=lock.enabled(), unlocked=lock.ok(request.cookies.get(lock.COOKIE)), ping=lock.PING,
-                   touch=len(lock.touch_ids()))
+                   touch=len(lock.touch_ids()), native=lock.native_ok())
 
 
 @bp.post('/api/lock/unlock')
@@ -88,3 +88,15 @@ def touch_unlock():
     b = request.get_json(silent=True) or {}
     token, err = lock.touch_unlock(b.get('id'), b.get('clientData'), b.get('authData'), b.get('sig'))
     return _with_cookie({'ok': False, 'error': err} if err else {'ok': True}, token, 400 if err else 200)
+
+
+@bp.post('/api/lock/touch/native')
+def touch_native():
+    """弹 macOS 自己的指纹框（lock.native_unlock），等你按完才返回。"""
+    token, err = lock.native_unlock()
+    return _with_cookie({'ok': False, 'error': err} if err else {'ok': True}, token, 400 if err else 200)
+
+
+@bp.post('/api/lock/touch/cancel')
+def touch_cancel():
+    return jsonify(ok=lock.cancel_native())

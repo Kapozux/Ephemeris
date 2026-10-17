@@ -2,6 +2,10 @@
 import _env  # noqa: F401
 import hashlib
 import json
+import os
+import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -164,6 +168,67 @@ class TouchID(unittest.TestCase):
         self.assertEqual(len(lock.touch_ids()), 1)
         self.c.post('/api/lock/password', json={'old': 'abcd', 'new': ''}, headers=H)
         self.assertEqual(lock.touch_ids(), [])
+
+
+
+class NativeTouch(unittest.TestCase):
+    """macOS 自己的指纹框（10-17，touchid.swift）：服务器弹框，按对了发令牌；取消了不算输错；页面切走能收起来。用假的 touchid 脚本。"""
+    def setUp(self):
+        store.run('DELETE FROM app_lock')
+        lock.lock()
+        lock._st.update(fails=0, wait_until=0.0)
+        self.c = ephemeris.app.test_client()
+        self.assertEqual(self.c.post('/api/lock/password', json={'new': 'abcd'}, headers=H).status_code, 200)
+        lock.lock()
+        self.dir = tempfile.mkdtemp()
+        self.bin = lock.NATIVE_BIN
+        lock._native['ok'] = True
+
+    def tearDown(self):
+        lock.NATIVE_BIN = self.bin
+        lock._native.update(ok=None, proc=None)
+        store.run('DELETE FROM app_lock')
+        lock.lock()
+
+    def fake(self, body):
+        path = os.path.join(self.dir, 'touchid')
+        with open(path, 'w') as f:
+            f.write('#!/bin/sh\n' + body + '\n')
+        os.chmod(path, 0o755)
+        lock.NATIVE_BIN = path
+
+    def test_touched_unlocks(self):
+        self.fake('exit 0')
+        other = ephemeris.app.test_client()
+        self.assertEqual(other.post('/api/lock/touch/native', headers=H).status_code, 200)
+        self.assertEqual(other.get('/api/days').status_code, 200)
+
+    def test_cancel_is_not_a_failed_password(self):
+        self.fake('exit 1')
+        other = ephemeris.app.test_client()
+        for _ in range(6):
+            r = other.post('/api/lock/touch/native', headers=H)
+            self.assertEqual(r.get_json()['error'], '没按指纹')
+        self.assertEqual(lock._st['fails'], 0)
+        self.assertEqual(other.get('/api/days').status_code, 423)
+
+    def test_leaving_page_closes_prompt(self):
+        self.fake('exec sleep 30')
+        other = ephemeris.app.test_client()
+        got = {}
+        t = threading.Thread(target=lambda: got.update(r=other.post('/api/lock/touch/native', headers=H)))
+        t.start()
+        for _ in range(50):
+            if lock._native['proc']:
+                break
+            time.sleep(0.02)
+        self.assertTrue(other.post('/api/lock/touch/cancel', headers=H).get_json()['ok'])
+        t.join(5)
+        self.assertEqual(got['r'].status_code, 400)
+        self.assertEqual(other.get('/api/days').status_code, 423)
+
+    def test_status_reports_native(self):
+        self.assertTrue(self.c.get('/api/lock/status').get_json()['native'])
 
 
 if __name__ == '__main__':

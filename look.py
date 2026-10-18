@@ -1,8 +1,8 @@
 """「问 Claude」的查资料工具（2026-10-13）：只读，Claude Code 只被允许跑这一个命令（qa.answer_deep）。人也能在终端直接用。
 
-python look.py msgs  <关键词> [--since D] [--until D] [--who me|ai] [--old] [--n 30]   搜原始聊天（默认最新的在前，--old 最早的在前）
+python look.py msgs  <关键词> [词…] [--since D] [--until D] [--who me|ai] [--old] [--n 30]   搜原始聊天（几个词 = 都要出现；默认最新的在前，--old 最早的在前）
 python look.py cards <问题>   [--kw 词,词] [--since D] [--until D] [--n 40]           搜证据卡（字面 + 按意思，qa.rank）
-python look.py read  <消息id> [--before 4] [--after 4] [--full]                        读一条消息和它前后几条
+python look.py read  <消息id> [--before 4] [--after 4] [--at 词] [--full]             读一条消息和它前后几条；长消息用 --at 跳到词出现的地方
 python look.py conv  <窗口id>                                                          窗口小结 + 每条消息一行的目录
 python look.py convs <词> [词…] [--n 25]                                              哪些窗口聊过（任一个词；标题、小结、正文），带每个窗口的字数
 python look.py sum   <窗口id> [窗口id…]                                                 把这些窗口的字数加起来（你打的 / AI 写的）
@@ -14,10 +14,13 @@ python look.py day   <YYYY-MM-DD>                                               
 python look.py stats [--since D] [--until D]                                           一共有多少：消息、字数、窗口、按来源、证据卡、日记、按月
 
 出处记号：消息是 m:<id>，卡是 c:<id>。回答时照抄就能被 Ephemeris 认回原话。
+标题写「〔小结〕…」的窗口原本没标题（Gemini 导出的 sess_xxxx），是从窗口小结取的头一句。
+「我（N 字长文…）」：他发的超长消息，常是贴进来的：课堂笔记、网页、别人或别的 AI 写的、以前的聊天记录，也可能是他在别处写好的日记——读了再判断是不是他自己的话、说的是哪天的事。
 搜原文 / 找窗口不看「问」自己的对话（来源 ask）：不然会引到自己以前的回答。
 """
 import argparse
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -34,8 +37,34 @@ def _one_line(text, n):
     return t if len(t) <= n else t[:n] + '…'
 
 
-def _title(t, n=40):
+_UNTITLED = None
+LONG = 5000          # 他发的超过这么多字，多半是贴进来的
+SHOWN = 4000         # read 默认给这条看的字数；命中在这之后要 --at
+
+
+def _untitled():
+    """没标题的窗口（Gemini 导出切出来的 sess_xxxx 等，title_fallback=1）→ 小结头一句（2026-10-18：38% 的窗口没标题）。"""
+    global _UNTITLED
+    if _UNTITLED is None:
+        _UNTITLED = {}
+        for r in store.q("""SELECT c.id, s.summary FROM conversations c JOIN card_convs s ON s.conv_id = c.id
+                            WHERE c.title_fallback = 1 AND COALESCE(s.summary, '') <> ''"""):
+            head = re.sub(r'^\s*\d{4}-\d{2}-\d{2}[^：:，,。]{0,12}[：:，,]\s*', '', r['summary'])
+            head = re.split(r'[。；\n]', re.sub(r'^这段(聊天)?(是)?在(聊)?', '', head), maxsplit=1)[0]
+            _UNTITLED[r['id']] = '〔小结〕' + _one_line(head, 34)
+    return _UNTITLED
+
+
+def _title(t, n=40, cid=None):
+    if cid and cid in _untitled():
+        return _untitled()[cid]
     return _one_line(t or '无标题', n)
+
+
+def _who(r):
+    if r['role'] == 'human' and (r['chars'] or 0) > LONG:
+        return f"我（{r['chars']} 字长文，可能是贴进来的）"
+    return WHO.get(r['role'], r['role'])
 
 
 def _around(text, kw, width=70):
@@ -57,21 +86,26 @@ def _rng(a, col='m.date'):
 
 
 def msgs(a):
-    kw = ' '.join(a.words)
+    kws = [w for w in a.words if w] or ['']
+    kw = kws[0]                                       # 片段围着第一个词截
+    like = ''.join(' AND m.text LIKE ?' for _ in kws)
+    pats = [f'%{k}%' for k in kws]
     rng, args = _rng(a)
     who = {'me': " AND m.role='human'", 'ai': " AND m.role='assistant'"}.get(a.who or '', '')
     rows = store.q(f"""SELECT m.id, m.conv_id, m.date, m.hhmm, m.role, m.text, m.chars, c.title FROM messages m
                         JOIN conversations c ON c.id = m.conv_id
-                       WHERE m.text LIKE ?{rng}{who} AND m.source <> 'ask' ORDER BY m.ts {'ASC' if a.old else 'DESC'} LIMIT ?""",
-                   f'%{kw}%', *args, a.n)
-    total = store.one(f"SELECT COUNT(*) n FROM messages m WHERE m.text LIKE ?{rng}{who} AND m.source <> 'ask'", f'%{kw}%', *args)['n']
-    print(f'「{kw}」原文命中 {total} 条，列出 {len(rows)} 条（{"最早" if a.old else "最新"}的在前；同一窗口连着的只写一次标题）')
+                       WHERE 1=1{like}{rng}{who} AND m.source <> 'ask' ORDER BY m.ts {'ASC' if a.old else 'DESC'} LIMIT ?""",
+                   *pats, *args, a.n)
+    total = store.one(f"SELECT COUNT(*) n FROM messages m WHERE 1=1{like}{rng}{who} AND m.source <> 'ask'", *pats, *args)['n']
+    print(f'「{" + ".join(kws)}」原文命中 {total} 条，列出 {len(rows)} 条（{"最早" if a.old else "最新"}的在前；同一窗口连着的只写一次标题）')
     last = None
     for r in rows:
         if r['conv_id'] != last:
-            print(f"《{_title(r['title'])}》")
+            print(f"《{_title(r['title'], cid=r['conv_id'])}》")
             last = r['conv_id']
-        print(f"  [m:{r['id']}] {r['date']} {r['hhmm']} {WHO.get(r['role'], r['role'])} {_around(r['text'], kw)}")
+        i = (r['text'] or '').lower().find(kw.lower())
+        far = f"（在第 {i} 字处，共 {r['chars']} 字：read {r['id']} --at {kw}）" if i > SHOWN - 300 else ''
+        print(f"  [m:{r['id']}] {r['date']} {r['hhmm']} {_who(r)} {_around(r['text'], kw)}{far}")
 
 
 def cards_(a):
@@ -83,7 +117,7 @@ def cards_(a):
     last = None
     for c in rows:
         if c['conv_id'] != last:
-            print(f"《{_title(c['title'])}》")
+            print(f"《{_title(c['title'], cid=c['conv_id'])}》")
             last = c['conv_id']
         print(f"  [c:{c['id']}] {c['date']} {c['hhmm'] or ''} {'我' if c['who'] == 'me' else 'AI'} {c['kind']} · "
               f"{c['topic'] or ''} {c['text']}「{c['quote']}」 (原话 m:{c['msg_id']})")
@@ -102,18 +136,41 @@ def read(a):
     m = store.one('SELECT conv_id, ts, id FROM messages WHERE id=?', mid)
     if not m:
         print('没有这条消息'); return
-    t = store.one('SELECT title FROM conversations WHERE id=?', m['conv_id'])['title']
+    t = _title(store.one('SELECT title FROM conversations WHERE id=?', m['conv_id'])['title'], 80, m['conv_id'])
+    if a.at:
+        return _read_at(mid, t, m['conv_id'], a.at)
     before = store.q('SELECT * FROM messages WHERE conv_id=? AND (ts < ? OR (ts = ? AND id < ?)) ORDER BY ts DESC, id DESC LIMIT ?',
                      m['conv_id'], m['ts'], m['ts'], m['id'], a.before)[::-1]
     after = store.q('SELECT * FROM messages WHERE conv_id=? AND (ts > ? OR (ts = ? AND id > ?)) ORDER BY ts, id LIMIT ?',
                     m['conv_id'], m['ts'], m['ts'], m['id'], a.after)
     this = store.one('SELECT * FROM messages WHERE id=?', mid)
-    print(f"《{t or '无标题'}》（窗口 {m['conv_id']}）")
+    print(f"《{t}》（窗口 {m['conv_id']}）")
     for r in before + [this] + after:
-        cap = 100000 if a.full else (4000 if r['id'] == mid else 800)
+        cap = 100000 if a.full else (SHOWN if r['id'] == mid else 800)
         mark = ' ◀ 这条' if r['id'] == mid else ''
-        print(f"\n[m:{r['id']}] {r['date']} {r['hhmm']} {WHO.get(r['role'], r['role'])}{mark}（{r['chars']} 字）\n"
-              f"{(r['text'] or '')[:cap]}{'…（后面略，--full 看全文）' if len(r['text'] or '') > cap else ''}")
+        more = '…（后面略：要找里面某个词用 --at 词，--full 看全文）' if r['id'] == mid else '…（后面略）'
+        print(f"\n[m:{r['id']}] {r['date']} {r['hhmm']} {_who(r)}{mark}（{r['chars']} 字）\n"
+              f"{(r['text'] or '')[:cap]}{more if len(r['text'] or '') > cap else ''}")
+
+
+def _read_at(mid, title, cid, word, width=800, most=5):
+    """长消息（几万字的笔记、贴进来的聊天记录）里跳到 word 出现的地方，每处前后 width 字（10-18：四分之一的命中在第 4000 字之后，
+    默认读不到；--full 一次几万字，还会被截断）。"""
+    r = store.one('SELECT * FROM messages WHERE id=?', mid)
+    text, low, w = r['text'] or '', (r['text'] or '').lower(), word.lower()
+    hits, i = [], low.find(w)
+    while i >= 0:
+        hits.append(i)
+        i = low.find(w, i + 1)
+    print(f"《{title}》（窗口 {cid}）\n[m:{mid}] {r['date']} {r['hhmm']} {_who(r)}（{r['chars']} 字）「{word}」出现 {len(hits)} 处"
+          + (f"，列前 {most} 处" if len(hits) > most else ''))
+    shown_to = -1
+    for i in hits:
+        if i < shown_to or most == 0:
+            continue
+        a, b = max(0, i - width), min(len(text), i + len(word) + width)
+        print(f"\n— 第 {i} 字处 —\n{'…' if a else ''}{text[a:b]}{'…' if b < len(text) else ''}")
+        shown_to, most = b, most - 1
 
 
 def conv(a):
@@ -123,12 +180,12 @@ def conv(a):
         print('没有这个窗口'); return
     s = store.one('SELECT summary FROM card_convs WHERE conv_id=?', cid)
     rows = store.q('SELECT id, date, hhmm, role, text, chars FROM messages WHERE conv_id=? AND chars > 0 ORDER BY ts, id', cid)
-    print(f"《{c['title'] or '无标题'}》 {len(rows)} 条，{rows[0]['date'] if rows else ''} → {rows[-1]['date'] if rows else ''}")
+    print(f"《{_title(c['title'], 80, cid)}》 {len(rows)} 条，{rows[0]['date'] if rows else ''} → {rows[-1]['date'] if rows else ''}")
     if s and s['summary']:
         print('小结：\n' + s['summary'])
     print('\n目录：')
     for r in rows:
-        print(f"[m:{r['id']}] {r['date']} {r['hhmm']} {WHO.get(r['role'], r['role'])}（{r['chars']} 字）{_one_line(r['text'], 70)}")
+        print(f"[m:{r['id']}] {r['date']} {r['hhmm']} {_who(r)}（{r['chars']} 字）{_one_line(r['text'], 70)}")
 
 
 def _sizes(ids):
@@ -156,7 +213,7 @@ def convs(a):
     print(f'「{" / ".join(kws)}」出现在 {len(rows)} 个窗口（命中多的在前，最多 {min(a.n, 300)} 个；要更多加 --n 300）')
     for r in rows:
         z = size.get(r['id']) or {}
-        print(f"{r['id']} 《{r['title'] or '无标题'}》 {z.get('a')}→{z.get('b')} 你 {z.get('me') or 0} 字 · AI {z.get('ai') or 0} 字"
+        print(f"{r['id']} 《{_title(r['title'], 60, r['id'])}》 {z.get('a')}→{z.get('b')} 你 {z.get('me') or 0} 字 · AI {z.get('ai') or 0} 字"
               f" 原文命中 {r['hits']} 处｜{_one_line(r['summary'], 160)}")
 
 
@@ -172,7 +229,7 @@ def sum_(a):
             continue
         z = size.get(i) or {}
         me, ai, n = me + (z.get('me') or 0), ai + (z.get('ai') or 0), n + 1
-        print(f"{i} 《{titles[i] or '无标题'}》 {z.get('a')}→{z.get('b')} {z.get('n') or 0} 条：你 {z.get('me') or 0} 字 · AI {z.get('ai') or 0} 字")
+        print(f"{i} 《{_title(titles[i], 60, i)}》 {z.get('a')}→{z.get('b')} {z.get('n') or 0} 条：你 {z.get('me') or 0} 字 · AI {z.get('ai') or 0} 字")
     print(f'\n合计 {n} 个窗口：你 {me} 字 · AI {ai} 字 · 共 {me + ai} 字')
 
 
@@ -182,7 +239,7 @@ def day(a):
     for r in store.q("""SELECT c.id, c.title, COUNT(*) n, SUM(m.role='human') mine, MIN(m.hhmm) a, MAX(m.hhmm) b
                           FROM messages m JOIN conversations c ON c.id = m.conv_id WHERE m.date = ?
                          GROUP BY c.id ORDER BY a""", d):
-        print(f"{r['id']} 《{r['title'] or '无标题'}》 {r['a']}–{r['b']} {r['n']} 条（我 {r['mine']}）")
+        print(f"{r['id']} 《{_title(r['title'], 60, r['id'])}》 {r['a']}–{r['b']} {r['n']} 条（我 {r['mine']}）")
     dia = store.one('SELECT headline, narrative, mood FROM diaries WHERE date=?', d)
     if dia:
         print(f"\n日记：{dia['headline']}\n{dia['narrative']}" + (f"\n心情：{dia['mood']}" if dia['mood'] else ''))
@@ -307,7 +364,7 @@ def main(argv=None):
     p.add_argument('--who', choices=['me', 'ai']); p.add_argument('--old', action='store_true')
     p.add_argument('--kw'); p.add_argument('--n', type=int, default=30)
     p.add_argument('--before', type=int, default=4); p.add_argument('--after', type=int, default=4)
-    p.add_argument('--full', action='store_true')
+    p.add_argument('--full', action='store_true'); p.add_argument('--at')
     a = p.parse_args(argv)
     {'msgs': msgs, 'cards': cards_, 'read': read, 'conv': conv, 'convs': convs, 'day': day, 'stats': stats, 'sum': sum_, 'sql': sql, 'schema': schema,
      'journal': journal_, 'diaries': diaries_}[a.cmd](a)

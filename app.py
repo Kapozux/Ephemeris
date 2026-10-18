@@ -53,6 +53,21 @@ def _one_address():
         return redirect(request.url.replace('//127.0.0.1', '//localhost', 1), 302)
 
 
+REAL_DB = os.path.abspath(store.DB_PATH) == os.path.join(os.path.dirname(os.path.abspath(__file__)), 'chats.db')
+
+
+@app.before_request
+def _copy_not_for_people():
+    """库不是真的 chats.db（测试拷贝）：浏览器打开页面只给一句话，不给用（10-16 用户在别的会话起的测试版 5056 上问了 11 次，
+    拷贝被清掉就没了；10-18）。测试直接调代码，用不着网页；截图工具要拍拷贝时设 EPHEMERIS_UI_TEST=1。"""
+    if REAL_DB or os.environ.get('EPHEMERIS_UI_TEST') or request.headers.get('Sec-Fetch-Mode') != 'navigate':
+        return
+    return ('<!doctype html><meta charset="utf-8"><title>测试拷贝</title>'
+            '<body style="font:16px/1.7 system-ui;max-width:32em;margin:20vh auto;padding:0 16px">'
+            '<p>这是 Ephemeris 的<b>测试拷贝</b>，不给人用：在这里问的、记的都不会进你的真库，拷贝随时会被删掉。</p>'
+            '<p>请用 <a href="http://localhost:5055/chat">localhost:5055</a>。</p></body>'), 403
+
+
 @app.before_request
 def _same_origin_only():
     """只认本机这个页面发来的请求（2026-10-10）。不加的话，浏览器里随便哪个网页都能偷偷给 localhost:5055 发请求：

@@ -18,6 +18,15 @@ class SameOriginOnly(unittest.TestCase):
         self.assertEqual(self.c.get('/api/days', headers={'Host': 'evil.example:5055'}).status_code, 403)
         self.assertEqual(self.c.get('/api/days', headers={'Host': '127.0.0.1:5055'}).status_code, 200)
 
+    def test_browser_pages_go_to_localhost(self):                      # 10-18：只用一个地址
+        nav = {'Host': '127.0.0.1:5055', 'Sec-Fetch-Mode': 'navigate'}
+        r = self.c.get('/chat/3?x=1', headers=nav)
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r.headers['Location'], 'http://localhost:5055/chat/3?x=1')
+        self.assertEqual(self.c.get('/api/days', headers=nav).status_code, 200)            # 接口不跳
+        self.assertNotEqual(self.c.get('/chat', headers={'Host': '127.0.0.1:5055'}).status_code, 302)   # 脚本（没 Sec-Fetch）不跳
+        self.assertNotEqual(self.c.get('/chat', headers={'Host': 'localhost:5055', 'Sec-Fetch-Mode': 'navigate'}).status_code, 302)
+
 
 if __name__ == '__main__':
     unittest.main()

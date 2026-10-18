@@ -19,7 +19,7 @@ import threading
 
 from urllib.parse import urlsplit
 
-from flask import Flask, abort, jsonify, render_template, request
+from flask import Flask, abort, jsonify, redirect, render_template, request
 
 import daily
 import llm
@@ -42,6 +42,15 @@ for _bp in (routes_day.bp, routes_review.bp, routes_checkin.bp, routes_data.bp, 
 
 
 LOCAL_HOSTS = ('localhost', '127.0.0.1', '[::1]')
+
+
+@app.before_request
+def _one_address():
+    """浏览器只用 localhost（10-18：127.0.0.1 和 localhost 两个都在用，浏览器当成两个网站，解锁、选的模型各记各的）。
+    只跳页面（浏览器地址栏打开的 GET）；接口照常认 127.0.0.1（ask.py、run.sh 用它）。"""
+    if request.method == 'GET' and request.headers.get('Sec-Fetch-Mode') == 'navigate' \
+            and (request.host or '').split(':')[0] == '127.0.0.1' and not request.path.startswith(('/api/', '/static/')):
+        return redirect(request.url.replace('//127.0.0.1', '//localhost', 1), 302)
 
 
 @app.before_request

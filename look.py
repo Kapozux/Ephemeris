@@ -34,7 +34,11 @@ def _one_line(text, n):
     return t if len(t) <= n else t[:n] + '…'
 
 
-def _around(text, kw, width=90):
+def _title(t, n=40):
+    return _one_line(t or '无标题', n)
+
+
+def _around(text, kw, width=70):
     t = ' '.join((text or '').split())
     i = t.lower().find(kw.lower())
     if i < 0:
@@ -56,14 +60,18 @@ def msgs(a):
     kw = ' '.join(a.words)
     rng, args = _rng(a)
     who = {'me': " AND m.role='human'", 'ai': " AND m.role='assistant'"}.get(a.who or '', '')
-    rows = store.q(f"""SELECT m.id, m.date, m.hhmm, m.role, m.text, m.chars, c.title FROM messages m
+    rows = store.q(f"""SELECT m.id, m.conv_id, m.date, m.hhmm, m.role, m.text, m.chars, c.title FROM messages m
                         JOIN conversations c ON c.id = m.conv_id
                        WHERE m.text LIKE ?{rng}{who} AND m.source <> 'ask' ORDER BY m.ts {'ASC' if a.old else 'DESC'} LIMIT ?""",
                    f'%{kw}%', *args, a.n)
     total = store.one(f"SELECT COUNT(*) n FROM messages m WHERE m.text LIKE ?{rng}{who} AND m.source <> 'ask'", f'%{kw}%', *args)['n']
-    print(f'「{kw}」原文命中 {total} 条，列出 {len(rows)} 条（{"最早" if a.old else "最新"}的在前）')
+    print(f'「{kw}」原文命中 {total} 条，列出 {len(rows)} 条（{"最早" if a.old else "最新"}的在前；同一窗口连着的只写一次标题）')
+    last = None
     for r in rows:
-        print(f"[m:{r['id']}] {r['date']} {r['hhmm']} {WHO.get(r['role'], r['role'])} 《{r['title'] or '无标题'}》 {_around(r['text'], kw)}")
+        if r['conv_id'] != last:
+            print(f"《{_title(r['title'])}》")
+            last = r['conv_id']
+        print(f"  [m:{r['id']}] {r['date']} {r['hhmm']} {WHO.get(r['role'], r['role'])} {_around(r['text'], kw)}")
 
 
 def cards_(a):
@@ -71,10 +79,14 @@ def cards_(a):
     plan = {'q': q, 'keywords': [k for k in (a.kw or '').split(',') if k] or q.split(), 'since': a.since, 'until': a.until}
     ids = qa.rank(plan, budget=a.n * 200)[:a.n]
     rows = sorted(filter(None, map(qa.card, ids)), key=lambda c: (c['date'], c['ts'] or ''))
-    print(f'证据卡 {len(rows)} 张（按时间）')
+    print(f'证据卡 {len(rows)} 张（按时间；同一窗口连着的只写一次标题）')
+    last = None
     for c in rows:
-        print(f"[c:{c['id']}] {c['date']} {c['hhmm'] or ''} {'我' if c['who'] == 'me' else 'AI'} {c['kind']} · "
-              f"{c['topic'] or ''} 《{c['title'] or '无标题'}》 {c['text']}「{c['quote']}」 (原话 m:{c['msg_id']})")
+        if c['conv_id'] != last:
+            print(f"《{_title(c['title'])}》")
+            last = c['conv_id']
+        print(f"  [c:{c['id']}] {c['date']} {c['hhmm'] or ''} {'我' if c['who'] == 'me' else 'AI'} {c['kind']} · "
+              f"{c['topic'] or ''} {c['text']}「{c['quote']}」 (原话 m:{c['msg_id']})")
 
 
 def read(a):
@@ -98,7 +110,7 @@ def read(a):
     this = store.one('SELECT * FROM messages WHERE id=?', mid)
     print(f"《{t or '无标题'}》（窗口 {m['conv_id']}）")
     for r in before + [this] + after:
-        cap = 100000 if a.full else (4000 if r['id'] == mid else 1200)
+        cap = 100000 if a.full else (4000 if r['id'] == mid else 800)
         mark = ' ◀ 这条' if r['id'] == mid else ''
         print(f"\n[m:{r['id']}] {r['date']} {r['hhmm']} {WHO.get(r['role'], r['role'])}{mark}（{r['chars']} 字）\n"
               f"{(r['text'] or '')[:cap]}{'…（后面略，--full 看全文）' if len(r['text'] or '') > cap else ''}")

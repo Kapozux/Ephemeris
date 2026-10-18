@@ -288,8 +288,9 @@ def autotitle_all():
     return {t['id']: autotitle(t['id']) for t in threads(200) if not t['named']}
 
 
-def new_thread():
-    now = datetime.now().isoformat(timespec='seconds')
+def new_thread(when=None):
+    """when：补录以前的对话时用原来的时间（datetime，带时区）。"""
+    now = (when or datetime.now(days.LOCAL_TZ)).strftime('%Y-%m-%dT%H:%M:%S')
     return store.run('INSERT INTO qa_threads (title, created, updated) VALUES (?,?,?)', '', now, now)
 
 
@@ -315,9 +316,10 @@ def clear():
     return new_thread()
 
 
-def _say(thread, role, text, cites=(), sid=None, trace=None):
-    """记一句：进 qa_chat（界面、追问用），也进 messages（日记、搜索、窗口页用）。trace：深挖怎么查的（步骤、用时），只给界面看。"""
-    now = datetime.now(days.LOCAL_TZ)
+def _say(thread, role, text, cites=(), sid=None, trace=None, when=None):
+    """记一句：进 qa_chat（界面、追问用），也进 messages（日记、搜索、窗口页用）。trace：深挖怎么查的（步骤、用时），只给界面看。
+    when：补录以前的对话（10-18：10-16 在测试版 5056 上问的那几段）时用原来的时间。"""
+    now = when or datetime.now(days.LOCAL_TZ)
     qid = store.run('INSERT INTO qa_chat (ts, role, text, cites, sid, thread_id, trace) VALUES (?,?,?,?,?,?,?)',
                     now.strftime('%Y-%m-%dT%H:%M:%S'), role, text, json.dumps(list(cites), ensure_ascii=False), sid, thread,
                     json.dumps(trace, ensure_ascii=False) if trace else None)

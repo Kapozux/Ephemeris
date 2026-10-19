@@ -566,7 +566,6 @@ def ingest(conn, path, kind=None, source=None, label=None, invalidate=True):
             continue
         n_convs += 1
         existing = conn.execute('SELECT id, title, title_fallback FROM conversations WHERE id=?', (cid,)).fetchone()
-        before = conn.execute('SELECT COUNT(*) FROM messages WHERE conv_id=?', (cid,)).fetchone()[0]
 
         rows = []
         for dt, role, text in msgs:
@@ -608,8 +607,6 @@ def ingest(conn, path, kind=None, source=None, label=None, invalidate=True):
             new_convs.append(cid)
             conn.execute('''INSERT INTO conversations (id, source, title, title_fallback, first_import, last_import)
                             VALUES (?,?,?,?,?,?)''', (cid, source, title, fb, label, label))
-        if before == 0 and not existing:
-            pass
 
     # 新进来的窗口跟库里已有的是同一个（手动导出的指纹 id vs 同步来的 uuid）：多出来的那份挪去存档
     if new_convs:
@@ -638,13 +635,19 @@ def ingest(conn, path, kind=None, source=None, label=None, invalidate=True):
 
 
 def _recount(conn):
+    # 只有 AI 消息的窗口（Takeout 里没有提问的 Canvas 轮次之类）：以前按「我发了 0 条」把窗口那行删了，消息还在却哪儿都看不到
+    # （10-19 体检：39 个窗口、63 条）。现在不删，删掉过的按消息补回一行（标题用第一条的开头，标成兜底标题）
+    conn.execute('''INSERT INTO conversations (id, source, title, title_fallback, first_import, last_import)
+        SELECT m.conv_id, MIN(m.source), substr(replace((SELECT x.text FROM messages x WHERE x.conv_id = m.conv_id
+                                                        ORDER BY x.ts, x.id LIMIT 1), char(10), ' '), 1, 38), 1, 'recount', 'recount'
+          FROM messages m WHERE NOT EXISTS (SELECT 1 FROM conversations c WHERE c.id = m.conv_id) GROUP BY m.conv_id''')
     conn.execute('''UPDATE conversations SET
         first_ts = (SELECT MIN(ts) FROM messages m WHERE m.conv_id = conversations.id),
         last_ts  = (SELECT MAX(ts) FROM messages m WHERE m.conv_id = conversations.id),
         n_msgs   = (SELECT COUNT(*) FROM messages m WHERE m.conv_id = conversations.id AND m.role='human'),
         chars    = (SELECT COALESCE(SUM(chars),0) FROM messages m WHERE m.conv_id = conversations.id AND m.role='human'),
         n_days   = (SELECT COUNT(DISTINCT date) FROM messages m WHERE m.conv_id = conversations.id AND m.role='human')''')
-    conn.execute('DELETE FROM conversations WHERE n_msgs = 0 OR n_msgs IS NULL')
+    conn.execute('DELETE FROM conversations WHERE first_ts IS NULL')       # 一条消息都没有的空壳才删
 
 
 def rebuild_fts(conn):

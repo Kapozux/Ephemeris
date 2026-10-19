@@ -34,7 +34,7 @@ function doc(code) {
   const vars = VARS.map(v => `${v}:${cs.getPropertyValue(v).trim()}`).join(';');
   const chart = /\bChart\b/.test(code) ? `<script src="${o}/static/vendor/chart.umd.min.js"></script>` : '';
   return `<!doctype html><html><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' ${o}; style-src 'unsafe-inline'; img-src data:; font-src data:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' ${o}; style-src 'unsafe-inline'; img-src data:; font-src data:; form-action 'none'; base-uri 'none'">
 <style>:root{${vars};color-scheme:${matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'}}
 html,body{margin:0;background:transparent;color:var(--text);font:400 14px/1.5 "PingFang SC",-apple-system,sans-serif}
 body{padding:2px 0}svg{max-width:100%;height:auto}</style>${chart}
@@ -50,12 +50,20 @@ addEventListener('error',e=>parent.postMessage({ephVizErr:String(e.message||e)},
 </script></head><body>${code}</body></html>`;
 }
 
+// CSP 管不住 iframe 自己跳走（location=、meta refresh、点链接）—— 跳走时可以把数据拼在网址里带出去（10-19 体检）。
+// 画图用不着这些：代码里有跳转 / 链接 / 嵌别的页面的一律不画；万一还是跳了（第二次 load），当场把 iframe 拿掉。
+const RISKY = /location|http-equiv|\bopen\s*\(|<a\b|<form\b|<base\b|<i?frame\b|<embed\b|<object\b|<link\b|<meta\b|\bhref\s*=\s*(?!["']?#)|\bsrc\s*=/i;
+const refuse = (box, why) => { delete box.dataset.code; box.classList.add('on', 'wait'); box.textContent = why; };
+
 // 把 root 里还没跑起来的图变成 iframe；again=true 全部重画（换了深浅色）
 export function mount(root, again) {
   root.querySelectorAll(again ? '.ch-viz[data-code]' : '.ch-viz[data-code]:not(.on)').forEach(box => {
+    if (RISKY.test(box.dataset.code)) return refuse(box, '这张图的代码里有链接或跳转，没画（图里用不着这些）。');
     const f = document.createElement('iframe');
     f.setAttribute('sandbox', 'allow-scripts');
     f.setAttribute('title', '图');
+    let loads = 0;
+    f.addEventListener('load', () => { if (++loads > 1) refuse(box, '这张图想跳到别的页面，拦下了。'); });
     f.srcdoc = doc(box.dataset.code);
     box.replaceChildren(f);
     box.classList.add('on');

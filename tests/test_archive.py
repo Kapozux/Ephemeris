@@ -255,6 +255,13 @@ class NotionNeverDeletes(unittest.TestCase):
         journal.sync(say=lambda m: None)
         self.assertIsNone(store.one("SELECT gone_at FROM journal WHERE page_id='p0'")['gone_at'])
 
+    def test_page_that_comes_back_unedited_is_unmarked(self):
+        self.listed(range(1, 10))
+        journal.sync(say=lambda m: None)
+        self.listed(range(10))                                           # 回来了，没改过：不会重拉正文
+        journal.sync(say=lambda m: None)
+        self.assertIsNone(store.one("SELECT gone_at FROM journal WHERE page_id='p0'")['gone_at'])
+
 
 class BackupNeverShrinks(unittest.TestCase):
     REL = '数据/checkins.jsonl'
@@ -319,6 +326,43 @@ class BackupNeverShrinks(unittest.TestCase):
         self.write([{'id': 1, 'word': '开心'}])
         self.write([])
         self.assertEqual(list(self.backed_up()), [1])
+
+
+class RestoreSkipsArchivedDuplicates(unittest.TestCase):
+    """dedup 挪走的那份：每天的聊天文件里还留着（只增不减），还原时不能又放回正常的表（10-19 体检）。"""
+
+    def setUp(self):
+        self.src = tempfile.mkdtemp(prefix='ephemeris-bak-')
+        self.out = os.path.join(tempfile.mkdtemp(prefix='ephemeris-rest-'), 'r.db')
+
+    def tearDown(self):
+        shutil.rmtree(self.src, ignore_errors=True)
+        shutil.rmtree(os.path.dirname(self.out), ignore_errors=True)
+
+    def put(self, rel, rows):
+        path = os.path.join(self.src, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(backup._jsonl(rows))
+
+    def test_archived_copy_stays_archived(self):
+        os.makedirs(os.path.join(self.src, '数据'))
+        with open(os.path.join(self.src, '数据', '_schema.sql'), 'w', encoding='utf-8') as f:
+            f.write(backup._schema())
+        msg = lambda i, c: {'id': i, 'conv_id': c, 'source': 'claude', 'ts': '2026-01-01T10:00', 'date': '2026-01-01',
+                            'hhmm': '10:00', 'role': 'human', 'text': '同一句', 'chars': 3}
+        self.put('聊天记录/2026-01/2026-01-01.jsonl', [msg('keep', 'uuid-1'), msg('dup', 'fp-1')])
+        self.put('数据/conversations.jsonl', [{'id': 'uuid-1', 'source': 'claude', 'title': 't'},
+                                             {'id': 'fp-1', 'source': 'claude', 'title': 't'}])
+        self.put('数据/messages_dup.jsonl', [{'id': 'dup', 'conv_id': 'fp-1', 'row': json.dumps(msg('dup', 'fp-1'))}])
+        self.put('数据/conversations_dup.jsonl', [{'id': 'fp-1', 'dup_of': 'uuid-1', 'archived_at': '', 'row': '{}'}])
+        backup.restore(self.src, self.out)
+        import sqlite3
+        db = sqlite3.connect(self.out)
+        self.assertEqual([r[0] for r in db.execute('SELECT id FROM messages')], ['keep'])
+        self.assertEqual([r[0] for r in db.execute('SELECT id FROM conversations')], ['uuid-1'])
+        self.assertEqual([r[0] for r in db.execute('SELECT id FROM messages_dup')], ['dup'])
+        db.close()
 
 
 class ClaudeRawArchive(unittest.TestCase):

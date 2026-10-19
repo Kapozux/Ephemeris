@@ -293,6 +293,12 @@ def sync(full=False, say=print):
         now = datetime.now().isoformat(timespec='seconds')
         with store.tx() as db:
             db.executemany('UPDATE journal SET gone_at=? WHERE page_id=?', [(now, pid) for pid in gone])
+    # 标过「Notion 里没了」又出现了、但正文没改（last_edited 一样，上面不会重拉）：标记也要去掉
+    listed = {p['page_id'] for p in pages}
+    back = [r['page_id'] for r in rows if r['gone_at'] and r['page_id'] in listed]
+    if back:
+        with store.tx() as db:
+            db.executemany('UPDATE journal SET gone_at=NULL WHERE page_id=?', [(pid,) for pid in back])
     return {'pages': len(pages), 'fetched': len(todo) - len(failed), 'gone': len(gone),
             'failed': failed, 'dates': sorted(changed), 'warning': warning}
 

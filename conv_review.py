@@ -281,26 +281,22 @@ def _generate(st, conv_id, refresh, progress, only=None):
             continue
         p = NOTE_PROMPT.format(date=d['date'], since=days[0]['date'], n_days=len(days),
                                prior=_prior(notes, days, i), body=body)
-        try:
-            txt = (_call_model(p) or '').strip().strip('"').strip('「」')
-        except Exception as e:                          # noqa: BLE001
-            txt = f'（生成失败：{e}）'
-        notes[d['date']] = txt.split('\n')[0][:200]
-        _save(conv_id, d['date'], notes[d['date']], _fp(d))
+        txt = (_call_model(p) or '').strip().strip('"').strip('「」').split('\n')[0][:200]
         st['done'] += 1
         if progress:
             progress(st['done'], st['total'], d['date'])
+        if not txt:
+            continue        # 模型没回（llm.ask 失败返回 None）：不存。以前存一条空小结、指纹又对得上，这天就再也不补了
+        notes[d['date']] = txt
+        _save(conv_id, d['date'], txt, _fp(d))
 
     st['current'] = 'arc'
     joined = '\n'.join(f"{d['date']}：{notes.get(d['date'], '')}" for d in days
                        if notes.get(d['date']))
     title = w['conv'].get('title') or w['conv'].get('title_fallback') or ''
-    try:
-        arc = (_call_model(ARC_PROMPT.format(
-            n_days=len(days), title=title, notes=joined)) or '').strip()
-    except Exception as e:                              # noqa: BLE001
-        arc = f'（生成失败：{e}）'
-    _save(conv_id, '', arc.strip('"').strip('「」')[:800])
+    arc = (_call_model(ARC_PROMPT.format(n_days=len(days), title=title, notes=joined)) or '').strip().strip('"').strip('「」')[:800]
+    if arc:                                            # 没回就留着原来的汇总（下次再补）
+        _save(conv_id, '', arc)
     st['done'] += 1
     return notes_for(conv_id)
 

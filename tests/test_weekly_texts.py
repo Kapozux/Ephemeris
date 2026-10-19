@@ -131,6 +131,14 @@ class WindowReview(unittest.TestCase):
         conv_review.generate(self.CID)                               # 面板上「现在就补」
         self.assertIn(self.today, self.notes()['days'])
 
+    def test_model_failure_saves_nothing_and_retries_later(self):
+        llm.use(lambda prompt: '')                                   # 模型没回：llm.ask 返回 None
+        conv_review.generate(self.CID)
+        n = self.notes()
+        self.assertNotIn(self.past, n['days'])                      # 没存空小结
+        self.assertEqual(n['arc'], '旧的汇总')                         # 原来的汇总留着
+        self.assertIn(self.past, conv_review.pending(self.CID))     # 下次还会补
+
 
 if __name__ == '__main__':
     unittest.main()

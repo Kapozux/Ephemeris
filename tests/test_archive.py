@@ -328,6 +328,15 @@ class BackupNeverShrinks(unittest.TestCase):
         self.assertEqual(list(self.backed_up()), [1])
 
 
+class BackupSkipsLock(unittest.TestCase):
+    def test_lock_tables_are_not_backed_up(self):
+        """隐私锁只管这台 Mac；通行密钥的公钥是 bytes，以前放进去 json.dumps 整个备份失败（10-17 到 10-19）。"""
+        names = {r['name'] for r in backup._tables()}
+        self.assertNotIn('app_lock', names)
+        self.assertNotIn('app_lock_keys', names)
+        self.assertFalse(any('app_lock' in s for s in backup._schema()))
+
+
 class RestoreSkipsArchivedDuplicates(unittest.TestCase):
     """dedup 挪走的那份：每天的聊天文件里还留着（只增不减），还原时不能又放回正常的表（10-19 体检）。"""
 

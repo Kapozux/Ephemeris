@@ -36,7 +36,8 @@ import journal
 HERE = os.path.dirname(os.path.abspath(__file__))
 EVERY_DAYS = 1
 SKIP_TABLES = ('sqlite_sequence', 'backups', 'backup_files', 'backup_keys',
-               'card_vecs')    # 卡的向量：二进制、能重算（不到一美元）
+               'card_vecs',    # 卡的向量：二进制、能重算（不到一美元）
+               'app_lock', 'app_lock_keys')   # 隐私锁：只管这台 Mac，密码哈希不往 Drive 放；通行密钥的公钥是二进制，10-17 起整个备份都因它失败
 # 只增不减的核心表 → 主键列
 CORE = {'messages': 'id', 'conversations': 'id', 'journal': 'page_id', 'checkins': 'id',
         'diaries': 'date', 'imports': 'id', 'mood_ratings': 'date', 'card_days': 'date'}

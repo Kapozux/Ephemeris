@@ -13,9 +13,10 @@
 import sys
 from datetime import datetime
 
-import store
+import days
 import diary
 import journal
+import store
 
 LABELS = ['开心', '满足', '兴奋', '平稳', '疲惫', '焦虑', '烦躁', '低落', '崩溃']
 MAX_HAND = 5000            # 手写太长就截，情绪一般前面就看得出
@@ -161,10 +162,12 @@ def score_friction(date, call_model):
 
 
 def pending(dates_chat=None, dates_hand=None):
-    """还没打的：有聊天没 friction 的天、有手写没 hand 的天。"""
+    """还没打的：有聊天没 friction 的天、有手写没 hand 的天。
+    「卡得多狠」不打今天：早上 08:30 那一串跑的时候今天才开了个头，打了就不再重打
+    （10-19 体检：09-29 起有 11 天是只看了当天早上几条打的）。"""
     have = {(r['date'], r['src']) for r in store.q("SELECT date, src FROM mood_scores WHERE src IN ('friction','hand')")}
     chat = dates_chat if dates_chat is not None else \
-        [r['date'] for r in store.q("SELECT DISTINCT date FROM messages WHERE role='human'")]
+        [r['date'] for r in store.q("SELECT DISTINCT date FROM messages WHERE role='human' AND date < ?", days.today())]
     hand = dates_hand if dates_hand is not None else [d for d, c in journal.dates().items() if c >= 30]
     return ([d for d in chat if (d, 'friction') not in have],
             [d for d in hand if (d, 'hand') not in have])
@@ -186,14 +189,12 @@ def fill(call_model, say=print):
 def day_signals(date):
     """过得怎么样（days.feel：打卡优先，其次手写）+ 卡得多狠（聊天）。"""
     import checkin
-    import days
     fr = store.q("SELECT src, valence, label, evidence FROM mood_scores WHERE date=? AND src='friction'", date)
     return {'mood': days.feel(date), 'friction': fr[0] if fr else None, 'checkins': checkin.for_date(date)}
 
 
 def all_signals():
     """{date: {mood, friction, checkin}}，给日历用。"""
-    import days
     out = {}
     for r in store.q("SELECT date, valence FROM mood_scores WHERE src='friction'"):
         out.setdefault(r['date'], {})['friction'] = r['valence']

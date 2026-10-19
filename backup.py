@@ -380,6 +380,12 @@ def restore(src, out):
         if t in known and t != 'messages':        # 只增不删：备份目录里可能有以前导出过、现在不再备份的表
             counts[t] = load(t, p)
     counts['messages'] = sum(load('messages', p) for p in sorted(glob.glob(os.path.join(src, '聊天记录', '*', '*.jsonl'))))
+    # 认出来是重复、挪去存档的（dedup.archive）：每天的聊天文件只增不减，里面还留着它们（10-19 体检：744 条）。
+    # 原样都在 messages_dup 里，这里不能再放回正常的表，不然还原出来的库又成对出现、窗口行也没有
+    if 'messages_dup' in known:
+        counts['messages_dup_skipped'] = db.execute('DELETE FROM messages WHERE id IN (SELECT id FROM messages_dup)').rowcount
+    if 'conversations_dup' in known:
+        db.execute('DELETE FROM conversations WHERE id IN (SELECT id FROM conversations_dup)')
     # 全文索引从数据重建（手写日记按纯文字建，跟 journal.py 一个口径）
     idx.rebuild_fts(db)
     for pid, date, text in db.execute("SELECT page_id, date, text FROM journal WHERE text <> ''").fetchall():

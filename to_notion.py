@@ -398,8 +398,7 @@ def replace_append(page_id, d):
 
 def clear_ours(page_id):
     """重推前把 Ephemeris 自己建的那页清空（只对 create 出来的页用）。"""
-    res = _req('GET', f'https://api.notion.com/v1/blocks/{page_id}/children?page_size=100')
-    for b in res.get('results', []):
+    for b in _all_blocks(page_id):                  # 超过 100 块的页以前只删了第一页
         try:
             _req('DELETE', f"https://api.notion.com/v1/blocks/{b['id']}")
         except NotionError:

@@ -861,7 +861,7 @@ class Session:
             except Exception as e:                           # noqa: BLE001
                 with _lock:
                     _state['last_error'] = f'{type(e).__name__}: {e}'[:300]
-        return ask(self.material + '\n\n' + task, route='cheap')
+        return ask(self.material + '\n\n' + task, effort=self.effort, route='cheap', purpose=self.purpose)
 
 
 def _call(prompt, model=None, fallback=True, effort='medium', route='auto', purpose='', json_mode=False):

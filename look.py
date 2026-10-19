@@ -243,7 +243,7 @@ def day(a):
     dia = store.one('SELECT headline, narrative, mood FROM diaries WHERE date=?', d)
     if dia:
         print(f"\n日记：{dia['headline']}\n{dia['narrative']}" + (f"\n心情：{dia['mood']}" if dia['mood'] else ''))
-    for j in store.q('SELECT text FROM journal WHERE date=? AND (gone_at IS NULL OR gone_at = "")', d):
+    for j in store.q("SELECT text FROM journal WHERE date=? AND (gone_at IS NULL OR gone_at = '')", d):
         print('\n手写日记：\n' + (j['text'] or '')[:3000])
 
 

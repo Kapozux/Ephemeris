@@ -61,7 +61,7 @@ def morning(job, force=False):
         except Exception as e:                               # noqa: BLE001
             print(f'[chatgpt-sync] 失败：{type(e).__name__}: {e}', flush=True)
     try:
-        r = claude_sync.sync(force=force, progress=prog)
+        r = claude_sync.sync_or_show(force=force, progress=prog)
     except Exception as e:                                   # noqa: BLE001
         job['error'] = f'{type(e).__name__}: {e}'[:300]
         print(f'[claude-sync] 失败：{job["error"]}', flush=True)

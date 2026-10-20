@@ -305,6 +305,29 @@ def sync(since=None, force=False, progress=None, headless=True):
         raise
 
 
+_shown_at = None          # 上次开窗口重试的时刻
+SHOW_GAP = 3 * 3600
+
+
+def _blocked(e):
+    return 'Cloudflare' in str(e) or 'navigated or closed' in str(e)
+
+
+def sync_or_show(**kw):
+    """后台 Chrome 被 Cloudflare 拦了就开一个看得见的窗口再拉一次（10-20：后台的一整天 19 次都卡在验证页，
+    10-19 的日记到第二天傍晚还没写；开窗口的一次就过了，过了之后通行 cookie 存在 profile 里，后台的又能用一阵）。
+    窗口会抢焦点（Ephemeris 跟着锁上），所以每 SHOW_GAP 最多弹一次。"""
+    global _shown_at
+    try:
+        return sync(**kw)
+    except Exception as e:                                   # noqa: BLE001
+        if not _blocked(e) or (_shown_at and time.monotonic() - _shown_at < SHOW_GAP):
+            raise
+        _shown_at = time.monotonic()
+        print(f'[claude-sync] 后台的被拦了（{e}），开窗口再试一次', flush=True)
+        return sync(headless=False, **kw)
+
+
 # -------------------------------------------------------------------- CLI
 
 if __name__ == '__main__':

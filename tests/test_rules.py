@@ -51,5 +51,37 @@ class SyncErrors(unittest.TestCase):
         self.assertIn('Cloudflare', claude_sync._explain({'status': 403, 'body': '<html><title>Just a moment...</title>'}))
 
 
+class SyncShowsWindowWhenBlocked(unittest.TestCase):
+    """后台 Chrome 被 Cloudflare 拦了：开窗口再试一次，几小时内不再弹；别的错不弹。"""
+    def setUp(self):
+        self.saved, self.calls = claude_sync.sync, []
+        claude_sync._shown_at = None
+
+    def tearDown(self):
+        claude_sync.sync, claude_sync._shown_at = self.saved, None
+
+    def fake(self, error):
+        def sync(headless=True, **kw):
+            self.calls.append(headless)
+            if headless:
+                raise claude_sync.SyncError(error)
+            return {'days': []}
+        claude_sync.sync = sync
+
+    def test_blocked_retries_once_with_window(self):
+        self.fake('被 Cloudflare 拦下了（HTTP 403）')
+        self.assertEqual(claude_sync.sync_or_show(force=False), {'days': []})
+        self.assertEqual(self.calls, [True, False])
+        with self.assertRaises(claude_sync.SyncError):                # 半小时后又被拦：这次不弹
+            claude_sync.sync_or_show(force=False)
+        self.assertEqual(self.calls, [True, False, True])
+
+    def test_other_errors_do_not_open_a_window(self):
+        self.fake('sessionKey 过期')
+        with self.assertRaises(claude_sync.SyncError):
+            claude_sync.sync_or_show()
+        self.assertEqual(self.calls, [True])
+
+
 if __name__ == '__main__':
     unittest.main()

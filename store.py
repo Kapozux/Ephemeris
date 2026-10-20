@@ -221,6 +221,12 @@ CREATE TABLE IF NOT EXISTS backup_files (path TEXT PRIMARY KEY, sha1 TEXT, size 
 -- 备份里每个核心数据文件现在有哪些行（键 + 内容指纹）：本地少了 / 改了哪行，不用去读 Drive 就知道（backup.py）
 CREATE TABLE IF NOT EXISTS backup_keys (path TEXT NOT NULL, key TEXT NOT NULL, h TEXT, PRIMARY KEY (path, key));
 
+-- ---------------------------------------------------------------- Chrome 浏览记录（browsing.py，2026-10-20）：只存不进日记；id = profile:visit_time
+CREATE TABLE IF NOT EXISTS browse_visits (
+  id TEXT PRIMARY KEY, profile TEXT NOT NULL, vt INTEGER NOT NULL, date TEXT, hhmm TEXT, url TEXT, title TEXT, secs INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_browse_profile ON browse_visits(profile, vt);
+
 -- ---------------------------------------------------------------- 隐私锁（lock.py，2026-10-16）：只一行，密码的 PBKDF2 哈希
 CREATE TABLE IF NOT EXISTS app_lock (id INTEGER PRIMARY KEY CHECK (id = 1), hash TEXT NOT NULL, set_at TEXT);
 -- Touch ID 解锁（10-16）：这台 Mac 上登记过的通行密钥，只存公钥（SPKI DER）和算法号；去掉密码时一起清掉

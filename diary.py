@@ -149,6 +149,41 @@ def session_for(date, day=None):
     return s
 
 
+# 写完数一下，超了让它删（10-20——只在提示词里说上限，它照样写到 400 多字）
+NARRATIVE_MAX = 300
+LIST_MAX = 3              # 做出来的 / 没做完的
+SHORTEN_TRIES = 2
+SHORTEN = """下面这篇日记超了：{why}。
+删到上限以内：留最主要的事，删次要的事和多余的细节，不要加新内容、不要改写没超的字段。只输出 JSON，结构跟原来一样。
+
+{draft}"""
+
+
+def _over(entry):
+    """超了哪些 → 给模型看的一句话；没超返回空串。正文按字数算，不算换行和空格。"""
+    why = []
+    n = len(''.join((entry.get('narrative') or '').split()))
+    if n > NARRATIVE_MAX:
+        why.append(f'正文 {n} 字，上限 {NARRATIVE_MAX} 字')
+    for k, name in LOOSE_ENDS:
+        if len(entry.get(k) or []) > LIST_MAX:
+            why.append(f'{k}（{name}）{len(entry[k])} 条，上限 {LIST_MAX} 条')
+    return '；'.join(why)
+
+
+def _shorten(parsed, ask):
+    """超了就让模型删，最多 SHORTEN_TRIES 次；删坏了（解析不出）就留原来那版。"""
+    for _ in range(SHORTEN_TRIES):
+        why = _over(parsed)
+        if not why:
+            break
+        fixed = llm.parse_json(ask(SHORTEN.format(why=why, draft=json.dumps(parsed, ensure_ascii=False, indent=1))), dict)
+        if not fixed or not fixed.get('narrative'):
+            break
+        parsed = {**parsed, **fixed}
+    return parsed
+
+
 def generate(day, refresh=False, char_budget=60000, prev=None, ledger=''):
     """生成一天的日记。命中缓存就直接返回。
 
@@ -169,6 +204,7 @@ def generate(day, refresh=False, char_budget=60000, prev=None, ledger=''):
         parsed = llm.ask_json(PROMPT.format(body=render_day(day, char_budget=char_budget), **fields), dict, tries=1)
     if not parsed:
         return None
+    parsed = _shorten(parsed, sess.ask if sess else llm.ask)
 
     parsed['date'] = day['date']
     parsed['stats'] = {

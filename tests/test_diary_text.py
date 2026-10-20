@@ -1,5 +1,6 @@
 """一篇日记怎么读：列表字段解开、拼成纯文本。主题账本、情绪打分、每周备份、Notion、日记页都用这一份。"""
 import _env  # noqa: F401
+import json
 import unittest
 
 import diary
@@ -37,3 +38,41 @@ class Text(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class Shorten(unittest.TestCase):
+    """写完数字数，超了让模型删（10-20）。"""
+    def setUp(self):
+        self.asked = []
+
+    def model(self, *replies):
+        it = iter(replies)
+        def ask(prompt):
+            self.asked.append(prompt)
+            return next(it)
+        return ask
+
+    def test_too_long_is_sent_back_until_short(self):
+        long = {'headline': '甲', 'narrative': '字' * 420, 'artifacts': ['a', 'b', 'c', 'd'], 'open_loops': []}
+        out = diary._shorten(long, self.model(json.dumps({'narrative': '字' * 330, 'artifacts': ['a', 'b', 'c']}),
+                                              json.dumps({'narrative': '字' * 280})))
+        self.assertEqual(len(out['narrative']), 280)
+        self.assertEqual(out['artifacts'], ['a', 'b', 'c'])
+        self.assertEqual(out['headline'], '甲')                                  # 没让它改的留着
+        self.assertIn('正文 420 字', self.asked[0])
+        self.assertIn('4 条', self.asked[0])
+        self.assertNotIn('条', self.asked[1].split('\n')[0])                     # 第二次只剩正文超
+
+    def test_short_enough_is_not_sent(self):
+        entry = {'narrative': '字' * 300 + '\n\n' + '  ', 'artifacts': ['a']}
+        self.assertIs(diary._shorten(entry, self.model()), entry)
+        self.assertEqual(self.asked, [])
+
+    def test_gives_up_after_tries_and_keeps_last(self):
+        out = diary._shorten({'narrative': '字' * 500}, self.model(*[json.dumps({'narrative': '字' * 400})] * 5))
+        self.assertEqual(len(self.asked), diary.SHORTEN_TRIES)
+        self.assertEqual(len(out['narrative']), 400)
+
+    def test_broken_reply_keeps_draft(self):
+        out = diary._shorten({'narrative': '字' * 500}, self.model('不是 JSON'))
+        self.assertEqual(len(out['narrative']), 500)

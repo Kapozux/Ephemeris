@@ -14,7 +14,8 @@ python look.py day   <YYYY-MM-DD>                                               
 python look.py stats [--since D] [--until D]                                           一共有多少：消息、字数、窗口、按来源、证据卡、日记、按月
 python look.py files <文件夹> [--glob *.log] [--n 30]                                    电脑上的文件夹里有什么（新改的在前）；--glob 往下一层层找文件名
 python look.py grep  <词> [词…] --in <文件或文件夹> [--n 30]                             在文件里搜（同一行里几个词都出现，不分大小写）
-python look.py file  <文件> [--from 1] [--lines 200] [--at 词]                           按行读一个文字文件；--at 跳到词第一次出现的地方
+python look.py file  <文件> [--from 1] [--lines 200] [--at 词]                           按行读一个文件（文字、.docx、.pptx、有文字层的 PDF；moye:<id> 读墨页转好的）；--at 跳到词第一次出现的地方
+python look.py moye  <词> [--n 10]                                                     搜墨页已经转好的 PDF（扫描件、课件、作业），墨页开着才行
 
 出处记号：消息是 m:<id>，卡是 c:<id>，文件是 f:<路径>:<行号> 或 f:<路径>:<起>-<止>。回答时照抄就能被 Ephemeris 认回原话。
 文件只能看白名单目录里的（localfiles：默认 ~/Documents、~/Downloads），只读；隐藏文件、密钥、数据库看不了。
@@ -412,18 +413,35 @@ def file_(a):
     except (localfiles.Denied, OSError) as e:
         print(e)
         return
-    real = localfiles.resolve(path)
-    print(f'== {localfiles.show(real)}（{total} 行，改于 {localfiles.mdate(real)}）引用写 [[f:{localfiles.show(real)}:行号]]')
+    name, when = localfiles.where(path)
+    ref = path if path.startswith(localfiles.MOYE) else name
+    print(f'== {name}（{total} 行，改于 {when}）引用写 [[f:{ref}:行号]]')
     for i, line in rows:
         print(f'{i:>6}| {line}')
     if rows and rows[-1][0] < total:
         print(f'…… 后面还有 {total - rows[-1][0]} 行（--from {rows[-1][0] + 1}）')
 
 
+def moye_(a):
+    if not a.words:
+        print('用法：moye <词>')
+        return
+    try:
+        docs = localfiles.moye_search(' '.join(a.words), min(a.n, 20))
+    except localfiles.Denied as e:
+        print(e)
+        return
+    for d in docs:
+        print(f"== moye:{d['id']}  {d['filename']}" + (f" · {d['title']}" if d['title'] else '') + f" · 转于 {d['date']} · 命中 {d['count']} 处")
+        for h in d['hits']:
+            print(f"    第 {h['page']} 页：{_one_line(h['text'], 160)}")
+    print(f"{len(docs)} 份" + ('（读全文：file moye:<id> --at 词）' if docs else ''))
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog='look.py', description='只读查 Ephemeris 的聊天记录和证据卡')
     p.add_argument('cmd', choices=['msgs', 'cards', 'read', 'conv', 'convs', 'day', 'stats', 'sum', 'sql', 'schema', 'journal', 'diaries',
-                                     'files', 'grep', 'file'])
+                                     'files', 'grep', 'file', 'moye'])
     p.add_argument('words', nargs='*')
     p.add_argument('--since'); p.add_argument('--until')
     p.add_argument('--who', choices=['me', 'ai']); p.add_argument('--old', action='store_true')
@@ -434,7 +452,7 @@ def main(argv=None):
     p.add_argument('--from', dest='start', type=int, default=1); p.add_argument('--lines', type=int, default=200)
     a = p.parse_args(argv)
     {'msgs': msgs, 'cards': cards_, 'read': read, 'conv': conv, 'convs': convs, 'day': day, 'stats': stats, 'sum': sum_, 'sql': sql, 'schema': schema,
-     'journal': journal_, 'diaries': diaries_, 'files': files_, 'grep': grep_, 'file': file_}[a.cmd](a)
+     'journal': journal_, 'diaries': diaries_, 'files': files_, 'grep': grep_, 'file': file_, 'moye': moye_}[a.cmd](a)
 
 
 if __name__ == '__main__':

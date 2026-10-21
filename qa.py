@@ -453,7 +453,8 @@ DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料�
   sql   "<一条 SELECT 或 WITH>" [--n 30]                                                 自己写只读 SQL：统计、加总、分组、按条件筛，能算准数（改不了库，最多 500 行，60 秒）
   files <文件夹> [--glob *.log] [--n 30]                                                 他电脑上的文件夹里有什么（新改的在前）；--glob 往下一层层找文件名
   grep  <词> [词…] --in <文件或文件夹> [--n 30]                                          在文件里搜（同一行几个词都出现，不分大小写）；文件夹越小越快
-  file  <文件> [--from 1] [--lines 200] [--at 词]                                        按行读一个文字文件（一次最多 400 行）；--at 跳到词第一次出现的地方
+  file  <文件> [--from 1] [--lines 200] [--at 词]                                        按行读一个文件（一次最多 400 行）：文字文件、.docx、.pptx、有文字层的 PDF 都行；--at 跳到词第一次出现的地方
+  moye  <词> [--n 10]                                                                    搜墨页（他的 PDF 转 Markdown 应用）已经转好的文档：扫描件、课件、作业；读全文用 file moye:<id>
 
 怎么查：
 - 问总量、规模、一共多少、哪个月聊得最多 → stats（给的是准数，别拿关键词搜索的命中数去估）。
@@ -471,6 +472,7 @@ DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料�
 - 窗口标题写「〔小结〕…」的是原本没标题的窗口（Gemini 导出的），标题是从小结取的。
 - 聊天里提到的文件（日志、文书、代码、导出的东西）要看原文、要原句、要核对数，就去文件里查：路径聊天里常有，先 msgs 找；
   路径带空格就用引号括起来。没有路径就 files 从上面那几个目录往下找（--glob 按文件名），再 grep / file --at 定位，别一次读整个大文件。
+  PDF 是扫描件（file 会说没有文字层）就用 moye 搜墨页转好的那份；墨页里也没有就跟他说先在墨页里转，别想别的办法。
   文件是现在的样子，可能后来被改过、覆盖过：拿修改时间对一下是不是聊天里说的那一版，对不上要说。文件只读，看不了的（隐藏文件、密钥、数据库）就别再试。
 - 每次只跑一条完整的命令（照上面的写法原样写全路径）：不要用 shell 变量、不要用 ; && | 把几条连起来——那样会被拒。
 - 别怕查得多、想得久：宁可多搜几种说法、多读几段前后文，把事情弄准、弄全再答；要算数的问题更要把数算准。（10-17：思考不要限制）
@@ -499,7 +501,7 @@ DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料�
 问题：{question}
 """
 # 没有 Claude 时（只有 DeepSeek 的电脑，2026-10-14）深挖走 llm.deepseek_agent：同一套 look.py 命令，包成一个叫 look 的工具
-LOOK_CMDS = ('msgs', 'cards', 'read', 'conv', 'convs', 'sum', 'day', 'stats', 'journal', 'diaries', 'schema', 'sql', 'files', 'grep', 'file')
+LOOK_CMDS = ('msgs', 'cards', 'read', 'conv', 'convs', 'sum', 'day', 'stats', 'journal', 'diaries', 'schema', 'sql', 'files', 'grep', 'file', 'moye')
 LOOK_TOOL = {'name': 'look', 'description': '查他的聊天记录、证据卡、日记，也能只读看他电脑上的文件（files / grep / file）。command 填一条 look 命令（不带 look 本身），比如 '
              '「msgs 申请 --old」「cards 我那阵子状态怎么样 --since 2026-03-01」「sql "SELECT COUNT(*) FROM messages"」',
              'parameters': {'type': 'object', 'properties': {'command': {'type': 'string', 'description': '一条命令'}},
@@ -582,20 +584,20 @@ def _file_snapshot(ref):
     b = max(a, min(int(m.group(3) or a), a + 40))
     try:
         rows, _ = localfiles.lines(m.group(1), a, b - a + 1)
-        real = localfiles.resolve(m.group(1))
+        name, when = localfiles.where(m.group(1))
     except (localfiles.Denied, OSError, ValueError):
         return None
     if not rows:
         return None
     t = '\n'.join(line for _, line in rows).strip()
-    return {'id': f'f:{ref}', 'date': localfiles.mdate(real)[:10], 'who': 'file', 'kind': '文件',
+    return {'id': f'f:{ref}', 'date': when[:10], 'who': 'file', 'kind': '文件',
             'text': f"第 {a} 行" if a == b else f"第 {a}-{b} 行", 'quote': t[:600] + ('…' if len(t) > 600 else ''),
-            'conv_id': None, 'msg_id': None, 'title': localfiles.show(real)}
+            'conv_id': None, 'msg_id': None, 'title': name}
 
 
 STEP_LABEL = {'msgs': '搜原文', 'cards': '翻证据卡', 'read': '读原话前后', 'conv': '看一个窗口', 'convs': '找聊过的窗口',
               'sum': '加字数', 'day': '看那天', 'stats': '看总量', 'journal': '翻手写日记', 'diaries': '读日记',
-              'schema': '看库里有哪些表', 'sql': '自己算', 'files': '看文件夹', 'grep': '在文件里搜', 'file': '读文件'}
+              'schema': '看库里有哪些表', 'sql': '自己算', 'files': '看文件夹', 'grep': '在文件里搜', 'file': '读文件', 'moye': '搜墨页'}
 _TABLE_NAME = {'messages': '聊天记录', 'conversations': '窗口', 'cards': '证据卡', 'diaries': '日记', 'journal': '手写日记',
                'checkins': '打卡', 'themes': '主题', 'card_convs': '窗口小结'}
 

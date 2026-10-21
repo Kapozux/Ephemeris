@@ -61,7 +61,7 @@ const ICON = {
   pen: '<path d="M14.5 5.5l4 4L9 19H5v-4z"/>',
 };
 const KIND_ICON = { msgs: 'search', look: 'search', cards: 'cards', read: 'doc', conv: 'chat', convs: 'chat', sum: 'calc', stats: 'calc',
-  sql: 'calc', schema: 'calc', day: 'day', diaries: 'day', journal: 'pen', files: 'doc', grep: 'search', file: 'doc', moye: 'search' };
+  sql: 'calc', schema: 'calc', day: 'day', diaries: 'day', journal: 'pen', files: 'doc', grep: 'search', file: 'doc', moye: 'search', skill: 'doc' };
 const icon = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICON[KIND_ICON[k] || 'search']}</svg>`;
 const asStep = s => typeof s === 'string' ? { k: 'look', t: s.replace(/^🔎\s*/, ''), d: '' } : s;
 const clock = ms => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };

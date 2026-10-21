@@ -15,6 +15,7 @@ python look.py stats [--since D] [--until D]                                    
 python look.py files <文件夹> [--glob *.log] [--n 30]                                    电脑上的文件夹里有什么（新改的在前）；--glob 往下一层层找文件名
 python look.py grep  <词> [词…] --in <文件或文件夹> [--n 30]                             在文件里搜（同一行里几个词都出现，不分大小写）
 python look.py file  <文件> [--from 1] [--lines 200] [--at 词]                           按行读一个文件（文字、.docx、.pptx、有文字层的 PDF；moye:<id> 读墨页转好的）；--at 跳到词第一次出现的地方
+python look.py skill [名字]                                                             读「问」的一个技能（skills/<名字>.md：某类问题的专门做法）；不给名字列出有哪些
 python look.py moye  <词> [--n 10]                                                     搜墨页已经转好的 PDF（扫描件、课件、作业），墨页开着才行
 
 出处记号：消息是 m:<id>，卡是 c:<id>，文件是 f:<路径>:<行号> 或 f:<路径>:<起>-<止>。回答时照抄就能被 Ephemeris 认回原话。
@@ -438,10 +439,21 @@ def moye_(a):
     print(f"{len(docs)} 份" + ('（读全文：file moye:<id> --at 词）' if docs else ''))
 
 
+def skill_(a):
+    name = a.words[0] if a.words else ''
+    text = qa.skill_text(name) if name else None
+    if text:
+        print(text)
+        return
+    print((f'没有「{name}」这个技能。' if name else '') + '有这些：')
+    for n, d in qa.skills():
+        print(f'  {n}：{d}')
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog='look.py', description='只读查 Ephemeris 的聊天记录和证据卡')
     p.add_argument('cmd', choices=['msgs', 'cards', 'read', 'conv', 'convs', 'day', 'stats', 'sum', 'sql', 'schema', 'journal', 'diaries',
-                                     'files', 'grep', 'file', 'moye'])
+                                     'files', 'grep', 'file', 'moye', 'skill'])
     p.add_argument('words', nargs='*')
     p.add_argument('--since'); p.add_argument('--until')
     p.add_argument('--who', choices=['me', 'ai']); p.add_argument('--old', action='store_true')
@@ -452,7 +464,7 @@ def main(argv=None):
     p.add_argument('--from', dest='start', type=int, default=1); p.add_argument('--lines', type=int, default=200)
     a = p.parse_args(argv)
     {'msgs': msgs, 'cards': cards_, 'read': read, 'conv': conv, 'convs': convs, 'day': day, 'stats': stats, 'sum': sum_, 'sql': sql, 'schema': schema,
-     'journal': journal_, 'diaries': diaries_, 'files': files_, 'grep': grep_, 'file': file_, 'moye': moye_}[a.cmd](a)
+     'journal': journal_, 'diaries': diaries_, 'files': files_, 'grep': grep_, 'file': file_, 'moye': moye_, 'skill': skill_}[a.cmd](a)
 
 
 if __name__ == '__main__':

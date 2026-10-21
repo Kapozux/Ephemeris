@@ -475,6 +475,8 @@ DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料�
   PDF 是扫描件（file 会说没有文字层）就用 moye 搜墨页转好的那份；墨页里也没有就跟他说先在墨页里转，别想别的办法。
   文件是现在的样子，可能后来被改过、覆盖过：拿修改时间对一下是不是聊天里说的那一版，对不上要说。文件只读，看不了的（隐藏文件、密钥、数据库）就别再试。
 - 每次只跑一条完整的命令（照上面的写法原样写全路径）：不要用 shell 变量、不要用 ; && | 把几条连起来——那样会被拒。
+- 有的问题有专门的做法（技能），先 `{look} skill <名字>` 读全文再照着查（没对上就别读）：
+{skills}
 - 别怕查得多、想得久：宁可多搜几种说法、多读几段前后文，把事情弄准、弄全再答；要算数的问题更要把数算准。（10-17：思考不要限制）
 
 回答：
@@ -501,7 +503,7 @@ DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料�
 问题：{question}
 """
 # 没有 Claude 时（只有 DeepSeek 的电脑，2026-10-14）深挖走 llm.deepseek_agent：同一套 look.py 命令，包成一个叫 look 的工具
-LOOK_CMDS = ('msgs', 'cards', 'read', 'conv', 'convs', 'sum', 'day', 'stats', 'journal', 'diaries', 'schema', 'sql', 'files', 'grep', 'file', 'moye')
+LOOK_CMDS = ('msgs', 'cards', 'read', 'conv', 'convs', 'sum', 'day', 'stats', 'journal', 'diaries', 'schema', 'sql', 'files', 'grep', 'file', 'moye', 'skill')
 LOOK_TOOL = {'name': 'look', 'description': '查他的聊天记录、证据卡、日记，也能只读看他电脑上的文件（files / grep / file）。command 填一条 look 命令（不带 look 本身），比如 '
              '「msgs 申请 --old」「cards 我那阵子状态怎么样 --since 2026-03-01」「sql "SELECT COUNT(*) FROM messages"」',
              'parameters': {'type': 'object', 'properties': {'command': {'type': 'string', 'description': '一条命令'}},
@@ -522,6 +524,33 @@ def run_look(args):
     r = subprocess.run([sys.executable, os.path.join(HERE, 'look.py')] + parts, capture_output=True, text=True,
                        encoding='utf-8', errors='replace', timeout=90, cwd=HERE, env={**os.environ, 'PYTHONIOENCODING': 'utf-8'})
     return (r.stdout or '') + (('\n' + r.stderr[-2000:]) if r.returncode else '') or '（没有输出）'
+
+
+# 技能（10-22：做一个像 Claude skills 的东西给「问」）：skills/<名字>.md，第一行是什么时候用，后面是做法。
+# 提示词里只放第一行，对上了它自己 look skill 读全文；平常的问题不多花一个字。加一个技能 = 加一个文件。
+SKILLS_DIR = os.path.join(HERE, 'skills')
+
+
+def skills():
+    """→ [(名字, 什么时候用)]"""
+    out = []
+    for f in sorted(os.listdir(SKILLS_DIR)) if os.path.isdir(SKILLS_DIR) else []:
+        if f.endswith('.md'):
+            with open(os.path.join(SKILLS_DIR, f), encoding='utf-8') as fh:
+                out.append((f[:-3], fh.readline().strip()))
+    return out
+
+
+def skill_text(name):
+    """技能全文（去掉第一行）；没有这个技能 → None。"""
+    if name not in [n for n, _ in skills()]:
+        return None
+    with open(os.path.join(SKILLS_DIR, name + '.md'), encoding='utf-8') as fh:
+        return fh.read().split('\n', 1)[1].strip()
+
+
+def _skills_text():
+    return '\n'.join(f'  · {n}：{d}' for n, d in skills()) or '  （现在没有）'
 
 
 def _roots():
@@ -597,7 +626,7 @@ def _file_snapshot(ref):
 
 STEP_LABEL = {'msgs': '搜原文', 'cards': '翻证据卡', 'read': '读原话前后', 'conv': '看一个窗口', 'convs': '找聊过的窗口',
               'sum': '加字数', 'day': '看那天', 'stats': '看总量', 'journal': '翻手写日记', 'diaries': '读日记',
-              'schema': '看库里有哪些表', 'sql': '自己算', 'files': '看文件夹', 'grep': '在文件里搜', 'file': '读文件', 'moye': '搜墨页'}
+              'schema': '看库里有哪些表', 'sql': '自己算', 'files': '看文件夹', 'grep': '在文件里搜', 'file': '读文件', 'moye': '搜墨页', 'skill': '读做法'}
 _TABLE_NAME = {'messages': '聊天记录', 'conversations': '窗口', 'cards': '证据卡', 'diaries': '日记', 'journal': '手写日记',
                'checkins': '打卡', 'themes': '主题', 'card_convs': '窗口小结'}
 
@@ -729,13 +758,13 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
         return {'answer': body, 'cites': cites, 'deep': True, 'thread': thread, 'trace': trace, **({'stopped': True} if stopped else {})}
 
     if not llm.claude_on():                                         # 只有 DeepSeek：它自己调 look 工具查，没有会话可接（追问靠前面的对话记录）
-        prompt = deep_prompt_deepseek(name=idx.who(), today=days.today(), roots=_roots(), history=_history_text(turns), question=question)
+        prompt = deep_prompt_deepseek(name=idx.who(), today=days.today(), roots=_roots(), skills=_skills_text(), history=_history_text(turns), question=question)
         try:
             text = llm.deepseek_agent(prompt, LOOK_TOOL, run_look, on_event=say, purpose='qa-deep')
         except llm.Cancelled:
             return done(*_deep_cites(''.join(buf).strip()), stopped=True)
         return done(*_deep_cites(text))
-    fresh = DEEP_PROMPT.format(name=idx.who(), today=days.today(), roots=_roots(), look=LOOK, history=_history_text(turns), question=question)
+    fresh = DEEP_PROMPT.format(name=idx.who(), today=days.today(), roots=_roots(), skills=_skills_text(), look=LOOK, history=_history_text(turns), question=question)
     first = RESUME_PROMPT if lost else FOLLOW_PROMPT.format(question=question) if sid else fresh
     try:
         try:

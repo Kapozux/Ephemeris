@@ -170,6 +170,7 @@ sup .ch-cite:hover { color: var(--text); }
 .ch-src-main { flex: 1; min-width: 0; }
 .ch-src-meta { display: block; color: var(--faint); font-size: 12px; }
 .ch-src-q { color: var(--muted); }
+.ch-src-q.file { white-space: pre-wrap; overflow-wrap: anywhere; }   /* 文件引的几行：保留换行（日志、代码） */
 .ch-go { flex: none; color: var(--accent); cursor: pointer; white-space: nowrap; text-decoration: none; }
 
 /* 写的时候：顶上一行（慢慢转的小星轨、在干什么、计时 · 几步），下面一条步骤时间线（10-17，照 claude.ai） */

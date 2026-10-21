@@ -12,8 +12,12 @@ python look.py schema                                                           
 python look.py sql   "<SELECT …>" [--n 30]                                              自己写只读 SQL（统计、加总、分组、筛选；改不了库）
 python look.py day   <YYYY-MM-DD>                                                      那天有哪些窗口、那天的日记、手写日记
 python look.py stats [--since D] [--until D]                                           一共有多少：消息、字数、窗口、按来源、证据卡、日记、按月
+python look.py files <文件夹> [--glob *.log] [--n 30]                                    电脑上的文件夹里有什么（新改的在前）；--glob 往下一层层找文件名
+python look.py grep  <词> [词…] --in <文件或文件夹> [--n 30]                             在文件里搜（同一行里几个词都出现，不分大小写）
+python look.py file  <文件> [--from 1] [--lines 200] [--at 词]                           按行读一个文字文件；--at 跳到词第一次出现的地方
 
-出处记号：消息是 m:<id>，卡是 c:<id>。回答时照抄就能被 Ephemeris 认回原话。
+出处记号：消息是 m:<id>，卡是 c:<id>，文件是 f:<路径>:<行号> 或 f:<路径>:<起>-<止>。回答时照抄就能被 Ephemeris 认回原话。
+文件只能看白名单目录里的（localfiles：默认 ~/Documents、~/Downloads），只读；隐藏文件、密钥、数据库看不了。
 标题写「〔小结〕…」的窗口原本没标题（Gemini 导出的 sess_xxxx），是从窗口小结取的头一句。
 「我（N 字长文…）」：他发的超长消息，常是贴进来的：课堂笔记、网页、别人或别的 AI 写的、以前的聊天记录，也可能是他在别处写好的日记——读了再判断是不是他自己的话、说的是哪天的事。
 搜原文 / 找窗口不看「问」自己的对话（来源 ask）：不然会引到自己以前的回答。
@@ -26,6 +30,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import localfiles  # noqa: E402
 import qa      # noqa: E402
 import store   # noqa: E402
 
@@ -356,18 +361,80 @@ def diaries_(a):
         print(f"== {r['date']} {r['headline'] or ''}" + (f"（{r['mood']}）" if r['mood'] else '') + '\n' + (body if a.full else _one_line(body, 400)))
 
 
+def _size(n):
+    return f'{n / 1048576:.1f}MB' if n >= 1048576 else f'{n / 1024:.0f}KB' if n >= 1024 else f'{n}B'
+
+
+def files_(a):
+    if not a.words:
+        print('要给文件夹：' + '、'.join(localfiles.show(r) for r in localfiles.roots()))
+        return
+    try:
+        rows = localfiles.listing(' '.join(a.words), a.glob, a.n)
+    except (localfiles.Denied, OSError) as e:
+        print(e)
+        return
+    for p, is_dir, size, mtime in rows:
+        when = time.strftime('%Y-%m-%d %H:%M', time.localtime(mtime))
+        print(f"  {localfiles.show(p)}{'/' if is_dir else ''}  {'' if is_dir else _size(size) + '  '}{when}")
+    if not rows:
+        print('（空的，或者没有对得上的）')
+
+
+def grep_(a):
+    if not a.words or not a.into:
+        print('用法：grep <词> [词…] --in <文件或文件夹>')
+        return
+    try:
+        hits, cut = localfiles.grep(a.words, a.into, a.n)
+    except (localfiles.Denied, OSError) as e:
+        print(e)
+        return
+    for p, i, line in hits:
+        print(f"  [[f:{localfiles.show(p)}:{i}]] {_around(line, a.words[0], 120)}")
+    print(f"{len(hits)} 处" + ('（没搜完：到条数或时间上限了，换个更小的文件夹或加 --n）' if cut else ''))
+
+
+def file_(a):
+    if not a.words:
+        print('用法：file <文件> [--from 1] [--lines 200] [--at 词]')
+        return
+    path = ' '.join(a.words)
+    try:
+        start = a.start
+        if a.at:
+            at = localfiles.find_line(path, a.at, start)
+            if not at:
+                print(f'从第 {start} 行往后没有「{a.at}」')
+                return
+            start = max(1, at - 20)
+        rows, total = localfiles.lines(path, start, a.lines)
+    except (localfiles.Denied, OSError) as e:
+        print(e)
+        return
+    real = localfiles.resolve(path)
+    print(f'== {localfiles.show(real)}（{total} 行，改于 {localfiles.mdate(real)}）引用写 [[f:{localfiles.show(real)}:行号]]')
+    for i, line in rows:
+        print(f'{i:>6}| {line}')
+    if rows and rows[-1][0] < total:
+        print(f'…… 后面还有 {total - rows[-1][0]} 行（--from {rows[-1][0] + 1}）')
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog='look.py', description='只读查 Ephemeris 的聊天记录和证据卡')
-    p.add_argument('cmd', choices=['msgs', 'cards', 'read', 'conv', 'convs', 'day', 'stats', 'sum', 'sql', 'schema', 'journal', 'diaries'])
+    p.add_argument('cmd', choices=['msgs', 'cards', 'read', 'conv', 'convs', 'day', 'stats', 'sum', 'sql', 'schema', 'journal', 'diaries',
+                                     'files', 'grep', 'file'])
     p.add_argument('words', nargs='*')
     p.add_argument('--since'); p.add_argument('--until')
     p.add_argument('--who', choices=['me', 'ai']); p.add_argument('--old', action='store_true')
     p.add_argument('--kw'); p.add_argument('--n', type=int, default=30)
     p.add_argument('--before', type=int, default=4); p.add_argument('--after', type=int, default=4)
     p.add_argument('--full', action='store_true'); p.add_argument('--at')
+    p.add_argument('--glob'); p.add_argument('--in', dest='into')
+    p.add_argument('--from', dest='start', type=int, default=1); p.add_argument('--lines', type=int, default=200)
     a = p.parse_args(argv)
     {'msgs': msgs, 'cards': cards_, 'read': read, 'conv': conv, 'convs': convs, 'day': day, 'stats': stats, 'sum': sum_, 'sql': sql, 'schema': schema,
-     'journal': journal_, 'diaries': diaries_}[a.cmd](a)
+     'journal': journal_, 'diaries': diaries_, 'files': files_, 'grep': grep_, 'file': file_}[a.cmd](a)
 
 
 if __name__ == '__main__':

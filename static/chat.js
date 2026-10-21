@@ -37,13 +37,16 @@ function body(text, cites) {
 
 const isJournal = c => (c.conv_id || '').startsWith('journal-');     // Notion 手写日记做的卡（cards.JOURNAL）
 
+// 文件（10-21，localfiles）：c.title 是路径，c.text 是「第几行」，c.date 是引的时候文件的修改日期；没有能跳过去的页面，不给链接
+const isFile = c => c.who === 'file';
+
 function sources(cites) {
   if (!cites.length) return '';
   return `<details class="ch-src"><summary>出处 ${cites.length} 条</summary>${cites.map((c, i) => `
     <div class="ch-src-row" data-n="${i + 1}"><span class="ch-src-n">${i + 1}</span>
-      <span class="ch-src-main"><span class="ch-src-meta">${c.date} · ${isJournal(c) ? '你写的' : c.who === 'me' ? '你说' : 'AI 说'} · ${esc(c.title || '')}</span>
-        ${c.kind === '原话' ? '' : esc(c.text) + ' '}<span class="ch-src-q">「${esc(c.quote)}」</span></span>
-      <a class="ch-go" href="${isJournal(c) ? `/#/day/${c.date}/journal` : `/#/day/${c.date}/conv/${encodeURIComponent(c.conv_id)}/msg/${encodeURIComponent(c.msg_id)}`}">${isJournal(c) ? '去日记' : '去原话'} →</a></div>`).join('')}</details>`;
+      <span class="ch-src-main"><span class="ch-src-meta">${c.date} · ${isFile(c) ? '文件' : isJournal(c) ? '你写的' : c.who === 'me' ? '你说' : 'AI 说'} · ${esc(c.title || '')}</span>
+        ${c.kind === '原话' ? '' : esc(c.text) + ' '}<span class="ch-src-q${isFile(c) ? ' file' : ''}">「${esc(c.quote)}」</span></span>
+      ${isFile(c) ? '' : `<a class="ch-go" href="${isJournal(c) ? `/#/day/${c.date}/journal` : `/#/day/${c.date}/conv/${encodeURIComponent(c.conv_id)}/msg/${encodeURIComponent(c.msg_id)}`}">${isJournal(c) ? '去日记' : '去原话'} →</a>`}</div>`).join('')}</details>`;
 }
 
 // ---------- 怎么查的（10-17，照 claude.ai：查的时候一步一行、带计时；答完折成回答上面一行「查了 N 步 · 用时」，点开看全部） ----------
@@ -58,7 +61,7 @@ const ICON = {
   pen: '<path d="M14.5 5.5l4 4L9 19H5v-4z"/>',
 };
 const KIND_ICON = { msgs: 'search', look: 'search', cards: 'cards', read: 'doc', conv: 'chat', convs: 'chat', sum: 'calc', stats: 'calc',
-  sql: 'calc', schema: 'calc', day: 'day', diaries: 'day', journal: 'pen' };
+  sql: 'calc', schema: 'calc', day: 'day', diaries: 'day', journal: 'pen', files: 'doc', grep: 'search', file: 'doc' };
 const icon = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICON[KIND_ICON[k] || 'search']}</svg>`;
 const asStep = s => typeof s === 'string' ? { k: 'look', t: s.replace(/^🔎\s*/, ''), d: '' } : s;
 const clock = ms => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };

@@ -29,6 +29,7 @@ import days
 import index as idx
 import jobs
 import llm
+import localfiles
 import store
 
 BUDGET_CHARS = 45000          # 送给回答那一步的卡，最多这么多字（Claude Opus 写，一问等值约 $0.2；8 万字是 DeepSeek 时放宽的，Claude 要 $0.68）
@@ -435,7 +436,7 @@ def _answer(question, on_text, thread, effort, again=False):
 DEEP_TTL = 50 * 60                       # 追问在这么久以内就接着上一轮的会话（缓存 1 小时）
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOOK = f'{sys.executable} {os.path.join(HERE, "look.py")}'
-DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料是他和 AI 的全部聊天记录（2025-07 起，几千个窗口）和从里面做出来的证据卡。今天是 {today}。
+DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料是他和 AI 的全部聊天记录（2025-07 起，几千个窗口）和从里面做出来的证据卡，另外能只读看他电脑上 {roots} 里的文件。今天是 {today}。
 
 查资料只有一个办法：用 Bash 运行 `{look} <命令>`（别的命令都会被拒）。命令：
   msgs  <关键词> [词…] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--who me|ai] [--old] [--n 30]   搜原始聊天（几个词 = 都要出现），默认最新的在前；--old 最早的在前
@@ -450,6 +451,9 @@ DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料�
   diaries [--since …] [--until …] [--full]                                              按日期读 Ephemeris 写的日记，一天一段（看一段时间过得怎样很快）
   schema                                                                                 库里有哪些表、列、各是什么（messages / conversations / cards / diaries / journal / checkins / themes …）
   sql   "<一条 SELECT 或 WITH>" [--n 30]                                                 自己写只读 SQL：统计、加总、分组、按条件筛，能算准数（改不了库，最多 500 行，60 秒）
+  files <文件夹> [--glob *.log] [--n 30]                                                 他电脑上的文件夹里有什么（新改的在前）；--glob 往下一层层找文件名
+  grep  <词> [词…] --in <文件或文件夹> [--n 30]                                          在文件里搜（同一行几个词都出现，不分大小写）；文件夹越小越快
+  file  <文件> [--from 1] [--lines 200] [--at 词]                                        按行读一个文字文件（一次最多 400 行）；--at 跳到词第一次出现的地方
 
 怎么查：
 - 问总量、规模、一共多少、哪个月聊得最多 → stats（给的是准数，别拿关键词搜索的命中数去估）。
@@ -465,12 +469,15 @@ DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料�
 - 一条消息几千上万字的（贴进来的笔记、网页、旧聊天、写好的日记）：read 默认只给开头 4000 字，命中在后面时 msgs 会写「在第 N 字处」，
   用 read <id> --at <词> 直接跳过去，别用 --full（几万字塞进来很贵，太长还会被截掉）。标「我（N 字长文，可能是贴进来的）」的，读了再判断是不是他自己的话。
 - 窗口标题写「〔小结〕…」的是原本没标题的窗口（Gemini 导出的），标题是从小结取的。
+- 聊天里提到的文件（日志、文书、代码、导出的东西）要看原文、要原句、要核对数，就去文件里查：路径聊天里常有，先 msgs 找；
+  路径带空格就用引号括起来。没有路径就 files 从上面那几个目录往下找（--glob 按文件名），再 grep / file --at 定位，别一次读整个大文件。
+  文件是现在的样子，可能后来被改过、覆盖过：拿修改时间对一下是不是聊天里说的那一版，对不上要说。文件只读，看不了的（隐藏文件、密钥、数据库）就别再试。
 - 每次只跑一条完整的命令（照上面的写法原样写全路径）：不要用 shell 变量、不要用 ; && | 把几条连起来——那样会被拒。
 - 别怕查得多、想得久：宁可多搜几种说法、多读几段前后文，把事情弄准、弄全再答；要算数的问题更要把数算准。（10-17：思考不要限制）
 
 回答：
 - 只根据查到的内容。查不到就直说没查到，并说查了哪些。
-- 有依据的话后面标出处：[[m:消息id]] 或 [[c:卡id]]，照抄工具输出里的记号，不要编。
+- 有依据的话后面标出处：[[m:消息id]]、[[c:卡id]]，或者文件 [[f:路径:行号]] / [[f:路径:起-止]]，照抄工具输出里的记号（文件的行号按 file 输出左边的数），不要编。
 - 最后只输出给他看的回答正文，不要讲你是怎么查的。
 
 画图（可选）：
@@ -492,8 +499,8 @@ DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料�
 问题：{question}
 """
 # 没有 Claude 时（只有 DeepSeek 的电脑，2026-10-14）深挖走 llm.deepseek_agent：同一套 look.py 命令，包成一个叫 look 的工具
-LOOK_CMDS = ('msgs', 'cards', 'read', 'conv', 'convs', 'sum', 'day', 'stats', 'journal', 'diaries', 'schema', 'sql')
-LOOK_TOOL = {'name': 'look', 'description': '查他的聊天记录、证据卡、日记。command 填一条 look 命令（不带 look 本身），比如 '
+LOOK_CMDS = ('msgs', 'cards', 'read', 'conv', 'convs', 'sum', 'day', 'stats', 'journal', 'diaries', 'schema', 'sql', 'files', 'grep', 'file')
+LOOK_TOOL = {'name': 'look', 'description': '查他的聊天记录、证据卡、日记，也能只读看他电脑上的文件（files / grep / file）。command 填一条 look 命令（不带 look 本身），比如 '
              '「msgs 申请 --old」「cards 我那阵子状态怎么样 --since 2026-03-01」「sql "SELECT COUNT(*) FROM messages"」',
              'parameters': {'type': 'object', 'properties': {'command': {'type': 'string', 'description': '一条命令'}},
                             'required': ['command']}}
@@ -515,6 +522,10 @@ def run_look(args):
     return (r.stdout or '') + (('\n' + r.stderr[-2000:]) if r.returncode else '') or '（没有输出）'
 
 
+def _roots():
+    return '、'.join(localfiles.show(r) for r in localfiles.roots())
+
+
 def deep_prompt_deepseek(**kw):
     """DEEP_PROMPT 的 DeepSeek 版：查资料的办法从「用 Bash 跑 look.py」换成「调工具 look」，别的规矩一样。"""
     return DEEP_PROMPT.format(look='look', **kw) \
@@ -528,7 +539,7 @@ FOLLOW_PROMPT = """追问：{question}
 RESUME_PROMPT = """刚才你查到一半（或者写回答写到一半）断了：网断了或者服务重启了，回答没送到。
 
 前面查到的都还在，接着用；还缺的再查，别从头查一遍。规矩跟刚才一样：只根据查到的回答，标 [[m:…]] / [[c:…]]；最后只输出回答正文（完整的一份，不是只写剩下的）；还是像聊天那样说，别列流水账；画图也照刚才的规矩。"""
-CITE_ANY = re.compile(r'\[\[\s*([mc]):([^\]\s]+)\s*\]\]')
+CITE_ANY = re.compile(r'\[\[\s*(?:([mc]):([^\]\s]+)|(f):([^\]]+?))\s*\]\]')     # 文件路径里可能有空格
 
 
 def _deep_cites(text):
@@ -536,7 +547,7 @@ def _deep_cites(text):
     cites, seen = [], {}
 
     def rep(m):
-        kind, ref = m.group(1), m.group(2).strip()
+        kind, ref = m.group(1) or m.group(3), (m.group(2) or m.group(4)).strip()
         key = f'{kind}:{ref}'
         if key not in seen:
             seen[key] = _snapshot(kind, ref)
@@ -547,6 +558,8 @@ def _deep_cites(text):
 
 
 def _snapshot(kind, ref):
+    if kind == 'f':
+        return _file_snapshot(ref)
     if kind == 'c':
         c = card(ref)
         return c and {'id': f'c:{ref}', **{k: c[k] for k in ('date', 'who', 'kind', 'text', 'quote', 'conv_id', 'msg_id', 'title')}}
@@ -560,9 +573,29 @@ def _snapshot(kind, ref):
             'conv_id': m['conv_id'], 'msg_id': m['id'], 'title': m['title']}
 
 
+def _file_snapshot(ref):
+    """f:路径:行号 / f:路径:起-止 → 那几行的快照（文件以后改了、删了，回答照样看得到当时引的）。"""
+    m = re.match(r'(.+):(\d+)(?:-(\d+))?$', ref)
+    if not m:
+        return None
+    a = int(m.group(2))
+    b = max(a, min(int(m.group(3) or a), a + 40))
+    try:
+        rows, _ = localfiles.lines(m.group(1), a, b - a + 1)
+        real = localfiles.resolve(m.group(1))
+    except (localfiles.Denied, OSError, ValueError):
+        return None
+    if not rows:
+        return None
+    t = '\n'.join(line for _, line in rows).strip()
+    return {'id': f'f:{ref}', 'date': localfiles.mdate(real)[:10], 'who': 'file', 'kind': '文件',
+            'text': f"第 {a} 行" if a == b else f"第 {a}-{b} 行", 'quote': t[:600] + ('…' if len(t) > 600 else ''),
+            'conv_id': None, 'msg_id': None, 'title': localfiles.show(real)}
+
+
 STEP_LABEL = {'msgs': '搜原文', 'cards': '翻证据卡', 'read': '读原话前后', 'conv': '看一个窗口', 'convs': '找聊过的窗口',
               'sum': '加字数', 'day': '看那天', 'stats': '看总量', 'journal': '翻手写日记', 'diaries': '读日记',
-              'schema': '看库里有哪些表', 'sql': '自己算'}
+              'schema': '看库里有哪些表', 'sql': '自己算', 'files': '看文件夹', 'grep': '在文件里搜', 'file': '读文件'}
 _TABLE_NAME = {'messages': '聊天记录', 'conversations': '窗口', 'cards': '证据卡', 'diaries': '日记', 'journal': '手写日记',
                'checkins': '打卡', 'themes': '主题', 'card_convs': '窗口小结'}
 
@@ -694,13 +727,13 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
         return {'answer': body, 'cites': cites, 'deep': True, 'thread': thread, 'trace': trace, **({'stopped': True} if stopped else {})}
 
     if not llm.claude_on():                                         # 只有 DeepSeek：它自己调 look 工具查，没有会话可接（追问靠前面的对话记录）
-        prompt = deep_prompt_deepseek(name=idx.who(), today=days.today(), history=_history_text(turns), question=question)
+        prompt = deep_prompt_deepseek(name=idx.who(), today=days.today(), roots=_roots(), history=_history_text(turns), question=question)
         try:
             text = llm.deepseek_agent(prompt, LOOK_TOOL, run_look, on_event=say, purpose='qa-deep')
         except llm.Cancelled:
             return done(*_deep_cites(''.join(buf).strip()), stopped=True)
         return done(*_deep_cites(text))
-    fresh = DEEP_PROMPT.format(name=idx.who(), today=days.today(), look=LOOK, history=_history_text(turns), question=question)
+    fresh = DEEP_PROMPT.format(name=idx.who(), today=days.today(), roots=_roots(), look=LOOK, history=_history_text(turns), question=question)
     first = RESUME_PROMPT if lost else FOLLOW_PROMPT.format(question=question) if sid else fresh
     try:
         try:

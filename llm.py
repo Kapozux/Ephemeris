@@ -676,12 +676,15 @@ def uncancel():
 def _claude_events(args, prompt, on_event, timeout):
     """跑 claude -p --output-format stream-json，边读边报：on_event(kind, text)
       kind = 'message'（新的一段回复开始）| 'delta'（一小段字）| 'tool'（它要跑的命令）| 'text'（一整段话写完了）
+           | 'session'（一开始就报会话 id：中途断了也知道接哪个会话）
     返回最后那个 result 事件（dict）。测试时 _claude_runner 返回 {'events': [...], **result}。"""
     def seen(ev):
         if not on_event:
             return
         t = ev.get('type')
-        if t == 'stream_event':
+        if t == 'system' and ev.get('subtype') == 'init' and ev.get('session_id'):
+            on_event('session', ev['session_id'])
+        elif t == 'stream_event':
             e = ev.get('event') or {}
             if e.get('type') == 'message_start':
                 on_event('message', '')

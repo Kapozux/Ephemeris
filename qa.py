@@ -327,6 +327,7 @@ def _say(thread, role, text, cites=(), sid=None, trace=None, when=None):
         store.run("UPDATE qa_threads SET title = CASE WHEN title = '' THEN ? ELSE title END, updated=? WHERE id=?",
                   ' '.join(text.split())[:40], now.strftime('%Y-%m-%dT%H:%M:%S'), thread)   # 跟 new_thread 同一个格式（不带时区），才比得了先后
     _mirror(qid, thread, role, text, now)
+    return qid
 
 
 def _mirror(qid, thread, role, text, when):
@@ -524,6 +525,9 @@ def deep_prompt_deepseek(**kw):
 FOLLOW_PROMPT = """追问：{question}
 
 （规矩跟刚才一样：追问也照样去查——问的是新的事、或者前面查到的不够，就接着用 look.py 查，别只凭前面的印象答；只根据查到的回答，标 [[m:…]] / [[c:…]]；最后只输出回答正文；还是像聊天那样说，别列流水账；画图也照刚才的规矩。）"""
+RESUME_PROMPT = """刚才你查到一半（或者写回答写到一半）断了：网断了或者服务重启了，回答没送到。
+
+前面查到的都还在，接着用；还缺的再查，别从头查一遍。规矩跟刚才一样：只根据查到的回答，标 [[m:…]] / [[c:…]]；最后只输出回答正文（完整的一份，不是只写剩下的）；还是像聊天那样说，别列流水账；画图也照刚才的规矩。"""
 CITE_ANY = re.compile(r'\[\[\s*([mc]):([^\]\s]+)\s*\]\]')
 
 
@@ -645,8 +649,13 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
     sid = last['sid'] if not fresh and last and last['sid'] and \
         time.time() - datetime.fromisoformat(last['ts']).timestamp() < DEEP_TTL else None
     turns = _turns(thread, again)
-    if not again:
-        _say(thread, 'user', question)
+    # 问题那一行的 sid = 这次查到一半的会话（一开始就记上，答完清掉）。重问时还在 = 上次断了（网断了 / 服务重启了，10-21）：
+    # 接着那个会话写，查过的不用再查一遍（那次查了 30 分钟、129 步，写回答时断网）
+    if again:
+        q = store.one("SELECT id, sid FROM qa_chat WHERE thread_id=? AND role='user' AND replaced IS NULL ORDER BY id DESC LIMIT 1", thread) or {}
+        qid, lost = q.get('id'), q.get('sid')
+    else:
+        qid, lost = _say(thread, 'user', question), None
     buf, steps, held, t0 = [], [], [], time.time()
 
     def add(step):
@@ -673,11 +682,15 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
             buf.append(text)
             if on_text:
                 on_text(text)
+        elif kind == 'session' and qid:
+            store.run('UPDATE qa_chat SET sid=? WHERE id=?', text, qid)
 
     def done(body, cites, stopped=False, sid=None):
         """存下回答，连同这次怎么查的（步骤 + 用时，聊天页回答上面那行「查了 N 步 · 用时」点开看）。"""
         trace = {'steps': steps, 'secs': round(time.time() - t0)}
         _say(thread, 'assistant', body, cites, sid, trace)
+        if qid:                                                     # 答上了：之后「重新跑」该从头查，别接这个会话
+            store.run('UPDATE qa_chat SET sid=NULL WHERE id=?', qid)
         return {'answer': body, 'cites': cites, 'deep': True, 'thread': thread, 'trace': trace, **({'stopped': True} if stopped else {})}
 
     if not llm.claude_on():                                         # 只有 DeepSeek：它自己调 look 工具查，没有会话可接（追问靠前面的对话记录）
@@ -688,14 +701,14 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
             return done(*_deep_cites(''.join(buf).strip()), stopped=True)
         return done(*_deep_cites(text))
     fresh = DEEP_PROMPT.format(name=idx.who(), today=days.today(), look=LOOK, history=_history_text(turns), question=question)
+    first = RESUME_PROMPT if lost else FOLLOW_PROMPT.format(question=question) if sid else fresh
     try:
         try:
-            text, new_sid = llm.claude_agent(FOLLOW_PROMPT.format(question=question) if sid else fresh, LOOK,
-                                             session=sid, on_event=say, purpose='qa-deep', effort=effort)
+            text, new_sid = llm.claude_agent(first, LOOK, session=lost or sid, on_event=say, purpose='qa-deep', effort=effort)
         except llm.Cancelled:
             raise
         except RuntimeError:
-            if not sid:
+            if not (lost or sid):
                 raise
             text, new_sid = llm.claude_agent(fresh, LOOK, on_event=say, purpose='qa-deep', effort=effort)    # 会话接不上：从头问
     except llm.Cancelled:                                           # 写到一半点了停止：留下写出来的那段

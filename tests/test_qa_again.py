@@ -39,6 +39,46 @@ class Again(unittest.TestCase):
         self.assertEqual(store.one("SELECT COUNT(*) n FROM messages WHERE source='ask' AND role='human' AND text='我第一次写代码是什么时候'")['n'], 1)
         self.assertNotIn('问：我第一次写代码', self.prompts[0])                    # 这次的问题不当前文
 
+    def test_again_resumes_lost_session(self):
+        """10-21：查了 30 分钟、写回答时断网。重问接着那个会话写，不从头查。"""
+        t = qa.new_thread()
+        calls = []
+        init = {'type': 'system', 'subtype': 'init', 'session_id': 'lost1'}
+
+        def broken(args, stdin):
+            calls.append(args)
+            return {'is_error': True, 'result': "API Error: Can't reach the API server", 'events': [init]}
+        llm.use_claude(broken)
+        with self.assertRaises(RuntimeError):
+            qa.answer_deep('我那个项目怎么来的', thread=t)
+        self.assertEqual(store.one("SELECT sid FROM qa_chat WHERE thread_id=? AND role='user'", t)['sid'], 'lost1')
+
+        def ok(args, stdin):
+            calls.append(args)
+            self.prompts.append(stdin)
+            return {'result': '答上了。', 'session_id': 'lost1', 'events': [init] + deltas('答上了。')}
+        llm.use_claude(ok)
+        qa.answer_deep('我那个项目怎么来的', thread=t, again=True)
+        self.assertIn('lost1', calls[-1][calls[-1].index('--resume') + 1])
+        self.assertIn('断了', self.prompts[-1])
+        self.assertIsNone(qa.unanswered(t))
+        self.assertIsNone(store.one("SELECT sid FROM qa_chat WHERE thread_id=? AND role='user'", t)['sid'])   # 答上了就清掉
+
+    def test_redo_after_answer_starts_fresh(self):
+        """答上了的问题点「重新跑」：从头查，不接那次的会话。"""
+        t = qa.new_thread()
+        calls = []
+
+        def ok(args, stdin):
+            calls.append(args)
+            return {'result': '答上了。', 'session_id': 'done1',
+                    'events': [{'type': 'system', 'subtype': 'init', 'session_id': 'done1'}] + deltas('答上了。')}
+        llm.use_claude(ok)
+        qa.answer_deep('问一句', thread=t)
+        q, again = qa.rewind(t)
+        qa.answer_deep(q, thread=t, again=again, fresh=True)
+        self.assertNotIn('--resume', calls[-1])
+
     def test_route_again_needs_dangling_question(self):
         c = appmod.app.test_client()
         other = qa.new_thread()

@@ -3,6 +3,7 @@
     start(name, fn, *a, **fresh) → 开线程跑，True；已经在跑就不开，False
     run(name, fn, *a, **fresh)   → 在当前线程跑，返回 fn 的结果；已经在跑返回 None；出错照样往上抛
     running(name)                → bool
+    names(prefix)                → 跑过的、名字以 prefix 开头的那些（「问」每段对话一个：qa:<对话>）
     get(name, **idle)            → 状态快照（给 jsonify）；从没跑过就是 running/error/started/finished + idle 那些字段
     state(name)                  → 活的状态 dict（要从外面改它时用，比如「停下」）
 
@@ -35,6 +36,11 @@ _IDLE = {'running': False, 'error': None, 'started': None, 'finished': None}
 def get(name, **idle):
     with _lock:
         return {**_IDLE, **idle, **_jobs.get(name, {})}
+
+
+def names(prefix):
+    with _lock:
+        return [n for n in _jobs if n.startswith(prefix)]
 
 
 def running(name):

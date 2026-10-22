@@ -96,14 +96,14 @@ def api_window_day(conv_id, date):
 def api_qa():
     """「问」那一栏：证据卡做到哪了（还差几天、估价、正在做的进度）+ 对话记录。"""
     thread = request.args.get('thread', type=int) or qa.current()
-    return jsonify({'cards': cards.status(), 'history': qa.history(thread=thread, versions=True), 'live': qa.live(),
-                    'thread': thread, 'threads': qa.threads()})
+    return jsonify({'cards': cards.status(), 'history': qa.history(thread=thread, versions=True), 'live': qa.live(thread),
+                    'busy': qa.busy(), 'thread': thread, 'threads': qa.threads()})
 
 
 @bp.route('/api/qa/live')
 def api_qa_live():
-    """正在问的那一个：查找进度、写到哪了、写完的结果（前端 / ask.py 每半秒多看一眼，轻量）。"""
-    return jsonify(qa.live())
+    """这段对话正在问的那一个：查找进度、写到哪了、写完的结果（前端 / ask.py 每半秒多看一眼，轻量）；busy 是哪几段在答。"""
+    return jsonify({**qa.live(request.args.get('thread', type=int)), 'busy': qa.busy()})
 
 
 @bp.route('/api/qa/ask', methods=['POST'])
@@ -113,7 +113,7 @@ def api_qa_ask():
     q = ((qa.unanswered(body.get('thread')) if again and body.get('thread') else body.get('question')) or '').strip()
     redo = body.get('redo')                            # 'retry' 重新跑最后一问 / 'edit' 改了最后一问再跑（问题在 question 里）
     if redo in ('retry', 'edit') and body.get('thread'):
-        if qa.live().get('running'):
+        if qa.live(body['thread']).get('running'):
             return jsonify({'error': '上一个问题还没答完'}), 409
         got = qa.rewind(body['thread'], q if redo == 'edit' else None) if redo == 'retry' or q else None
         if not got:
@@ -127,13 +127,14 @@ def api_qa_ask():
     if effort and effort not in llm.EFFORTS:
         return jsonify({'error': f'不认识的 effort：{effort}'}), 400
     # 后台问、边写边看：进度在 /api/qa/live
-    return jsonify({'started': qa.start_ask(q, body.get('thread'), model, effort, again, fresh=bool(redo)), 'live': qa.live()})
+    thread = body.get('thread') or qa.current()
+    return jsonify({'started': qa.start_ask(q, thread, model, effort, again, fresh=bool(redo)), 'live': qa.live(thread)})
 
 
 @bp.route('/api/qa/stop', methods=['POST'])
 def api_qa_stop():
-    """停下正在写的回答（聊天页的停止按钮）：写出来的那段留在对话里。"""
-    return jsonify({'stopped': qa.stop()})
+    """停下这段对话正在写的回答（聊天页的停止按钮）：写出来的那段留在对话里。"""
+    return jsonify({'stopped': qa.stop((request.get_json(silent=True) or {}).get('thread'))})
 
 
 @bp.route('/chat')

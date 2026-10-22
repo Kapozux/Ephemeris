@@ -1,7 +1,7 @@
 // 聊天页（/chat、/chat/<id>）：「问」单独一个全屏页，照 claude.ai 的样子（2026-10-13 用户要的）。
-// 后端跟浮层「问」栏是同一套：/api/qa（对话列表 + 这段的记录）、/api/qa/ask（后台问）、/api/qa/live（写到哪了）、/api/qa/stop（停下）。
+// 后端跟浮层「问」栏是同一套：/api/qa（对话列表 + 这段的记录）、/api/qa/ask（后台问）、/api/qa/live?thread=（这段写到哪了）、/api/qa/stop（停下这段）。每段对话各答各的（10-22）。
 // 一段对话一个网址；/chat 是还没开的新对话（问第一句时才建）。写的时候发送键变成圆圈停止键，停下后写出来的那段留着。
-// 别的对话在写时（一次只问一个）：发送键禁用，输入框上面一条提示「「标题」还在写… 去看看 · 停下」。
+// 每段对话各答各的（10-22）：别的对话在写不挡这里问，左边列表上在答的那几段带小圆点。
 // 左下角「N 张卡」点开是做卡的小弹层（进度、做上、停下）；老的浮层「问」栏 10-13 删了，做卡只在这里。
 // 右下角「Opus 5.5 High」点开是模型菜单（10-14）：选的模型和 effort 记在本机浏览器，每次问都带上（/api/qa/ask 的 model / effort）。
 import { ask, usd } from './js/util.js';
@@ -9,7 +9,7 @@ import { pull, place, mount } from './viz.js';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const B = document.body;
-let THREAD = +B.dataset.thread || null, BUSY = false, POLL = null, LIVE_THREAD = null, THREADS = [], CARDS = null, CARD_POLL = null;
+let THREAD = +B.dataset.thread || null, BUSY = false, POLL = null, BUSY_THREADS = [], THREADS = [], CARDS = null, CARD_POLL = null;
 // 模型和 effort（右下角的菜单，照 claude.ai；10-14：自己选，Fable 太贵不放）。列表来自后端 llm.choices()，第一个是默认：
 // 有 Claude 列 Claude 的，只有 DeepSeek 列 DeepSeek 的（那时没有 Effort 这一项，EFFORTS 是空的）
 const MODELS = [...document.querySelectorAll('#chSubModels [data-model]')].map(b => [b.dataset.model, b.textContent.trim()]);
@@ -181,7 +181,7 @@ async function turnAct(b) {
     turn.outerHTML = turnBlock(t, +turn.dataset.i);
     return;
   }
-  if (BUSY || other()) return;
+  if (BUSY) return;
   if (b.classList.contains('ch-retry')) {
     VIEW.delete(t.q.id);
     LIVE_LAST = true;
@@ -206,7 +206,7 @@ function editTurn(turn, t) {
   const cancel = () => { turn.outerHTML = turnBlock(t, +turn.dataset.i); };
   const save = () => {
     const v = box.value.trim();
-    if (!v || BUSY || other()) return;
+    if (!v || BUSY) return;
     VIEW.delete(t.q.id);
     LIVE_LAST = true;
     turn.innerHTML = qHtml(v) + `<div class="ch-ans"><div class="ch-a ch-wait">${waitHtml({ deep: true })}</div></div>`;
@@ -264,19 +264,7 @@ function setBusy(on) {
   $('#chSend').title = on ? '停止' : '发送（回车）';
   syncSend();
 }
-const other = () => !!LIVE_THREAD && LIVE_THREAD !== THREAD;      // 别的对话正在写
-function syncSend() { $('#chSend').disabled = !BUSY && (other() || !$('#chInput').value.trim()); }
-
-// 别的对话在写：提示条（标题、去看看、停下）
-function renderOther() {
-  const bar = $('#chOther');
-  if (!other()) { bar.hidden = true; return; }
-  const t = THREADS.find(x => x.id === LIVE_THREAD);
-  bar.innerHTML = `<span class="ch-dot"></span><span class="ch-other-t">「${esc((t && t.title) || '上一段对话')}」还在写…</span>`
-    + `<a href="/chat/${LIVE_THREAD}" data-act="look">去看看</a><span class="ch-other-sep">·</span><a href="#" data-act="stop">停下</a>`;
-  bar.hidden = false;
-  syncSend();
-}
+function syncSend() { $('#chSend').disabled = !BUSY && !$('#chInput').value.trim(); }
 
 function label(list, id) { return (list.find(x => x[0] === id) || [id, id])[1]; }
 
@@ -322,7 +310,7 @@ function renderThreads(list) {
   document.title = (cur ? cur.title + ' · ' : '') + '问 · Ephemeris';
   if (EDITING) return;                                      // 正在改名：别把输入框冲掉，改完再画
   const row = t => `<div class="ch-trow${t.id === THREAD ? ' on' : ''}" data-id="${t.id}">
-    <button class="ch-thread${t.id === LIVE_THREAD ? ' live' : ''}" data-id="${t.id}" title="${esc(t.title)}">${esc(t.title || '新对话')}</button>
+    <button class="ch-thread${BUSY_THREADS.includes(t.id) ? ' live' : ''}" data-id="${t.id}" title="${esc(t.title)}">${esc(t.title || '新对话')}</button>
     <button type="button" class="ch-tmore" data-id="${t.id}" aria-label="更多" aria-haspopup="menu">${DOTS}</button></div>`;
   const pinned = list.filter(t => t.pinned), rest = list.filter(t => !t.pinned);
   $('#chThreads').innerHTML = (pinned.length ? '<div class="ch-sec">置顶</div>' + pinned.map(row).join('') : '')
@@ -442,12 +430,14 @@ async function load(thread) {
   const r = await fetch('/api/qa' + (THREAD ? `?thread=${THREAD}` : '')).then(r => r.json()).catch(() => null);
   if (!r) { $('#chLog').innerHTML = '<div class="ch-a bad">连不上 Ephemeris（5055）。</div>'; return; }
   renderCards(r.cards);
-  LIVE_THREAD = r.live && r.live.running ? r.live.thread : null;
+  clearTimeout(POLL);
+  BUSY_THREADS = r.busy || [];
   renderThreads(r.threads);
   const hist = THREAD ? r.history : [];
-  B.classList.toggle('ch-empty', !hist.length && !(LIVE_THREAD && LIVE_THREAD === THREAD));
+  // 每段对话各答各的（10-22）：这段在答就接着显示，别的段在答不挡这里问
+  LIVE_LAST = !!(THREAD && r.live && r.live.running && r.live.thread === THREAD);
+  B.classList.toggle('ch-empty', !hist.length && !LIVE_LAST);
   // 问了没答上的（问到一半服务重启了 / 出错了）：问题下面一行说明；是最后一轮的话带「重新问」（turnBlock 里）
-  LIVE_LAST = !!(LIVE_THREAD && LIVE_THREAD === THREAD);
   TURNS = turnsOf(hist);
   renderLog();
   if (LIVE_LAST) {                                         // 关了页面再打开时还在写：接着显示
@@ -456,10 +446,9 @@ async function load(thread) {
     setBusy(true);
     poll();
   } else {
-    setBusy(false);                                        // 别的对话在写：这里不能问（一次只问一个），上面一条提示能去看、能停
-    if (LIVE_THREAD) poll();
+    setBusy(false);
+    if (BUSY_THREADS.length) poll(3000);                   // 别的对话在答：隔几秒看一眼，答完左边的小圆点收起
   }
-  renderOther();
   scrollEnd(true);
 }
 
@@ -469,48 +458,54 @@ function go(thread, replace) {
   load(thread);
 }
 
-function poll() {
+function poll(ms = 500) {
   clearTimeout(POLL);
+  const mine = THREAD;
   POLL = setTimeout(async () => {
-    const d = await fetch('/api/qa/live').then(r => r.json()).catch(() => null);
-    if (!d) return poll();
+    const d = await fetch('/api/qa/live' + (THREAD ? `?thread=${THREAD}` : '')).then(r => r.json()).catch(() => null);
+    if (THREAD !== mine) return;                            // 中途换了对话：load() 自己会接着看
+    if (!d) return poll(ms);
+    if (`${d.busy}` !== `${BUSY_THREADS}`) {                // 哪段开始 / 答完了：左边列表的小圆点、标题、顺序跟着变
+      BUSY_THREADS = d.busy || [];
+      const r = await fetch('/api/qa' + (THREAD ? `?thread=${THREAD}` : '')).then(r => r.json()).catch(() => null);
+      renderThreads(r ? r.threads : THREADS);
+    }
+    if (!LIVE_LAST) return BUSY_THREADS.length ? poll(3000) : undefined;
     const wait = $('#chLog .ch-wait');
     if (d.running) {
       // 有新的一步 / 新写的字才重画（计时自己走），不然每半秒整块重画、新的一步的淡入动画也会一直重播
       const key = `${(d.steps || []).length}|${(d.partial || '').length}`;
-      if (wait && d.thread === THREAD && wait.dataset.key !== key) { wait.dataset.key = key; wait.innerHTML = waitHtml(d); scrollEnd(); }
-      if (d.thread !== LIVE_THREAD) { LIVE_THREAD = d.thread; renderOther(); }
+      if (wait && wait.dataset.key !== key) { wait.dataset.key = key; wait.innerHTML = waitHtml(d); scrollEnd(); }
       return poll();
     }
     if (wait) {
       wait.outerHTML = d.error || !d.result ? `<div class="ch-a bad">没答上：${esc(d.error || '没有结果')}</div>`
         : aHtml(d.result.answer, d.result.cites, d.result.stopped, d.result.trace);
     }
-    LIVE_THREAD = null;
     setBusy(false);
-    renderOther();
     $('#chInput').focus();
     LIVE_LAST = false;
     const r = await fetch('/api/qa' + (THREAD ? `?thread=${THREAD}` : '')).then(r => r.json()).catch(() => null);
-    if (r) { renderThreads(r.threads); waitTitle(r.thread); }   // 新对话的标题、顺序跟着变
+    if (r) { BUSY_THREADS = r.busy || []; renderThreads(r.threads); waitTitle(r.thread); }   // 新对话的标题、顺序跟着变
     // 写完了：按存下来的重画这一段（问题下面那排按钮、翻版本），停在原来滚到的地方；出错的那句「没答上」先留着给你看
-    if (r && wait && !d.error && d.thread === THREAD) {
+    if (r && wait && !d.error) {
       const s = $('#chScroll'), top = s.scrollTop;
       TURNS = turnsOf(r.history);
       renderLog();
       s.scrollTop = top;
     }
-  }, 500);
+    if (BUSY_THREADS.length) poll(3000);
+  }, ms);
 }
 
 async function send(e) {
   e.preventDefault();
   if (BUSY) {                                               // 写的时候这个键是「停止」
-    await fetch('/api/qa/stop', { method: 'POST' }).catch(() => null);
+    await fetch('/api/qa/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ thread: THREAD }) }).catch(() => null);
     return;
   }
   const q = $('#chInput').value.trim();
-  if (!q || other()) return;
+  if (!q) return;
   if (!THREAD) {                                            // 新对话：问第一句时才建
     const r = await fetch('/api/qa/new', { method: 'POST' }).then(r => r.json()).catch(() => null);
     if (!r) return;
@@ -532,7 +527,10 @@ async function launch(body, failed) {
   const r = await fetch('/api/qa/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...body, thread: THREAD, model: MODEL, effort: EFFORTS.length ? EFFORT : null }) }).then(r => r.json()).catch(() => ({ error: '连不上 Ephemeris' }));
   if (!r.error && !r.started) r.error = '上一个问题还没答完';
-  if (!r.error) { LIVE_THREAD = THREAD; return poll(); }
+  if (!r.error) {
+    if (!BUSY_THREADS.includes(THREAD)) { BUSY_THREADS = [...BUSY_THREADS, THREAD]; renderThreads(THREADS); }
+    return poll();
+  }
   $('#chLog .ch-wait').outerHTML = `<div class="ch-a bad">没答上：${esc(r.error)}</div>`;
   failed?.();
   setBusy(false);
@@ -571,7 +569,7 @@ $('#chTMenu').addEventListener('click', async e => {
 $('#chLog').addEventListener('click', e => {
   const again = e.target.closest('.ch-lost-go');
   if (again) {
-    if (BUSY || other()) return;
+    if (BUSY) return;
     LIVE_LAST = true;
     again.closest('.ch-lost').outerHTML = `<div class="ch-a ch-wait">${waitHtml({ deep: true })}</div>`;
     launch({ again: true });
@@ -586,13 +584,6 @@ $('#chLog').addEventListener('click', e => {
   d.open = true;
   a.querySelectorAll('.ch-src-row').forEach(x => x.classList.toggle('hl', x.dataset.n === sup.dataset.n));
   a.querySelector(`.ch-src-row[data-n="${sup.dataset.n}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-});
-$('#chOther').addEventListener('click', e => {
-  const a = e.target.closest('a[data-act]');
-  if (!a) return;
-  e.preventDefault();
-  if (a.dataset.act === 'look') go(LIVE_THREAD);
-  else fetch('/api/qa/stop', { method: 'POST' }).catch(() => null);     // 停下后 poll 看到写完，提示条自己收起
 });
 $('#chCards').addEventListener('click', e => { e.stopPropagation(); togglePop(); });
 $('#chModel').addEventListener('click', e => { e.stopPropagation(); toggleMenu(); });

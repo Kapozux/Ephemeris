@@ -108,11 +108,12 @@ def ask(q):
         if r.get('error') or not r.get('started'):
             print(f"\n没开始：{r.get('error') or '上一个问题还没答完'}\n")
             return
+        thread = r['live']['thread']                     # 服务器定下的那段（没给就是最近那段）：只看它的进度
         steps = printed = 0
         shown, nums = '', {}
         while True:                                      # 边写边打：查找进度一行一行，回答一个字一个字
             time.sleep(0.4)
-            d = _get('/api/qa/live')
+            d = _get(f'/api/qa/live?thread={thread}')
             for s in d['steps'][steps:]:                 # 一步：{k, t, d}（qa._step）；它中途说的话（say）上面已经流出来了
                 if isinstance(s, dict) and s.get('k') != 'say':
                     print(f"  · {s['t']}" + (f"：{s['d']}" if s.get('d') else ''), flush=True)

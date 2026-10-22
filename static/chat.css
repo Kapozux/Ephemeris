@@ -222,12 +222,6 @@ sup .ch-cite:hover { color: var(--text); }
 /* ---- 输入框 ---- */
 .ch-composer { flex: none; padding: 0 16px 10px; }
 /* 别的对话在写：输入框上面一条 */
-.ch-other { max-width: 760px; margin: 0 auto 8px; display: flex; align-items: center; gap: 8px; padding: 0 6px; font-size: 13px; color: var(--muted); }
-.ch-other .ch-dot { margin-right: 0; align-self: center; }
-.ch-other-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ch-other a { flex: none; color: var(--text); text-decoration: none; border-bottom: 1px solid var(--line2); }
-.ch-other a:hover { border-color: var(--text); }
-.ch-other-sep { color: var(--faint); }
 .ch-box { max-width: 760px; margin: 0 auto; background: var(--box); border: 1px solid var(--line2); border-radius: 20px;
   padding: 14px 14px 10px 18px; box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 18px rgba(0,0,0,.05); }
 .ch-box:focus-within { border-color: var(--faint); }

@@ -784,7 +784,9 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
     return done(*_deep_cites(text), sid=new_sid)
 
 
-QA_JOB = 'qa'
+def _job(thread):
+    """每段对话一个位子（10-22）：同一段同一时间只答一个，不同段各答各的。"""
+    return f'qa:{thread}'
 
 
 def can_dig():
@@ -794,7 +796,7 @@ def can_dig():
 
 def start_ask(question, thread=None, model=None, effort=None, again=False, fresh=False):
     """后台问（一两分钟；只有 Gemini 时凭卡答，十来秒）。前端 / ask.py 轮询 live()：steps 是查找进度，partial 是正在写的回答，
-    result 是写完、出处认好的最终版；问答照样记进 history()。同一时间只问一个。"""
+    result 是写完、出处认好的最终版；问答照样记进 history()。每段对话同一时间只问一个，不同对话可以同时问。"""
     thread = thread or current()
 
     deep = can_dig()
@@ -809,18 +811,24 @@ def start_ask(question, thread=None, model=None, effort=None, again=False, fresh
             else answer(q, on_text=text, thread=thread, **pick)
         # 第一轮答完起标题：另开一条线，不拖着这次问答收尾
         threading.Thread(target=autotitle, args=(thread,), daemon=True).start()
-    return jobs.start(QA_JOB, run, question, deep, steps=[], partial='', result=None, question=question, deep=deep,
+    return jobs.start(_job(thread), run, question, deep, steps=[], partial='', result=None, question=question, deep=deep,
                       thread=thread, model=model or (llm.choices() or ((llm.CLAUDE_MODEL, ''),))[0][0], effort=effort or 'max')
 
 
-def stop():
-    """停下正在问的那一个（聊天页的停止按钮）：写出来的那段留在对话里。没在问返回 False。"""
-    st = jobs.state(QA_JOB)
+def stop(thread=None):
+    """停下这段对话正在问的那一个（聊天页的停止按钮）：写出来的那段留在对话里。没在问返回 False。"""
+    st = jobs.state(_job(thread or current()))
     if not st.get('running') or not st.get('tid'):
         return False
     llm.cancel(st['tid'])
     return True
 
 
-def live():
-    return jobs.get(QA_JOB, steps=[], partial='', result=None, question=None, deep=False, thread=None, model=None, effort=None)
+def busy():
+    """正在答的那几段对话（聊天页左边列表上的小圆点）。"""
+    return sorted(int(n[3:]) for n in jobs.names('qa:') if jobs.running(n))
+
+
+def live(thread=None):
+    thread = thread or current()
+    return jobs.get(_job(thread), steps=[], partial='', result=None, question=None, deep=False, thread=thread, model=None, effort=None)

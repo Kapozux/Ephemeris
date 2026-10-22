@@ -87,6 +87,34 @@ class Stop(unittest.TestCase):
         self.assertTrue(live['result']['stopped'])
         self.assertFalse(qa.stop())                           # 没在跑：没什么可停
 
+    def test_two_threads_answer_at_once(self):
+        """10-22——不同对话各答各的，停一段不碰另一段。"""
+        started, release = threading.Semaphore(0), threading.Event()
+
+        def run(args, stdin):
+            if 'stream-json' not in args:
+                return {'result': json.dumps({'q': 'x', 'keywords': ['MIT']})}
+            started.release()
+            release.wait(2)
+            return {'result': '写好了', 'events': deltas('写好了')}
+        llm.use_claude(run)
+        a, b = qa.new_thread(), qa.new_thread()
+        self.assertTrue(qa.start_ask('我早申交的哪？', thread=a))
+        self.assertTrue(qa.start_ask('我 ED 交的哪？', thread=b))
+        self.assertFalse(qa.start_ask('再问一句', thread=a))    # 同一段还是一次一个
+        self.assertTrue(started.acquire(timeout=2) and started.acquire(timeout=2))
+        self.assertEqual(qa.busy(), sorted([a, b]))
+        self.assertTrue(qa.stop(a))
+        release.set()
+        for _ in range(50):
+            if not qa.busy():
+                break
+            time.sleep(0.05)
+        self.assertEqual(qa.busy(), [])
+        self.assertTrue(qa.live(a)['result']['stopped'])
+        self.assertFalse(qa.live(b)['result'].get('stopped'))
+        self.assertEqual((qa.live(a)['thread'], qa.live(b)['thread']), (a, b))
+
 
 if __name__ == '__main__':
     unittest.main()

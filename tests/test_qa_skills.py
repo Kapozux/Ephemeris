@@ -2,7 +2,9 @@
 import _env  # noqa: F401
 import unittest
 
+import llm
 import qa
+from test_cards_qa import deltas, seed
 from test_look_sql import run
 
 
@@ -26,6 +28,27 @@ class Skills(unittest.TestCase):
         self.assertIn('· pattern：', p)
         self.assertNotIn('用前一半预测后一半', p)                     # 全文不进提示词
         self.assertIn('skill', qa.LOOK_CMDS)
+
+
+class Notes(unittest.TestCase):
+    """查的时候说的话进步骤栏（检验结果写在这里）；吐出来的孤零零一个标签不算。"""
+    def setUp(self):
+        llm.uncancel()
+        seed()
+
+    def tearDown(self):
+        llm.use_claude(None)
+
+    def test_stray_tag_dropped_long_note_kept(self):
+        note = '【抽样】按季度抽 64 条：符合 31、不符合 9、无关 24。' + '反例：……' * 80
+        say = lambda t: {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': t}]}}
+        tool = {'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'input': {'command': 'look.py stats'}}]}}
+        llm.use_claude(lambda args, stdin: {'result': '答。', 'session_id': 's', 'events': [
+            say('</reasoning_effort>'), tool, say(note), tool] + deltas('答。')})
+        r = qa.answer_deep('我这一年变了什么', thread=qa.new_thread())
+        said = [s['t'] for s in r['trace']['steps'] if s['k'] == 'say']
+        self.assertEqual(said, [note[:600]])
+        self.assertGreater(len(said[0]), 300)
 
 
 if __name__ == '__main__':

@@ -668,6 +668,9 @@ def _title_of(ref, msg):
     return f"《{r['title'] or '无标题'}》" + (f" {r['date']}" if r['date'] else '')
 
 
+_STRAY_TAG = re.compile(r'</?[A-Za-z_][\w-]*>')
+
+
 def _step(kind, text):
     """Claude 的一步 → 给人看的一步：{k: 命令（界面按它挑图标）, t: 在干什么, d: 细节}。认不出来的返回 None。"""
     if kind != 'tool':
@@ -733,8 +736,9 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
         if kind == 'text':
             held[:] = [text]
         elif kind == 'tool':
-            if held:
-                add({'k': 'say', 't': re.sub(r'\s+', ' ', CITE_ANY.sub('', held.pop()))[:300], 'd': ''})
+            said = re.sub(r'\s+', ' ', CITE_ANY.sub('', held.pop())).strip() if held else ''
+            if said and not _STRAY_TAG.fullmatch(said):              # 10-22：它偶尔吐一个「</reasoning_effort>」这种标签当一段话
+                add({'k': 'say', 't': said[:600], 'd': ''})
             step = _step(kind, text)
             if step:
                 add(step)

@@ -169,3 +169,67 @@ export async function pollExport() {
   }
   if (s.full.running || s.handoff.running) POLL = setTimeout(pollExport, 1500);
 }
+
+// ---------------------------------------------------------------- 长聊（longchats.py，10-23）
+// 换账号时要带走哪些：聊过 5 天以上的窗口，按聊过的天数排；还在聊的（最近 30 天）摊开，聊完了的折起来。
+// 标「要迁 / 不迁」（再点一下取消）；续集并进它接着的那个（标题带 _2 /（3）的会猜一个，点了才并）。
+const SRC = { chatgpt: 'ChatGPT', gemini: 'Gemini', lobehub: 'LobeHub' };
+
+function longRow(l, all) {
+  const others = all.filter(x => x.id !== l.id);
+  return `<div class="set-row set-lc" data-id="${esc(l.id)}">
+    <span class="set-text"><b><a class="set-lc-t" href="#/win/${encodeURIComponent(l.id)}">${esc(l.title || '（没标题）')}</a></b>${SRC[l.source] ? ` <span class="set-lc-src">${SRC[l.source]}</span>` : ''}
+      <span class="set-what tnum">聊过 ${l.days} 天 · ${l.first.slice(5)} → ${l.last.slice(5)} · ${l.msgs.toLocaleString()} 条</span>
+      ${l.parts.length ? `<span class="set-what">含续集：${l.parts.map(p => `${esc(p.title || '')}<button type="button" class="set-lc-x" data-split="${esc(p.id)}" title="拆开" aria-label="拆开">×</button>`).join('、')}</span>` : ''}
+      ${l.guess ? `<span class="set-what">像是接着「${esc(l.guess.title || '')}」开的 <a class="set-lc-a" data-join="${esc(l.guess.id)}">并进去</a></span>` : ''}
+      <span class="set-what"><a class="set-lc-a" data-pick>接着哪个开的…</a><select class="set-lc-sel hidden" aria-label="接着哪个窗口开的">
+        <option value="">选一个</option>${others.map(x => `<option value="${esc(x.id)}">${esc((x.title || '').slice(0, 40))}</option>`).join('')}</select></span></span>
+    <span class="set-act"><button class="btn-secondary btn-small set-lc-m${l.move === true ? ' on' : ''}" data-move="1">要迁</button>
+      <button class="btn-secondary btn-small set-lc-m${l.move === false ? ' on' : ''}" data-move="0">不迁</button></span>
+  </div>`;
+}
+
+function renderLong(box, lines) {
+  const live = lines.filter(l => l.active), done = lines.filter(l => !l.active);
+  const n = lines.filter(l => l.move === true).length, left = live.filter(l => l.move == null).length;
+  box.innerHTML = `<div class="set-note set-lc-head">聊过 5 天以上的 ${lines.length} 个，最近 30 天还在聊的 ${live.length} 个。`
+    + `已标要迁 ${n} 个${left ? `，还在聊的里 ${left} 个没标` : ''}。要迁的不是原文（这里都备份着），是它知道你哪些事、推进到哪了、你给它定的规矩。</div>`
+    + live.map(l => longRow(l, lines)).join('')
+    + (done.length ? `<details class="set-lc-done"><summary>聊完了的 ${done.length} 个（最近 30 天没聊过）</summary>${done.map(l => longRow(l, lines)).join('')}</details>` : '');
+}
+
+async function saveLong(box, id, body) {
+  const r = await fetch(`/api/longchats/${encodeURIComponent(id)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body) }).then(r => r.json()).catch(() => null);
+  if (r && r.lines) {
+    const open = box.querySelector('.set-lc-done')?.open;
+    renderLong(box, r.lines);
+    if (open) box.querySelector('.set-lc-done').open = true;
+  }
+}
+
+export async function pollLong() {
+  const box = $('#longBox'); if (!box) return;
+  const r = await fetch('/api/longchats').then(r => r.json()).catch(() => null);
+  if (!r) return;
+  renderLong(box, r.lines);
+  if (box.dataset.bound) return;
+  box.dataset.bound = '1';
+  box.addEventListener('click', e => {
+    const row = e.target.closest('.set-lc'); if (!row) return;
+    const id = row.dataset.id, b = e.target.closest('[data-move], [data-join], [data-split], [data-pick]');
+    if (!b) return;
+    if (b.dataset.move) {
+      const want = b.dataset.move === '1';
+      return saveLong(box, id, { move: b.classList.contains('on') ? null : want });    // 再点一下 = 取消
+    }
+    if (b.dataset.join) return saveLong(box, id, { after: b.dataset.join });
+    if (b.dataset.split) return saveLong(box, b.dataset.split, { after: null });
+    b.classList.add('hidden');
+    row.querySelector('.set-lc-sel').classList.remove('hidden');
+  });
+  box.addEventListener('change', e => {
+    const sel = e.target.closest('.set-lc-sel');
+    if (sel && sel.value) saveLong(box, sel.closest('.set-lc').dataset.id, { after: sel.value });
+  });
+}

@@ -164,6 +164,9 @@ CREATE TABLE IF NOT EXISTS qa_chat (
 CREATE TABLE IF NOT EXISTS qa_threads (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, created TEXT, updated TEXT,
   named INTEGER DEFAULT 0, pinned INTEGER DEFAULT 0);
 
+-- 长聊清单（longchats.py，10-23）：他给长期在聊的窗口标的「要迁 / 不迁」（move 1 / 0，没标 NULL）、续集接着哪个窗口（after）
+CREATE TABLE IF NOT EXISTS long_chats (conv_id TEXT PRIMARY KEY, move INTEGER, after TEXT);
+
 -- ---------------------------------------------------------------- 重复窗口的存档（dedup.py，2026-10-13）
 -- 同一个窗口手动导入一份（指纹 id）、自动同步又一份（uuid）：多出来的那份整份挪到这里（JSON 原样），正常的表里看不到。
 CREATE TABLE IF NOT EXISTS conversations_dup (id TEXT PRIMARY KEY, dup_of TEXT, archived_at TEXT, row TEXT);

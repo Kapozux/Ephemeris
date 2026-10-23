@@ -10,6 +10,7 @@ import backup
 import daily
 import export
 import index as idx
+import longchats
 import search
 import setup
 import store
@@ -133,6 +134,27 @@ def api_export_run(kind):
 @bp.route('/api/export/<kind>/open', methods=['POST'])
 def api_export_open(kind):
     return jsonify({'ok': export.reveal(kind)})
+
+
+# ------------------------------------------------------------------ 长聊清单（longchats.py）：换账号时要带走哪些
+
+@bp.route('/api/longchats')
+def api_longchats():
+    return jsonify({'lines': longchats.lines()})
+
+
+@bp.route('/api/longchats/<conv_id>', methods=['POST'])
+def api_longchats_mark(conv_id):
+    """body：{move: true / false / null} 标要迁 / 不迁 / 取消；{after: 窗口 id / null} 是接着哪个开的续集 / 拆开。"""
+    body = request.get_json(silent=True) or {}
+    try:
+        if 'move' in body:
+            longchats.mark(conv_id, body['move'])
+        if 'after' in body:
+            longchats.follow(conv_id, body['after'])
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'lines': longchats.lines()})
 
 
 # ------------------------------------------------------------------ 第一次用（setup.py）

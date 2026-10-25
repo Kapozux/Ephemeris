@@ -60,7 +60,7 @@ REAL_DB = os.path.abspath(store.DB_PATH) == os.path.join(os.path.dirname(os.path
 def _copy_not_for_people():
     """库不是真的 chats.db（测试拷贝）：浏览器打开页面只给一句话，不给用（10-16 用户在别的会话起的测试版 5056 上问了 11 次，
     拷贝被清掉就没了；10-18）。测试直接调代码，用不着网页；截图工具要拍拷贝时设 EPHEMERIS_UI_TEST=1。"""
-    if REAL_DB or os.environ.get('EPHEMERIS_UI_TEST') or request.headers.get('Sec-Fetch-Mode') != 'navigate':
+    if REAL_DB or store.DEMO or os.environ.get('EPHEMERIS_UI_TEST') or request.headers.get('Sec-Fetch-Mode') != 'navigate':
         return
     return ('<!doctype html><meta charset="utf-8"><title>测试拷贝</title>'
             '<body style="font:16px/1.7 system-ui;max-width:32em;margin:20vh auto;padding:0 16px">'
@@ -89,7 +89,7 @@ def _same_origin_only():
 def _privacy_lock():
     """隐私锁（lock.py）：设了密码又没解锁，接口回 423，页面换成锁屏页。静态文件和锁自己的接口放行。"""
     p = request.path
-    if p.startswith('/static/') or p.startswith('/api/lock/') and p != '/api/lock/password':
+    if store.DEMO or p.startswith('/static/') or p.startswith('/api/lock/') and p != '/api/lock/password':
         return
     if lock.ok(request.cookies.get(lock.COOKIE)):
         return
@@ -102,7 +102,7 @@ def _privacy_lock():
 def _static_version():
     """模板里的 {{ v }}：static 下最新的修改时间，拼在 ?v= 上。改了任何前端文件，浏览器就拿新的。"""
     newest = max(os.path.getmtime(os.path.join(root, f)) for root, _, files in os.walk(STATIC) for f in files)
-    return {'v': int(newest), 'lock_on': lock.enabled(), 'lock_ping': lock.PING, 'lock_touch': bool(lock.touch_ids()),
+    return {'v': int(newest), 'demo': store.DEMO, 'lock_on': not store.DEMO and lock.enabled(), 'lock_ping': lock.PING, 'lock_touch': bool(lock.touch_ids()),
             'lock_native': lock.native_ok()}
 
 
@@ -115,7 +115,8 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT') or 5055)
     store.connect()                                                # 建表 / 老库补列，出错就在启动时报
     threading.Timer(3.0, reflect_chat.warm).start()               # 提前算好，打开面板不用等
-    threading.Thread(target=daily.scheduler, daemon=True).start()
+    if not store.DEMO:                                             # 演示版：不同步、不备份、不推 Notion
+        threading.Thread(target=daily.scheduler, daemon=True).start()
     threading.Thread(target=lock.native_probe, daemon=True).start()   # 隐私锁的系统指纹框：头一次要编译几秒，别卡启动
     err = llm.check()
     print(f"[llm] 后端 {llm.backend()}：{'不可用 —— ' + err if err else '正常'}", flush=True)

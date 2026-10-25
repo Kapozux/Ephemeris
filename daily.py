@@ -100,6 +100,8 @@ def morning(job, force=False):
 
 
 def start(force=False):
+    if store.DEMO:
+        return {**jobs.get(JOB, **IDLE), 'error': '演示版不同步'}
     jobs.start(JOB, morning, force, **FRESH)
     return jobs.get(JOB, **IDLE)
 

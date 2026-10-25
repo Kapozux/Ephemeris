@@ -308,6 +308,8 @@ def run():
 
 
 def run_bg():
+    if store.DEMO:
+        return
     jobs.start('backup', _run)
 
 

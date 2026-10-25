@@ -76,6 +76,14 @@ def _parse(path):
     return sid, os.path.basename(cwd.rstrip('/')) or '?', out
 
 
+_PASTE = re.compile(r'</?pasted_content\b[^>]*>')
+
+
+def title(project, first):
+    """窗口标题：项目名 + 他第一句的开头。贴进来的一段（<pasted_content id=…> 包着）只留里面的字，不留标记（10-25：标题里露出整个标签）。"""
+    return f"CC·{project}：{' '.join(_PASTE.sub(' ', first).split())[:40] or '（没有文字）'}"
+
+
 def sync(say=print):
     """读改动过的会话。返回 {'files': 读了几个, 'new': 新消息条数, 'days': 涉及哪些天}。"""
     seen = {r['path']: (r['size'], r['mtime']) for r in store.q('SELECT path, size, mtime FROM cc_files')}
@@ -92,7 +100,7 @@ def sync(say=print):
             if msgs:
                 db.execute("""INSERT INTO conversations (id, source, title, title_fallback, first_import, last_import)
                               VALUES (?,?,?,0,'claude-code','claude-code') ON CONFLICT(id) DO NOTHING""",
-                           (cid, SOURCE, f"CC·{project}：{' '.join(first.split())[:40] or '（没有文字）'}"))
+                           (cid, SOURCE, title(project, first)))
             for mid, ts, role, text in msgs:
                 when = datetime.fromisoformat(ts.replace('Z', '+00:00'))
                 date, hhmm = days.bucket(when)

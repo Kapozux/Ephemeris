@@ -11,6 +11,7 @@
        sb- 侧栏   cal- 日历   wl- 侧栏的窗口列表
        pagehead- 页头   day- diary- journal(j-) thread- msg- 某一天   pop- 跨天弹层   tl- win- 按窗口的时间轴
        modal- 浮层   pane- 浮层里各栏共用的骨架   reflect- chart- data- 回顾和数据   th- 主题   rv- 河流
+       md- md.js 画出来的块（表格）
        cv- 数据来源（窗口一览与导入）   nt- Notion   set- 设置   su- 开始用（新装时的引导页）   fb- 回忆卡
        （聊天页 /chat 单独一份 chat.css，类名 ch-）
        nav- 三页共用的主导航（日记 / 问 / 打卡）：templates/_nav.html + static/nav.css，颜色由各页 :root 的 --nav-* 给
@@ -245,8 +246,8 @@ button { font-family:inherit; }
 .thread-bar label { font-size:11px; color:var(--muted); display:flex; align-items:center; gap:4px; cursor:pointer; }
 .msg { display:flex; gap:10px; padding:7px 0; }
 .msg + .msg { border-top:1px dashed var(--line); }
-.msg.target { background:var(--mark); margin:0 -8px; padding:7px 8px; border-radius:var(--r-xs); border-top:0; }
-.msg.target mark { background:transparent; color:var(--coral-deep); font-weight:600; box-shadow:inset 0 -2px 0 var(--coral); border-radius:0; padding:0; }   /* 整条已经是黄底：搜的词换成珊瑚色下划线 */
+.msg.target { background:var(--coral-soft); box-shadow:inset 2px 0 0 var(--coral); margin:0 -8px; padding:7px 8px 7px 10px; border-radius:0 var(--r-xs) var(--r-xs) 0; border-top:0; }   /* 10-25：整条涂黄太重，长消息一片黄；换成淡珊瑚底 + 左边一道线 */
+.msg.target mark { background:transparent; color:var(--coral-deep); font-weight:600; box-shadow:inset 0 -2px 0 var(--coral); border-radius:0; padding:0; }   /* 整条已经有底色：搜的词换成珊瑚色下划线 */
 .msg .msg-time { font-size:11px; color:var(--muted); flex:none; width:34px; padding-top:3px; }
 .msg .msg-text { flex:1; min-width:0; white-space:pre-wrap; word-break:break-word; font-size:13.5px; line-height:1.7; }   /* min-width:0：AI 回复里的代码块（pre 不换行）只在自己里面横着滚，不把整条消息撑宽 —— 撑宽了窗口列表 / 整页能左右滚，触控板一划就左右抖 */
 .msg.ai { display:none; }
@@ -262,6 +263,16 @@ button { font-family:inherit; }
 .msg .msg-md code { font-size:.92em; }
 .msg .msg-md pre { margin:4px 0 6px; padding:8px 10px; background:var(--code-bg); border-radius:var(--r-xs); white-space:pre-wrap; word-break:break-word; font-size:12px; line-height:1.55; }   /* 折行不横滚：这里的代码块多半是整段英文 / 提示词，横滚的块在触控板斜着划时会左右晃 */
 .msg .msg-md pre code { background:none; padding:0; font-size:inherit; }
+/* 表格（md.js tableHtml，10-25）：细线分行、表头一行；数字靠右等宽。列多、栏窄的表只在自己里面横着滚
+   （overscroll-behavior 关住，滚到头不带着整页晃；每列有最小宽度，不会挤成一字一行） */
+.md-table { white-space:normal; margin:6px 0 8px; border:1px solid var(--line); border-radius:var(--r-xs); background:var(--card);
+  overflow-x:auto; overscroll-behavior-x:contain; }
+.md-table table { width:max-content; min-width:100%; border-collapse:collapse; font-size:12px; line-height:1.5; }
+.md-table th, .md-table td { min-width:4.5em; max-width:22em; padding:6px 10px; text-align:left; vertical-align:top; overflow-wrap:break-word; border-top:1px solid var(--line); }
+.md-table thead th { border-top:none; background:var(--code-bg); color:var(--ink-soft); font-weight:600; }
+.md-table tbody tr:first-child td { border-top:none; }
+.md-table thead + tbody tr:first-child td { border-top:1px solid var(--line); }
+.md-table td.num, .md-table th.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .msg .msg-md .msg-more { margin-left:0; }
 
 /* 跨度弹层 */
@@ -678,11 +689,14 @@ button { font-family:inherit; }
 /* 一天的两个指标 */
 .day-sigs { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; padding:0 2px; }
 .day-sigs:empty { display:none; }
-.day-sig { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--ink-soft); padding:3px 9px;
+.day-sig { display:inline-flex; align-items:center; gap:6px; max-width:100%; white-space:nowrap; font-size:12px; color:var(--ink-soft); padding:3px 9px;
   border:1px solid var(--line-2); border-radius:999px; cursor:default; }
 .day-sig i { width:9px; height:9px; border-radius:2px; }
 .day-sig b { font-variant-numeric:tabular-nums; }
 .day-sig em { font-style:normal; font-size:11px; color:var(--faint); }
+/* 一天里心情变了好几回，那串词很长：窄屏上只让它省略，别的字不折（10-25：手机上「过得」「打卡」被挤成一字一行） */
+.day-sig-w { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.day-sig-w:empty { display:none; }
 
 /* 话题河流 */
 .modal-pane[data-pane="river"] { position:relative; }

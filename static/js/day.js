@@ -4,7 +4,7 @@ import { S } from './state.js';
 import { navigate } from './nav.js';
 import { markDiary, viewMonth } from './calendar.js';
 import { refreshBatchButton } from './batch.js';
-import { journalHtml, imageCount, mdBlocks } from './md.js';
+import { journalHtml, imageCount, mdBlocks, plainBlocks } from './md.js';
 
 const CLIP = 300, CLIP_LINES = 8;   // 长消息先折到这么多字 / 这么多行（空行多的消息按字数折了还有一屏高）
 let NAV = { prev: null, next: null }, POLL = null;
@@ -12,8 +12,8 @@ let NAV = { prev: null, next: null }, POLL = null;
 // 两个指标：过得怎么样（手写）、卡得多狠（聊天）。分开放，不合成一个数 —— 它们量的是一天里不同的部分
 function renderSignals(sg) {
   const f = sg.mood, k = sg.friction, out = [];
-  if (f) out.push(`<span class="day-sig" title="${esc(f.note || '')}"><i style="background:${feelColor(f.v)}"></i>过得 <b>${f.v > 0 ? '+' : ''}${+f.v.toFixed(1)}</b> ${esc(f.words || '')}<em>${f.src === 'checkin' ? '打卡' : '手写'}</em></span>`);
-  if (k) out.push(`<span class="day-sig" title="${esc(k.evidence || '')}"><i style="background:var(--s${k.valence})"></i>卡得 <b>${k.valence}/4</b> ${esc(k.label || '')}<em>聊天</em></span>`);
+  if (f) out.push(`<span class="day-sig" title="${esc([f.words, f.note].filter(Boolean).join(' · '))}"><i style="background:${feelColor(f.v)}"></i>过得 <b>${f.v > 0 ? '+' : ''}${+f.v.toFixed(1)}</b><span class="day-sig-w">${esc(f.words || '')}</span><em>${f.src === 'checkin' ? '打卡' : '手写'}</em></span>`);
+  if (k) out.push(`<span class="day-sig" title="${esc(k.evidence || '')}"><i style="background:var(--s${k.valence})"></i>卡得 <b>${k.valence}/4</b><span class="day-sig-w">${esc(k.label || '')}</span><em>聊天</em></span>`);
   // 去打卡页的链接前面隔一道竖线（style.css）：「卡得」是聊天里卡没卡住，「打卡」是自己记的心情，别挨在一起读成一回事
   out.push(`<a class="day-sig day-sig-add" href="/checkin?date=${S.sel}">${(sg.checkins || []).length ? '改打卡' : '补打卡'}</a>`);
   $('#daySig').innerHTML = out.join('');
@@ -123,6 +123,8 @@ function poll(date) {
 export function msgHtml(m, target, q) {
   const text = m.text || '';
   if (m.role !== 'human') return aiMsgHtml(m, text, m.id && m.id === target, q);
+  const tables = plainBlocks(text);                              // 我贴进来的表格：表画成表，别的字原样
+  if (tables) return blocksHtml(m, tables, text, m.id && m.id === target, q, 'msg', 'msg-text');
   if (m.id && m.id === target) {
     return `<div class="msg target" id="msg-${m.id}">
             <span class="msg-time">${m.hhmm}</span><span class="msg-text">${markHits(esc(text), q)}</span></div>`;
@@ -137,7 +139,11 @@ export function msgHtml(m, target, q) {
 }
 
 function aiMsgHtml(m, text, isTarget, q) {
-  const blocks = mdBlocks(text);
+  return blocksHtml(m, mdBlocks(text), text, isTarget, q, 'msg ai', 'msg-text msg-md j-body');
+}
+
+// 按块显示、按块折（不在半个标签里切）：AI 回的 Markdown，和我贴了表格的消息
+function blocksHtml(m, blocks, text, isTarget, q, cls, inner) {
   let k = blocks.length;
   if (!isTarget) {
     for (let i = 0, n = 0, lines = 0; i < blocks.length; i++) {
@@ -149,8 +155,8 @@ function aiMsgHtml(m, text, isTarget, q) {
   const body = k < blocks.length
     ? `${html(blocks.slice(0, k))}<span class="msg-clip">…</span><a class="msg-more" data-full="1">展开 ${text.length} 字</a><div class="msg-full hidden">${html(blocks.slice(k))}</div>`
     : isTarget ? markHits(html(blocks), q) : html(blocks);
-  return `<div class="msg ai${isTarget ? ' target' : ''}" id="msg-${m.id}">
-            <span class="msg-time">${m.hhmm}</span><div class="msg-text msg-md j-body">${body}</div></div>`;
+  return `<div class="${cls}${isTarget ? ' target' : ''}" id="msg-${m.id}">
+            <span class="msg-time">${m.hhmm}</span><div class="${inner}">${body}</div></div>`;
 }
 
 const SRC_NAME = { claude: 'Claude', gemini: 'Gemini', cc: 'Claude Code', cursor: 'Cursor', codex: 'Codex', chatgpt: 'ChatGPT', deepseek: 'DeepSeek', lobehub: 'LobeHub', ask: '问' };

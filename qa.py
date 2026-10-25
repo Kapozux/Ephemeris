@@ -275,7 +275,7 @@ def autotitle(thread):
     text = '\n\n'.join(('我：' if t['role'] == 'user' else '回答：') + re.sub(r'\[\[[^\]]*\]\]', '', no_viz(t['text']))[:600] for t in turns)
     out = llm.ask(TITLE_PROMPT.format(turns=text), effort='low', purpose='问·起标题')
     title = (out or '').strip().splitlines()[0] if (out or '').strip() else ''
-    title = title.strip(' "\'“”「」《》#*。.！!？?')
+    title = re.sub(r'</?[A-Za-z_][\w-]*[^>]*>', '', title).strip(' "\'“”「」《》#*。.！!？?')    # 10-25：起出过一个「<claude_wrapper>」
     if not title or len(title) > 30:
         return None
     if store.one('SELECT named FROM qa_threads WHERE id=?', thread)['named']:   # 起的这几秒里用户自己改了

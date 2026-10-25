@@ -21,12 +21,28 @@ try {
   if (EFFORTS.some(x => x[0] === e)) EFFORT = e;
 } catch { /* 隐私模式：不记 */ }
 
+// 1,2,3,5 → 1–3, 5
+function spans(ns) {
+  const out = [];
+  for (let i = 0; i < ns.length; i++) {
+    let j = i;
+    while (j + 1 < ns.length && ns[j + 1] === ns[j] + 1) j++;
+    out.push(j > i ? `${ns[i]}–${ns[j]}` : `${ns[i]}`);
+    i = j;
+  }
+  return out.join(', ');
+}
+
 // ---------- 正文：[[id]] → 上标数字，**粗体**、换行、「- 」列表；```html 块是图（viz.js） ----------
 function body(text, cites) {
   const n = new Map(cites.map((c, i) => [c.id, i + 1]));
   const [t, codes] = pull(text);
   let h = esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
-  h = h.replace(/\[\[([^\]]+)\]\]/g, (_, id) => n.has(id) ? `<sup><a class="ch-cite" data-n="${n.get(id)}">${n.get(id)}</a></sup>` : '');
+  // 挨着的几个出处合成一个（10-25：一句话后面挂一串 12 13 14 15 16 17 18，读着一路被打断）：连号写成 12–18，点一下标出这几条
+  h = h.replace(/(?:\s*\[\[[^\]]+\]\])+/g, run => {
+    const ns = [...new Set([...run.matchAll(/\[\[([^\]]+)\]\]/g)].map(m => n.get(m[1])).filter(Boolean))].sort((a, b) => a - b);
+    return ns.length ? `<sup><a class="ch-cite" data-n="${ns.join(',')}">${spans(ns)}</a></sup>` : '';
+  });
   return place(h.split(/\n{2,}/).filter(p => p.trim()).map(p => {
     const lines = p.split('\n');
     return lines.every(l => /^\s*[-•]\s/.test(l))
@@ -582,8 +598,9 @@ $('#chLog').addEventListener('click', e => {
   const a = sup.closest('.ch-a'), d = a.querySelector('.ch-src');
   if (!d) return;
   d.open = true;
-  a.querySelectorAll('.ch-src-row').forEach(x => x.classList.toggle('hl', x.dataset.n === sup.dataset.n));
-  a.querySelector(`.ch-src-row[data-n="${sup.dataset.n}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  const ns = sup.dataset.n.split(',');                         // 合起来的几个出处：一起标出来，滚到第一条
+  a.querySelectorAll('.ch-src-row').forEach(x => x.classList.toggle('hl', ns.includes(x.dataset.n)));
+  a.querySelector(`.ch-src-row[data-n="${ns[0]}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 });
 $('#chCards').addEventListener('click', e => { e.stopPropagation(); togglePop(); });
 $('#chModel').addEventListener('click', e => { e.stopPropagation(); toggleMenu(); });

@@ -216,6 +216,7 @@ def sync(since=None, force=False, progress=None, headless=True):
         raise SyncError('ephemeris/.env 里没有 CLAUDE_SESSION_KEY')
     org = env('CLAUDE_ORG_ID')
     since = since or env('CLAUDE_SINCE') or DEFAULT_SINCE
+    home = env('CLAUDE_HOME_URL') or 'https://claude.ai/'   # 屏蔽工具里放行的那页；首页被屏蔽
 
     say('等网络', 0, 0)
     if not wait_network():
@@ -224,11 +225,11 @@ def sync(since=None, force=False, progress=None, headless=True):
     try:
         with Chrome(headless=headless) as c:
             say('起浏览器', 0, 0)
-            c.goto('https://claude.ai/', wait=1)
+            c.goto(home, wait=1)
             c.set_cookie('sessionKey', sk)
             if org:
                 c.set_cookie('lastActiveOrg', org)
-            c.goto('https://claude.ai/', wait=8)          # 给 Cloudflare 跑挑战的时间
+            c.goto(home, wait=8)          # 给 Cloudflare 跑挑战的时间
 
             if not org:
                 orgs = c.evaluate(
@@ -248,7 +249,7 @@ def sync(since=None, force=False, progress=None, headless=True):
                         raise
                     say('网络抖了，重试', attempt + 1, 3)
                     time.sleep(20)
-                    c.goto('https://claude.ai/', wait=8)
+                    c.goto(home, wait=8)
             if not res or res.get('error'):
                 raise SyncError(_explain(res))
             listed = [x for x in res['conversations'] if (x.get('updated_at') or '') >= since]
@@ -279,7 +280,7 @@ def sync(since=None, force=False, progress=None, headless=True):
                             raise
                         say('页面掉了，重连', attempt + 1, 3)
                         c.recover()
-                        c.goto('https://claude.ai/', wait=6)
+                        c.goto(home, wait=6)
                 if r is None:
                     raise SyncError('页面反复失效，重连 3 次都不行')
                 buf += r.get('conversations', [])

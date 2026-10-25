@@ -206,7 +206,7 @@ def _archive(path):
 
 # ------------------------------------------------------------------ 主流程
 
-def sync(since=None, force=False, progress=None, headless=True):
+def sync(since=None, force=False, progress=None, headless=None):
     """拉一次。progress(阶段, 已完成, 总数) 会被逐步调用。"""
     started = datetime.now().isoformat(timespec='seconds')
     say = progress or (lambda *a: None)
@@ -216,6 +216,8 @@ def sync(since=None, force=False, progress=None, headless=True):
         raise SyncError('ephemeris/.env 里没有 CLAUDE_SESSION_KEY')
     org = env('CLAUDE_ORG_ID')
     since = since or env('CLAUDE_SINCE') or DEFAULT_SINCE
+    if headless is None:                                      # headless 被 CF 认出来（10-25 起一直 403），他选了开窗口
+        headless = env('CLAUDE_SYNC_WINDOW') != '1'
     home = env('CLAUDE_HOME_URL') or 'https://claude.ai/'   # 屏蔽工具里放行的那页；首页被屏蔽
 
     say('等网络', 0, 0)

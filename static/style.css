@@ -574,6 +574,24 @@ button { font-family:inherit; }
 .set-lc-x:hover { color:var(--coral-deep); }
 .set-lc-sel { max-width:100%; font:inherit; font-size:12px; padding:3px 6px; color:var(--ink); background:var(--card); border:1px solid var(--line); border-radius:var(--r-sm); }
 .set-lc-m.on { border-color:var(--ink); color:var(--ink); background:var(--paper); }
+.set-mem { border-top:1px solid var(--line); }
+.set-mem-s { display:flex; padding:12px 0; cursor:pointer; list-style:none; }
+.set-mem-s::-webkit-details-marker { display:none; }
+.set-mem[open] > .set-mem-s b { color:var(--coral-deep); }
+.set-mem-g { padding:14px 0 4px; border-top:1px solid var(--line); font-size:11px; letter-spacing:.08em; color:var(--muted); }
+.set-mem-list { margin:0 0 8px; padding:0; list-style:none; }
+.set-mem-f { position:relative; padding:6px 22px 6px 0; font-size:12.5px; line-height:1.65; color:var(--ink); }
+.set-mem-f.old .set-mem-ft { color:var(--muted); }
+.set-mem-f > .set-lc-x { position:absolute; top:5px; right:0; }
+.set-mem-ft { display:block; min-width:0; overflow-wrap:anywhere; }
+.set-mem-fm { display:block; font-size:11px; color:var(--muted); }
+.set-mem-src { margin-left:3px; padding:0 4px; font-size:10.5px; color:var(--ink-soft); text-decoration:none; border:1px solid var(--line-2); border-radius:3px; }
+.set-mem-src:hover { color:var(--coral-deep); border-color:var(--coral); }
+.set-mem-add { display:flex; flex-wrap:wrap; gap:8px; padding:4px 0 12px; }
+.set-mem-in { flex:1 1 180px; width:auto; }
+.set-mem-old { padding:0 0 10px; font-size:12px; color:var(--muted); }
+.set-mem-old > summary { cursor:pointer; }
+.set-mem-run { margin-left:8px; }
 .set-lc-done > summary { padding:12px 0; border-top:1px solid var(--line); font-size:12.5px; color:var(--muted); cursor:pointer; }
 .cv-sync { margin-top:18px; padding:9px 14px 10px; background:var(--paper); border:1px solid var(--line); border-radius:var(--r-sm);
   display:flex; flex-direction:column; gap:6px; }

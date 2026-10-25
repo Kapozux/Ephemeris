@@ -16,6 +16,7 @@ python look.py files <文件夹> [--glob *.log] [--n 30]                        
 python look.py grep  <词> [词…] --in <文件或文件夹> [--n 30]                             在文件里搜（同一行里几个词都出现，不分大小写）
 python look.py file  <文件> [--from 1] [--lines 200] [--at 词]                           按行读一个文件（文字、.docx、.pptx、有文字层的 PDF；moye:<id> 读墨页转好的）；--at 跳到词第一次出现的地方
 python look.py skill [名字]                                                             读「问」的一个技能（skills/<名字>.md：某类问题的专门做法）；不给名字列出有哪些
+python look.py memory [名字]                                                            读他的档案（memory.py：每周从证据卡整理的「关于你 / 偏好 / 各领域」）的一页；不给名字列出有哪些
 python look.py moye  <词> [--n 10]                                                     搜墨页已经转好的 PDF（扫描件、课件、作业），墨页开着才行
 
 出处记号：消息是 m:<id>，卡是 c:<id>，文件是 f:<路径>:<行号> 或 f:<路径>:<起>-<止>。回答时照抄就能被 Ephemeris 认回原话。
@@ -33,6 +34,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import localfiles  # noqa: E402
+import memory  # noqa: E402
 import qa      # noqa: E402
 import store   # noqa: E402
 
@@ -297,6 +299,8 @@ _NOTES = {
     'mood_scores': '每天过得怎么样的打分（valence）',
     'themes': '主题账本：长期在想的事；theme_days 是它出现在哪些天',
     'qa_chat': '「问」的对话记录',
+    'memory_topics': '档案（记忆）的一页一页：kind = you / area，off = 1 的不给你看（别查它们的内容）',
+    'memory_facts': '档案里的事实：old_by 有值的是换下来的旧版本；by = hand 是他自己写的',
 }
 _SKIP = ('fts', 'dup', 'backup', 'sync', 'sqlite_', 'cc_files', 'imports', 'lab', 'card_vecs', 'cards_v1', 'flashback', 'daily_runs', 'claude_usage', 'notion_pages')
 
@@ -450,10 +454,21 @@ def skill_(a):
         print(f'  {n}：{d}')
 
 
+def memory_(a):
+    name = ' '.join(a.words)
+    text = memory.page(name) if name else None
+    if text:
+        print(text)
+        return
+    print((f'档案里没有「{name}」这一页。' if name else '') + '有这几页：')
+    for t in memory.topics():
+        print(f"  {t['name']}{'' if t['active'] else '（最近 30 天没动静）'}：{t['summary'] or ''}")
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog='look.py', description='只读查 Ephemeris 的聊天记录和证据卡')
     p.add_argument('cmd', choices=['msgs', 'cards', 'read', 'conv', 'convs', 'day', 'stats', 'sum', 'sql', 'schema', 'journal', 'diaries',
-                                     'files', 'grep', 'file', 'moye', 'skill'])
+                                     'files', 'grep', 'file', 'moye', 'skill', 'memory'])
     p.add_argument('words', nargs='*')
     p.add_argument('--since'); p.add_argument('--until')
     p.add_argument('--who', choices=['me', 'ai']); p.add_argument('--old', action='store_true')
@@ -464,7 +479,7 @@ def main(argv=None):
     p.add_argument('--from', dest='start', type=int, default=1); p.add_argument('--lines', type=int, default=200)
     a = p.parse_args(argv)
     {'msgs': msgs, 'cards': cards_, 'read': read, 'conv': conv, 'convs': convs, 'day': day, 'stats': stats, 'sum': sum_, 'sql': sql, 'schema': schema,
-     'journal': journal_, 'diaries': diaries_, 'files': files_, 'grep': grep_, 'file': file_, 'moye': moye_, 'skill': skill_}[a.cmd](a)
+     'journal': journal_, 'diaries': diaries_, 'files': files_, 'grep': grep_, 'file': file_, 'moye': moye_, 'skill': skill_, 'memory': memory_}[a.cmd](a)
 
 
 if __name__ == '__main__':

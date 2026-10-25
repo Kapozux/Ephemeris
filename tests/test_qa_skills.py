@@ -22,7 +22,7 @@ class Skills(unittest.TestCase):
         self.assertIsNone(qa.skill_text('../qa'))
 
     def test_prompt_has_only_descriptions(self):
-        p = qa.DEEP_PROMPT.format(name='他', today='2026-10-22', roots='~/Documents', skills=qa._skills_text(), look='look.py',
+        p = qa.DEEP_PROMPT.format(name='他', today='2026-10-22', roots='~/Documents', skills=qa._skills_text(), memory='', look='look.py',
                                   history='', question='我一直在做什么')
         self.assertIn('look.py skill <名字>', p)
         self.assertIn('· pattern：', p)

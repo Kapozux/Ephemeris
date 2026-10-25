@@ -33,6 +33,7 @@ import days
 import diary
 import jobs
 import llm
+import memory
 import store
 
 SYNC_AT = (8, 30)
@@ -89,6 +90,11 @@ def morning(job, force=False):
             cards.make(job, todo, cards.route_for(todo))
         except Exception as e:                               # noqa: BLE001  做卡没成不耽误后面的整理
             print(f'[cards] 早上做卡没做完：{type(e).__name__}: {e}', flush=True)
+    if memory.due():                                         # 记忆（「问」先看的档案）：一周整理一次，接在新卡后面
+        try:
+            memory.refresh(job)
+        except Exception as e:                               # noqa: BLE001
+            print(f'[memory] 没整理完：{type(e).__name__}: {e}', flush=True)
     job.update(stage='整理', done=0, total=0)
     tidy(llm.ask)
 

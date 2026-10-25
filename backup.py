@@ -41,7 +41,8 @@ SKIP_TABLES = ('sqlite_sequence', 'backups', 'backup_files', 'backup_keys',
 # 只增不减的核心表 → 主键列
 CORE = {'messages': 'id', 'conversations': 'id', 'journal': 'page_id', 'checkins': 'id',
         'diaries': 'date', 'imports': 'id', 'mood_ratings': 'date', 'card_days': 'date',
-        'browse_visits': 'id'}   # Chrome 自己只留 90 天，备份里得一直留着
+        'browse_visits': 'id',    # Chrome 自己只留 90 天，备份里得一直留着
+        'memory_facts': 'id'}     # 记忆里他自己补的那几条只有这里有
 # cards 不在这里（2026-10-13）：卡会按窗口整窗重做、id 跟着变，按行只增不减的话备份里新旧卡会越堆越多、还原时混在一起。
 # 它是从聊天派生的，整张表照常备份；按天做的老卡在 cards_v1 里
 # 只增不减、但改了不存旧版本的：窗口那行全是统计数（条数、最后一条时间），每次同步都变，存下来只是噪音

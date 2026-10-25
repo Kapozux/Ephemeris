@@ -233,3 +233,79 @@ export async function pollLong() {
     if (sel && sel.value) saveLong(box, sel.closest('.set-lc').dataset.id, { after: sel.value });
   });
 }
+
+// ---------------------------------------------------------------- 记忆（memory.py，10-25）
+// 「问」回答前先看的档案：「你」两页 + 各领域。每条带截至哪天和出处（点了回原话）；划掉的、换下来的折进「以前的」，不删。
+// 某一页可以不让「问」看；自己补一条（整理时模型必须留着）。手动整理要花 Claude 额度，先问一句。
+let MEM_POLL = null;
+const md = d => (d || '').slice(5, 10);
+
+function memFact(f, old) {
+  const src = (f.src || []).map((c, i) => `<a class="set-mem-src" href="#/day/${c.date}/conv/${encodeURIComponent(c.conv_id)}/msg/${encodeURIComponent(c.msg_id)}" title="${c.date}">${i + 1}</a>`).join('');
+  const why = !old ? '' : f.old_by === -1 ? '你划掉的' : f.old_by === 0 ? '整理时没再写' : '被新的换下';
+  return `<li class="set-mem-f${old ? ' old' : ''}"><span class="set-mem-ft">${esc(f.text)}</span>
+    <span class="set-mem-fm tnum">${f.by === 'hand' ? '你写的 · ' : ''}截至 ${md(f.as_of) || '?'}${src ? ` · 出处 ${src}` : ''}${why ? ` · ${why}` : ''}</span>
+    ${old ? '' : `<button type="button" class="set-lc-x" data-strike="${f.id}" title="划掉（折进以前的）" aria-label="划掉">×</button>`}</li>`;
+}
+
+function memTopic(t) {
+  return `<details class="set-mem" data-name="${esc(t.name)}">
+    <summary class="set-mem-s"><span class="set-text"><b>${esc(t.name)}</b>${t.off ? ' <span class="set-lc-src">「问」不看</span>' : ''}
+      <span class="set-what">${esc(t.summary || '')}</span>
+      <span class="set-what tnum">${t.written_at ? `整理于 ${md(t.written_at)}` : '还没整理'} · ${t.facts.length} 条${t.kind === 'area' && t.last_seen ? ` · 最近一张卡 ${md(t.last_seen)}` : ''}</span></span></summary>
+    <ul class="set-mem-list">${t.facts.map(f => memFact(f, false)).join('') || '<li class="set-mem-f set-what">还没有</li>'}</ul>
+    <div class="set-mem-add"><input class="set-pw set-mem-in" placeholder="自己补一条" aria-label="自己补一条" maxlength="300">
+      <button type="button" class="btn-secondary btn-small" data-add>补上</button>
+      <button type="button" class="btn-secondary btn-small" data-redo>重整这一页</button>
+      <button type="button" class="btn-secondary btn-small" data-on="${t.off ? 1 : 0}">${t.off ? '让「问」看' : '不让「问」看'}</button></div>
+    ${t.old.length ? `<details class="set-mem-old" data-name="${esc(t.name)}·old"><summary>以前的 ${t.old.length} 条</summary><ul class="set-mem-list">${t.old.map(f => memFact(f, true)).join('')}</ul></details>` : ''}
+  </details>`;
+}
+
+function renderMem(box, r) {
+  const open = new Set([...box.querySelectorAll('details[open]')].map(d => d.dataset.name));
+  const you = r.topics.filter(t => t.kind === 'you'), areas = r.topics.filter(t => t.kind === 'area');
+  const live = areas.filter(t => t.active), quiet = areas.filter(t => !t.active);
+  const j = r.job || {};
+  box.innerHTML = `<div class="set-note set-lc-head">「问」回答前先看这份档案。每周一早上从新的证据卡整理一次（没新卡的页不动），每条带截至哪天和出处；换下来的不删，折在「以前的」里。
+      <span class="set-res">${j.running ? `在整理：${esc(j.stage || '')}${j.total ? ` ${j.done}/${j.total}` : ''}` : j.error ? `<span class="bad">上次没整理完：${esc(j.error)}</span>` : ''}</span>
+      ${j.running ? '' : '<button type="button" class="btn-secondary btn-small set-mem-run" data-all>现在整理全部</button>'}</div>`
+    + `<div class="set-mem-g">你</div>` + you.map(memTopic).join('')
+    + `<div class="set-mem-g">领域</div>` + (live.map(memTopic).join('') || '<div class="set-note">还没整理过</div>')
+    + (quiet.length ? `<details class="set-lc-done" data-name="·quiet"><summary>最近 30 天没动静的 ${quiet.length} 个（「问」的目录里不放）</summary>${quiet.map(memTopic).join('')}</details>` : '');
+  box.querySelectorAll('details').forEach(d => { if (open.has(d.dataset.name)) d.open = true; });
+  clearTimeout(MEM_POLL);
+  if (j.running) MEM_POLL = setTimeout(pollMem, 2000);
+}
+
+async function memPost(box, url, body) {
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(r => r.json()).catch(() => null);
+  if (r && r.topics) renderMem(box, r);
+}
+
+export async function pollMem() {
+  const box = $('#memBox'); if (!box) return;
+  const r = await fetch('/api/memory').then(r => r.json()).catch(() => null);
+  if (!r) return;
+  renderMem(box, r);
+  if (box.dataset.bound) return;
+  box.dataset.bound = '1';
+  box.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    const name = b.closest('.set-mem')?.dataset.name;
+    if (b.dataset.all !== undefined)
+      return ask(b, '每一页重新整理一遍（这周写过的也写），十几次 Claude 调用，用订阅额度。', () => memPost(box, '/api/memory/run', {}));
+    if (b.dataset.redo !== undefined)
+      return ask(b, '这一页重新整理一遍，一次 Claude 调用。', () => memPost(box, '/api/memory/run', { name }));
+    if (b.dataset.strike) return memPost(box, '/api/memory/edit', { strike: +b.dataset.strike });
+    if (b.dataset.on !== undefined) return memPost(box, '/api/memory/edit', { name, on: b.dataset.on === '1' });
+    if (b.dataset.add !== undefined) {
+      const text = b.closest('.set-mem').querySelector('.set-mem-in').value.trim();
+      if (text) memPost(box, '/api/memory/edit', { name, text });
+    }
+  });
+  box.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.classList.contains('set-mem-in')) e.target.closest('.set-mem').querySelector('[data-add]').click();
+  });
+}

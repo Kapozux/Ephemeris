@@ -30,6 +30,7 @@ import index as idx
 import jobs
 import llm
 import localfiles
+import memory
 import store
 
 BUDGET_CHARS = 45000          # 送给回答那一步的卡，最多这么多字（Claude Opus 写，一问等值约 $0.2；8 万字是 DeepSeek 时放宽的，Claude 要 $0.68）
@@ -455,6 +456,12 @@ DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料�
   grep  <词> [词…] --in <文件或文件夹> [--n 30]                                          在文件里搜（同一行几个词都出现，不分大小写）；文件夹越小越快
   file  <文件> [--from 1] [--lines 200] [--at 词]                                        按行读一个文件（一次最多 400 行）：文字文件、.docx、.pptx、有文字层的 PDF 都行；--at 跳到词第一次出现的地方
   moye  <词> [--n 10]                                                                    搜墨页（他的 PDF 转 Markdown 应用）已经转好的文档：扫描件、课件、作业；读全文用 file moye:<id>
+  memory [名字]                                                                          读他的档案里的一页（下面「档案」那几页）；不给名字列出有哪些
+
+他的档案（「记忆」：每周从证据卡整理一次，每条带截至哪天和出处）。问题沾到哪一页，先 `{look} memory <名字>` 读那一页，
+现在的情况、定下来的事不用从头搜；但档案是整理过的二手话、可能过时：要原话、要准数、要「截至今天」的，照样去查原文核对，
+档案和原文对不上以原文为准。引档案里的事照抄它带的 [[c:…]] 记号。没沾到的页别读。
+{memory}
 
 怎么查：
 - 问总量、规模、一共多少、哪个月聊得最多 → stats（给的是准数，别拿关键词搜索的命中数去估）。
@@ -503,7 +510,7 @@ DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料�
 问题：{question}
 """
 # 没有 Claude 时（只有 DeepSeek 的电脑，2026-10-14）深挖走 llm.deepseek_agent：同一套 look.py 命令，包成一个叫 look 的工具
-LOOK_CMDS = ('msgs', 'cards', 'read', 'conv', 'convs', 'sum', 'day', 'stats', 'journal', 'diaries', 'schema', 'sql', 'files', 'grep', 'file', 'moye', 'skill')
+LOOK_CMDS = ('msgs', 'cards', 'read', 'conv', 'convs', 'sum', 'day', 'stats', 'journal', 'diaries', 'schema', 'sql', 'files', 'grep', 'file', 'moye', 'skill', 'memory')
 LOOK_TOOL = {'name': 'look', 'description': '查他的聊天记录、证据卡、日记，也能只读看他电脑上的文件（files / grep / file）。command 填一条 look 命令（不带 look 本身），比如 '
              '「msgs 申请 --old」「cards 我那阵子状态怎么样 --since 2026-03-01」「sql "SELECT COUNT(*) FROM messages"」',
              'parameters': {'type': 'object', 'properties': {'command': {'type': 'string', 'description': '一条命令'}},
@@ -627,7 +634,7 @@ def _file_snapshot(ref):
 
 STEP_LABEL = {'msgs': '搜原文', 'cards': '翻证据卡', 'read': '读原话前后', 'conv': '看一个窗口', 'convs': '找聊过的窗口',
               'sum': '加字数', 'day': '看那天', 'stats': '看总量', 'journal': '翻手写日记', 'diaries': '读日记',
-              'schema': '看库里有哪些表', 'sql': '自己算', 'files': '看文件夹', 'grep': '在文件里搜', 'file': '读文件', 'moye': '搜墨页', 'skill': '读做法'}
+              'schema': '看库里有哪些表', 'sql': '自己算', 'files': '看文件夹', 'grep': '在文件里搜', 'file': '读文件', 'moye': '搜墨页', 'skill': '读做法', 'memory': '看档案'}
 _TABLE_NAME = {'messages': '聊天记录', 'conversations': '窗口', 'cards': '证据卡', 'diaries': '日记', 'journal': '手写日记',
                'checkins': '打卡', 'themes': '主题', 'card_convs': '窗口小结'}
 
@@ -770,13 +777,13 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
         return {'answer': body, 'cites': cites, 'deep': True, 'thread': thread, 'trace': trace, **({'stopped': True} if stopped else {})}
 
     if not llm.claude_on():                                         # 只有 DeepSeek：它自己调 look 工具查，没有会话可接（追问靠前面的对话记录）
-        prompt = deep_prompt_deepseek(name=idx.who(), today=days.today(), roots=_roots(), skills=_skills_text(), history=_history_text(turns), question=question)
+        prompt = deep_prompt_deepseek(name=idx.who(), today=days.today(), roots=_roots(), skills=_skills_text(), memory=memory.directory(), history=_history_text(turns), question=question)
         try:
             text = llm.deepseek_agent(prompt, LOOK_TOOL, run_look, on_event=say, purpose='qa-deep')
         except llm.Cancelled:
             return done(*_deep_cites(''.join(buf).strip()), stopped=True)
         return done(*_deep_cites(text))
-    fresh = DEEP_PROMPT.format(name=idx.who(), today=days.today(), roots=_roots(), skills=_skills_text(), look=LOOK, history=_history_text(turns), question=question)
+    fresh = DEEP_PROMPT.format(name=idx.who(), today=days.today(), roots=_roots(), skills=_skills_text(), memory=memory.directory(), look=LOOK, history=_history_text(turns), question=question)
     first = RESUME_PROMPT if lost else FOLLOW_PROMPT.format(question=question) if sid else fresh
     try:
         try:

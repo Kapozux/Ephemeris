@@ -11,6 +11,7 @@ import daily
 import export
 import index as idx
 import longchats
+import memory
 import search
 import setup
 import store
@@ -155,6 +156,41 @@ def api_longchats_mark(conv_id):
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     return jsonify({'lines': longchats.lines()})
+
+
+# ------------------------------------------------------------------ 记忆（memory.py）：「问」先看的档案
+
+def _memory():
+    return {'topics': memory.topics(all=True), 'job': memory.status()}
+
+
+@bp.route('/api/memory')
+def api_memory():
+    return jsonify(_memory())
+
+
+@bp.route('/api/memory/run', methods=['POST'])
+def api_memory_run():
+    """body：{name?}。手动按的一律重写（这周写过的也写）；name 只整理那一页。"""
+    body = request.get_json(silent=True) or {}
+    memory.start(force=True, name=body.get('name') or None)
+    return jsonify(_memory())
+
+
+@bp.route('/api/memory/edit', methods=['POST'])
+def api_memory_edit():
+    """body：{name, on} 某页让不让「问」看；{name, text} 自己补一条；{strike: 事实 id} 划掉一条（折进「以前的」）。"""
+    body = request.get_json(silent=True) or {}
+    try:
+        if 'strike' in body:
+            memory.strike(int(body['strike']))
+        elif 'text' in body:
+            memory.add(body.get('name'), body['text'])
+        elif 'on' in body:
+            memory.switch(body.get('name'), bool(body['on']))
+    except (ValueError, TypeError) as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify(_memory())
 
 
 # ------------------------------------------------------------------ 第一次用（setup.py）

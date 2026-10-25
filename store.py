@@ -167,6 +167,15 @@ CREATE TABLE IF NOT EXISTS qa_threads (id INTEGER PRIMARY KEY AUTOINCREMENT, tit
 -- 长聊清单（longchats.py，10-23）：他给长期在聊的窗口标的「要迁 / 不迁」（move 1 / 0，没标 NULL）、续集接着哪个窗口（after）
 CREATE TABLE IF NOT EXISTS long_chats (conv_id TEXT PRIMARY KEY, move INTEGER, after TEXT);
 
+-- 记忆（memory.py，10-25）：「问」先看的档案。kind：you（关于你 / 偏好）| area（领域）；off 1 = 不让「问」看；
+-- last_seen：最近一张沾边的卡是哪天（30 天内的才进目录）。事实只加不删：换下来的记 old_by（新那条的 id；0 = 整理时没写进去；-1 = 他划掉的）
+-- by：ai | hand（他自己写的，整理时模型必须留着）；cites：出处卡 id 的 JSON 列表；pos：页里的顺序
+CREATE TABLE IF NOT EXISTS memory_topics (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, name TEXT NOT NULL UNIQUE,
+  summary TEXT, keywords TEXT, off INTEGER NOT NULL DEFAULT 0, last_seen TEXT, written_at TEXT, made_at TEXT);
+CREATE TABLE IF NOT EXISTS memory_facts (id INTEGER PRIMARY KEY AUTOINCREMENT, topic_id INTEGER NOT NULL, text TEXT NOT NULL,
+  as_of TEXT, cites TEXT, by TEXT NOT NULL DEFAULT 'ai', pos INTEGER, old_by INTEGER, made_at TEXT);
+CREATE INDEX IF NOT EXISTS memory_facts_topic ON memory_facts(topic_id);
+
 -- ---------------------------------------------------------------- 重复窗口的存档（dedup.py，2026-10-13）
 -- 同一个窗口手动导入一份（指纹 id）、自动同步又一份（uuid）：多出来的那份整份挪到这里（JSON 原样），正常的表里看不到。
 CREATE TABLE IF NOT EXISTS conversations_dup (id TEXT PRIMARY KEY, dup_of TEXT, archived_at TEXT, row TEXT);

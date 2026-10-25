@@ -280,6 +280,12 @@ DEEPSEEK_MODEL = 'deepseek-v4-flash'
 DEEPSEEK_CHOICES = (('deepseek-v4-flash', 'DeepSeek V4 Flash'), ('deepseek-chat', 'DeepSeek Chat'),
                     ('deepseek-reasoner', 'DeepSeek Reasoner（先想再答）'))
 CHEAP_SYSTEM = '你是 Ephemeris（一个人的私人日记应用）里的文本处理程序。只按用户消息里的要求输出，不寒暄，不加额外说明。'
+# 演示版（10-25，英文假数据给 Reddit 截图）：EPHEMERIS_OUTPUT_LANG=English 让日记 / 账本 / 卡 / 「问」的正文都用这门语言写。
+# 只管 DeepSeek 这两条路（_cheap、deepseek_agent），演示版就只开着它们。
+if idx.env('EPHEMERIS_OUTPUT_LANG'):
+    CHEAP_SYSTEM += (f" Write every piece of free text you output (diaries, summaries, titles, notes, answers) in "
+                     f"{idx.env('EPHEMERIS_OUTPUT_LANG')}. Keep JSON keys, fixed labels and enum values exactly as the "
+                     "instructions spell them (even if they are Chinese), and quote source text verbatim.")
 CHEAP_PARALLEL = int(idx.env('EPHEMERIS_CHEAP_PARALLEL') or 16)     # 同时在路上的 DeepSeek 请求最多几个（做卡 12 个窗口 × 4 段会冲到 48）
 CHEAP_RETRIES = 4                                # 没有 Gemini 可退时，同一条路限流 / 断线 / 5xx 再试几次
 RETRY_WAIT = 3.0                                 # 第 n 次重试前等 RETRY_WAIT × 2^(n-1) 秒（测试里设 0）

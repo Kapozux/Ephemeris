@@ -1,4 +1,4 @@
-"""每天早上那一串：读 Claude Code 的新对话 → 拉 claude.ai → 补写缺的日记 → 证据卡（最近一周有新消息的窗口）→ 整理。08:30 自己跑，手动点「立刻同步」也走这一条。
+"""每天那一串：读 Claude Code 的新对话 → 拉 claude.ai → 补写缺的日记 → 证据卡（最近一周有新消息的窗口）→ 整理。13:15 自己跑（10-25 从 08:30 挪过来：同步要开窗口），手动点「立刻同步」也走这一条。
 
     morning(job, force)  整串（后台任务 claude-sync，进度在 job 里：stage / done / total）
     start(force)         手动点按钮
@@ -6,7 +6,7 @@
     status()             「窗口与导入」面板上那一块要的
 
 不挂 cron/launchd —— 这个进程本来就随「启动服务.command」常驻，自己管就行。
-那一刻 Mac 在睡觉就错过了：醒来（或应用启动）后发现今天的 08:30 还没跑过，马上补；失败了隔 30 分钟再试。
+那一刻 Mac 在睡觉就错过了：醒来（或应用启动）后发现今天的 13:15 还没跑过，马上补；失败了隔 30 分钟再试。
 全量第一次同步要 25 分钟，之后每天只拉动过的那几个对话，一两分钟。
 
 整理（tidy）一步接一步，每步独立：前一步失败不拦后一步，结果记在 daily_runs。
@@ -36,7 +36,7 @@ import llm
 import memory
 import store
 
-SYNC_AT = (8, 30)
+SYNC_AT = (13, 15)
 RETRY_MIN = 30           # 失败了隔多久再试
 AUTO_DAYS = 7            # 早上自动补日记只补这么多天以内的
 JOB = 'claude-sync'
@@ -105,7 +105,7 @@ def start(force=False):
 
 
 def _last_slot(now):
-    """最近一个已经过去的 08:30。"""
+    """最近一个已经过去的 13:15。"""
     slot = now.replace(hour=SYNC_AT[0], minute=SYNC_AT[1], second=0, microsecond=0)
     return slot if now >= slot else slot - timedelta(days=1)
 

@@ -86,7 +86,7 @@ function dataStep(s, syncing, syncLine) {
         <li>右边列表里找名字叫 <b>sessionKey</b> 的那一行，双击它的值（sk-ant- 开头），全选、复制，贴到下面。</li></ol>
       <p class="su-note">这一串等于你的登录，别发给别人。它过一段时间会失效，到时候再来贴一次新的。${s.claude ? '已经填好了。' : ''}</p>
       ${field('suClaude', 'CLAUDE_SESSION_KEY', 'sk-ant- 开头的一串')}
-      <p>第一次会把以前所有的聊天都拉下来，要几分钟到半个小时。以后每天早上 8:30 自动拉一次（电脑开着、Ephemeris 在运行就行）。</p>
+      <p>第一次会把以前所有的聊天都拉下来，要几分钟到半个小时。以后每天 13:15 自动拉一次（电脑开着、Ephemeris 在运行就行）。</p>
       <div class="su-field"><button class="btn-primary" id="suSync" ${!s.model || !s.claude || syncing ? 'disabled' : ''}>开始下载</button>
         <span class="su-msg">${syncLine}</span></div>
     </details>

@@ -60,7 +60,7 @@ def api_days():
     return jsonify({'days': rows, 'total_days': len(rows),
                     'missing': len(missing),
                     'cost_estimate': round(len(missing) * diary.COST_PER_DAY, 2),
-                    # 打开应用落在哪一天：最近一篇写好的日记（早上 08:30 刚写出来的昨天那篇）。
+                    # 打开应用落在哪一天：最近一篇写好的日记（13:15 刚写出来的昨天那篇）。
                     # 不用「最近有数据的一天」—— 那常常是今天，只有一两条打卡，页面是空的。
                     'latest': next((r['date'] for r in reversed(rows) if r['has_diary']),
                                    rows[-1]['date'] if rows else None)})

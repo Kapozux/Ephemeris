@@ -163,7 +163,7 @@ def score_friction(date, call_model):
 
 def pending(dates_chat=None, dates_hand=None):
     """还没打的：有聊天没 friction 的天、有手写没 hand 的天。
-    「卡得多狠」不打今天：早上 08:30 那一串跑的时候今天才开了个头，打了就不再重打
+    「卡得多狠」不打今天：13:15 那一串跑的时候今天才开了个头，打了就不再重打
     （10-19 体检：09-29 起有 11 天是只看了当天早上几条打的）。"""
     have = {(r['date'], r['src']) for r in store.q("SELECT date, src FROM mood_scores WHERE src IN ('friction','hand')")}
     chat = dates_chat if dates_chat is not None else \
@@ -174,7 +174,7 @@ def pending(dates_chat=None, dates_hand=None):
 
 
 def fill(call_model, say=print):
-    """补齐两个指标。每天 08:30 调度里跑一次；全量第一次也用它。"""
+    """补齐两个指标。每天 13:15 调度里跑一次；全量第一次也用它。"""
     chat, hand = pending()
     say(f'卡得多狠 要打 {len(chat)} 天，过得怎么样 要打 {len(hand)} 天')
     for i, d in enumerate(sorted(chat), 1):

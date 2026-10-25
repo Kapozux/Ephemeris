@@ -50,6 +50,20 @@ class Notes(unittest.TestCase):
         self.assertEqual(said, [note[:600]])
         self.assertGreater(len(said[0]), 300)
 
+    def test_written_thinking_removed(self):
+        """10-25：它把思考写进正文（text 块里的 <thinking>…</thinking>）：步骤栏、正在写的、最终回答里都不显示；真正的 thinking 块本来就不收。"""
+        say = lambda t: {'type': 'assistant', 'message': {'content': [{'type': 'thinking', 'thinking': '内部'}, {'type': 'redacted_thinking', 'data': 'x'},
+                                                                      {'type': 'text', 'text': t}]}}
+        tool = {'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'input': {'command': 'look.py stats'}}]}}
+        llm.use_claude(lambda args, stdin: {'result': '<thinking>草稿</thinking>答。', 'session_id': 's', 'events': [
+            say('<thinking>先想想</thinking>'), tool, say('<thinking>想\n半天</thinking>我先查统计'), tool] + deltas('<thinking>草稿</thinking>', '答。')})
+        live = []
+        r = qa.answer_deep('我这一年变了什么', thread=qa.new_thread(), on_text=lambda x: live.append(x))
+        self.assertEqual([s['t'] for s in r['trace']['steps'] if s['k'] == 'say'], ['我先查统计'])
+        self.assertEqual(r['answer'], '答。')
+        self.assertEqual(qa.no_thinking(''.join(x for x in live if x)), '答。')
+        self.assertEqual(qa.no_thinking('写了一半<thinking>没收尾'), '写了一半')
+
 
 if __name__ == '__main__':
     unittest.main()

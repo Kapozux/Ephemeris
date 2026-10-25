@@ -574,7 +574,8 @@ CITE_ANY = re.compile(r'\[\[\s*(?:([mc]):([^\]\s]+)|(f):([^\]]+?))\s*\]\]')     
 
 
 def _deep_cites(text):
-    """回答里的 [[m:id]] / [[c:id]] → 出处快照（id 不存在的记号删掉）。返回 (正文, cites)。"""
+    """回答里的 [[m:id]] / [[c:id]] → 出处快照（id 不存在的记号删掉）。返回 (正文, cites)。正文里写出来的 <thinking> 段去掉。"""
+    text = no_thinking(text).strip()
     cites, seen = [], {}
 
     def rep(m):
@@ -669,6 +670,13 @@ def _title_of(ref, msg):
 
 
 _STRAY_TAG = re.compile(r'</?[A-Za-z_][\w-]*>')
+# 10-25：它偶尔把思考当正文写（text 块里一段 <thinking>…</thinking>，没收尾的也算到末尾）。真正的 thinking 块 llm._claude_events 本来就不收
+_THINKING = re.compile(r'<thinking>.*?(?:</thinking>|$)|</thinking>', re.S)
+
+
+def no_thinking(text):
+    """去掉正文里的 <thinking>…</thinking> 整段（中途的话、正在写的回答、最终回答都过一遍）。"""
+    return _THINKING.sub('', text or '')
 
 
 def _step(kind, text):
@@ -734,7 +742,7 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
     # 压到最后都没跑命令的那段就是回答本身，不进步骤（照 claude.ai：几步之间夹着它说的话）
     def say(kind, text):
         if kind == 'text':
-            held[:] = [text]
+            held[:] = [no_thinking(text)]
         elif kind == 'tool':
             said = re.sub(r'\s+', ' ', CITE_ANY.sub('', held.pop())).strip() if held else ''
             if said and not _STRAY_TAG.fullmatch(said):              # 10-22：它偶尔吐一个「</reasoning_effort>」这种标签当一段话
@@ -804,14 +812,15 @@ def start_ask(question, thread=None, model=None, effort=None, again=False, fresh
     def run(job, q, deep):
         job['tid'] = threading.get_ident()
         llm.uncancel()
-        def text(piece):
-            job['partial'] = '' if piece is None else job['partial'] + piece
+        def text(piece):                                          # raw 是原样攒的，partial 给人看：去掉写出来的 <thinking> 段
+            job['raw'] = '' if piece is None else job['raw'] + piece
+            job['partial'] = no_thinking(job['raw'])
         pick = {'model': model, 'effort': effort or 'max', 'again': again}          # 问默认 Max（10-17：思考不要限制）
         job['result'] = answer_deep(q, progress=job['steps'].append, on_text=text, thread=thread, fresh=fresh, **pick) if deep \
             else answer(q, on_text=text, thread=thread, **pick)
         # 第一轮答完起标题：另开一条线，不拖着这次问答收尾
         threading.Thread(target=autotitle, args=(thread,), daemon=True).start()
-    return jobs.start(_job(thread), run, question, deep, steps=[], partial='', result=None, question=question, deep=deep,
+    return jobs.start(_job(thread), run, question, deep, steps=[], raw='', partial='', result=None, question=question, deep=deep,
                       thread=thread, model=model or (llm.choices() or ((llm.CLAUDE_MODEL, ''),))[0][0], effort=effort or 'max')
 
 

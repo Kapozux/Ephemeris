@@ -214,3 +214,10 @@ h1 .ck-spark { font-size:.6em; margin-left:10px; vertical-align:.25em; color:var
   .ck-orb { width:36px; height:36px; }
   .ck-day-big .ck-big-d { font-size:44px; }
 }
+
+/* 键盘焦点（10-25）：Tab 走到哪都看得见，鼠标点的不画（focus-visible）；:where 不加权重，各处自己写的焦点样式照样优先 */
+:where(a, button, summary, select, [tabindex], [role=button]):focus-visible { outline:2px solid var(--gold-deep); outline-offset:2px; }
+/* 系统开了「减少动态效果」：动画、过渡、平滑滚动都关掉（没有 JS 等动画结束事件，直接关是安全的） */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
+}

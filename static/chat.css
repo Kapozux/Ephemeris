@@ -215,7 +215,7 @@ sup .ch-cite:hover { color: var(--text); }
 .ch-trace[open] .ch-trail { padding: 4px 0 6px 6px; margin-bottom: 6px; border-bottom: 1px solid var(--line); }
 @keyframes ch-shine { to { background-position: -200% 0; } }
 @keyframes ch-in { from { opacity: 0; transform: translateY(3px); } }
-@media (prefers-reduced-motion: reduce) { .ch-run-t, .ch-step, .ch-step.live .ch-step-i, .ch-spin { animation: none; } .ch-run-t { color: var(--muted); } }
+@media (prefers-reduced-motion: reduce) { .ch-run-t { color: var(--muted); } }   /* 动画本身由文件末尾那条全局的关掉 */
 @keyframes ch-turn { to { transform: rotate(360deg); } }
 @keyframes ch-pulse { 50% { opacity: .3; } }
 
@@ -274,3 +274,10 @@ body.ch-busy .ch-send .ch-stop { display: block; }
   .ch-sub { left: auto; right: -7px; bottom: -7px; width: 236px; }
 }
 .ch-sub.left { left: auto; right: calc(100% + 6px); }   /* 右边放不下（中等宽度）就往左开 */
+
+/* 键盘焦点（10-25）：Tab 走到哪都看得见，鼠标点的不画（focus-visible）；:where 不加权重，各处自己写的焦点样式照样优先 */
+:where(a, button, summary, select, [tabindex], [role=button]):focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+/* 系统开了「减少动态效果」：动画、过渡、平滑滚动都关掉（没有 JS 等动画结束事件，直接关是安全的） */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
+}

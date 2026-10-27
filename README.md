@@ -4,7 +4,7 @@
 
 Built by **[Kapozux](https://github.com/Kapozux)**
 
-**Turn your AI chat history into a daily diary.** Ephemeris takes every conversation you've had with Claude and Gemini, regroups it by day instead of by chat window, writes one diary entry per day, and keeps a running ledger of what you've been working on.
+**Turn your long-term AI chat history into a day-by-day archive you can question.** Ephemeris takes every conversation you've had with Claude, ChatGPT, Gemini, and more, regroups it by day instead of by chat window, writes one diary entry per day, and keeps a running ledger of what you've been working on. Every conclusion it draws cites a timestamped, verbatim message.
 
 *ἐφημερίς* is Greek for "daily record". Astronomers later used the word for tables tracking where the planets are each day. This app does the same for you.
 

@@ -89,6 +89,8 @@ function render() {
       q('idea', `话题：${esc(cur.topic)}。在这个话题上，你最后有没有采用某个决定或方案？有的话，是谁先提出来的？`,
         '只看这个话题，段里别的事不管。AI 先说、你后来同意的，算 AI 先提；你后来换个说法重复一遍也还算 AI。只是聊、没定下什么，选最后一个。',
         Object.entries(st.idea)) +
+      `<div class="an-q"><small>导出里没有你上传的文件 / 截图 / 贴的长文，所以有时你只说「帮我看看」，AI 就开始讲内容。照页面上看得到的判；如果你记得这段传过东西，点一下：</small>` +
+      `<button class="an-opt" id="hid">这段里有看不到的文件</button></div>` +
       `<div class="an-row">${undo}<button class="an-go" id="go" disabled>下一段 ⏎</button></div>`;
   }
   document.querySelectorAll('.an-q').forEach(g => g.addEventListener('click', e => {
@@ -97,6 +99,7 @@ function render() {
   }));
   $('#undo') && ($('#undo').onclick = () => post('/api/undo', {}));
   $('#go') && ($('#go').onclick = submit);
+  $('#hid') && ($('#hid').onclick = () => { ans.hidden = !ans.hidden; $('#hid').classList.toggle('is-on', !!ans.hidden); });
   window.scrollTo(0, 0);
 }
 function pick(k, v) {

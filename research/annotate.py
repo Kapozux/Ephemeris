@@ -311,6 +311,10 @@ def score():
                    'model_r1_vs_r2': _stat([(r1[c]['idea_from'], r2[c]['idea_from']) for c in segs if c in r1 and c in r2]),
                    'quote_verified': sum(r1[c]['verified'] for c in r1), 'confusion': dict(Counter(
                        f"人={human[c]} 模型={r1[c]['idea_from']}" for c in firm if human[c] != r1[c]['idea_from']))}
+    hid = [c for c in firm if labels['seg'][c].get('hidden')]
+    out['idea']['hidden_files'] = {'n': len(hid),
+                                   'with': _stat([(human[c], r1[c]['idea_from']) for c in hid]),
+                                   'without': _stat([(human[c], r1[c]['idea_from']) for c in firm if c not in hid])}
     re = [(labels['seg'][c]['idea'], labels['retest'][c]['idea']) for c in items['retest']
           if c in labels['seg'] and c in labels['retest']]
     out['idea']['human_retest'] = _stat(re)

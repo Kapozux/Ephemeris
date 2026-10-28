@@ -2,20 +2,25 @@
 
     ../venv/bin/python -m research.annotate sample    固定种子抽题：100 条消息（说话人 + 粘贴）、50 段对话（想法谁先提）
     ../venv/bin/python -m research.annotate judge     模型把那 50 段判两遍（盲标对照 + 模型自己稳不稳），省钱路线
+    ../venv/bin/python -m research.annotate topics    每段一个中性话题（第 3 项跟题目一起显示）
     ../venv/bin/python -m research.annotate serve     开 http://127.0.0.1:5061 标；随时关，标过的都存着
     ../venv/bin/python -m research.annotate score     算数：准确率、精确率 / 召回率、一致率、Cohen's κ、Gwet's AC1
 
 全在 realval 的只读拷贝上（data/real/chats.db）；题目和标注只存在 data/real/annotate/（不进仓库），对外只给数字。
-第 3 项是盲标：页面只给对话原文，不给模型判的什么、也不标模型认为想法在哪句（那等于告诉答案）。
+第 3 项是盲标：页面只给对话原文和一个中性的话题（topics，「关于……」，让人和模型判的是同一个想法），
+不给模型判的什么、也不标模型认为想法在哪句（那等于告诉答案）。
 跟模型看的是同一段：窗口前 SEG_MSGS 条、每条前 600 字。其中 RETEST 段过 RETEST_DAYS 天后打乱顺序再标一次。
 """
 import json
 import os
 import random
+import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 
+import research
 import speech
 from research import realval
 from research.participant import Msg
@@ -24,6 +29,8 @@ DIR = os.path.join(realval.REAL, 'annotate')
 ITEMS = os.path.join(DIR, 'items.json')
 LABELS = os.path.join(DIR, 'labels.json')
 JUDGE = os.path.join(DIR, 'judge.json')
+TOPICS = os.path.join(DIR, 'topics.json')
+BANNED = re.compile(r'是否|要不要|该不该|怎么|如何|哪|选|决定|建议|方案|我|你|AI|[？?]')   # 问句 / 提到谁：看得出模型判的是什么
 SEED = 20261028
 N_MSGS = 100
 N_SEGS = 50
@@ -32,7 +39,7 @@ RETEST_DAYS = 3
 SEG_MSGS = 30
 LONG = 400                   # 长消息有意多抽：一半是超过这么多字或带代码块 / 多行的
 PORT = 5061
-IDEA = {'user': '我先提的', 'ai': 'AI 先提的', 'unsure': '分不清', 'none': '这段里没有采用的决定'}
+IDEA = {'user': '我先提的', 'ai': 'AI 先提的', 'unsure': '分不清', 'none': '这个话题上没定下什么'}
 
 
 def _load(path, default):
@@ -125,6 +132,52 @@ def judge(runs=2):
         print(key, f"{len(got[key])}/{len(windows)} 段判好（prompt {idea.VERSION}）")
 
 
+TOPIC_PROMPT = """Below is a chat between a person ("H") and an AI assistant ("A").
+{focus}
+Write a short, neutral topic label in Chinese, at most 16 characters: "关于" followed by a plain NOUN PHRASE naming the subject
+(e.g. "关于学校", "关于论文结构", "关于数据库备份"), never the answer ("决定换学校") and never a question.
+Do not use any of these: 是否 要不要 该不该 怎么 如何 哪 选 决定 建议 方案 我 你 AI ？ ?. It must not reveal who proposed
+anything or whether anything was decided, and must not reuse either side's distinctive wording.
+
+{transcript}
+
+Output only JSON: {{"topic": "关于……"}}"""
+
+
+def topics():
+    """给每段一个中性的话题（第 3 项盲标时跟题目一起显示），让人和模型判的是同一个想法、又不泄题。
+    模型判出想法的段：话题来自它判的那句（它在哪句、谁说的不给人看）；判成 none 的段：话题是这段主要在讨论什么。
+    两种写法一样（都是「关于……」），看话题看不出模型判的是不是 none。"""
+    research.ledger()
+    import llm
+    from research.measures.chat_ai_first_idea_ratio import _transcript
+    items, r1 = _load(ITEMS, None), _load(JUDGE, {}).get('r1', {})
+    got = _load(TOPICS, {})
+
+    def one(s):
+        msgs = [Msg(m['id'], s['id'], s['source'], None, m['role'], m['text'], True) for m in s['msgs']]
+        j = r1.get(s['id']) or {}
+        if j.get('idea_from') in ('user', 'ai') and j.get('quote'):
+            k = next((i for i, m in enumerate(msgs) if m.id == j.get('msg')), None)
+            focus = (f'An option for a decision is first proposed {"in message [" + str(k) + "]" if k is not None else ""}: '
+                     f'"{j["quote"]}". Label the question that this option answers.')
+        else:
+            focus = 'Label the main question this chat is about.'
+        d = llm.ask_json(TOPIC_PROMPT.format(focus=focus, transcript=_transcript(msgs)), want=dict, tries=2,
+                         route='cheap', purpose='research-topic') or {}
+        t = str(d.get('topic') or '').strip()
+        return s['id'], t if t.startswith('关于') and not BANNED.search(t) else ''
+
+    for _ in range(3):                                     # 不合格式的再要一次
+        todo = [s for s in items['segs'] if not got.get(s['id']) or BANNED.search(got[s['id']])]
+        with ThreadPoolExecutor(6) as pool:
+            for cid, t in pool.map(one, todo):
+                if t:
+                    got[cid] = t
+    _save(TOPICS, got)
+    print(f"{len(got)}/{len(items['segs'])} 段有话题 -> {TOPICS}")
+
+
 # ---------- 标注页 ----------
 
 def _queue(items, labels):
@@ -140,6 +193,9 @@ def _queue(items, labels):
 def serve():
     from flask import Flask, abort, jsonify, request, send_file
     items = _load(ITEMS, None) or sys.exit('先跑 sample')
+    topic = _load(TOPICS, {})
+    if len(topic) < len(items['segs']):
+        sys.exit('先跑 topics')
     by = {('msg', i['id']): i for i in items['msgs']} | {('seg', s['id']): s for s in items['segs']}
     app = Flask(__name__)
 
@@ -164,6 +220,8 @@ def serve():
             kind, iid = todo[0]
             it = dict(by['seg' if kind == 'retest' else kind, iid])
             it.pop('filter_pasted', None)                  # 盲标：不给过滤器的判断
+            if kind != 'msg':
+                it['topic'] = topic.get(iid)
             nxt = dict(it, kind=kind)
         waiting = None if due or len(labels['retest']) >= RETEST else (
             (max(datetime.fromisoformat(a) for a in firsts) + timedelta(days=RETEST_DAYS)).strftime('%m-%d %H:%M')
@@ -262,4 +320,4 @@ def score():
 
 
 if __name__ == '__main__':
-    {'sample': sample, 'judge': judge, 'serve': serve, 'score': score}[sys.argv[1]]()
+    {'sample': sample, 'judge': judge, 'topics': topics, 'serve': serve, 'score': score}[sys.argv[1]]()

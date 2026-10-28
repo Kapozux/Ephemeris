@@ -142,7 +142,7 @@ _LIST_JS = """(async () => {
   return {conversations: out};
 })()"""
 
-# 跟 export_claude.js 里那段取正文的逻辑保持一致：只要 text 型 content，created_at 原样留 ISO
+# 跟 export_claude.js 里那段取正文的逻辑保持一致：只要 text 型 content，created_at 原样留 ISO；附件只带名字
 _FETCH_JS = """(async () => {
   const org = %s, ids = %s, out = [], fail = [];
   for (const it of ids) {
@@ -157,7 +157,10 @@ _FETCH_JS = """(async () => {
         const role = m.sender === 'human' ? 'human' : 'assistant';
         const text = (m.content || []).filter(x => x.type === 'text' || !x.type)
                        .map(x => x.text ?? '').join('').trim();
-        if (text) messages.push({role, created_at: m.created_at, text});
+        // 附件只要名字（index.attach_note 记成一行）；贴的长文没名字
+        const attachments = [...(m.attachments || []).map(a => a.file_name || '粘贴的长文'),
+                             ...(m.files || []).concat(m.files_v2 || []).map(f => f.file_name)].filter(Boolean);
+        if (text || attachments.length) messages.push({role, created_at: m.created_at, text, attachments});
       }
       if (messages.length) out.push({uuid: it.uuid, name: it.name || 'Untitled',
                                      created_at: it.created_at, updated_at: it.updated_at, messages});

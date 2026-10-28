@@ -65,15 +65,15 @@ def conv_fingerprint(msgs):
     claude.ai 的 JSON 自带 uuid，走 uuid —— 指纹对时间戳精度敏感，
     md（到分钟）和 json（到毫秒）会算出两个不同的值。
     """
-    for dt, role, text in msgs:
+    for dt, role, text, *key in msgs:
         if role == 'human':
-            return _h(f'{dt.isoformat()}|{text[:200]}')
-    dt, _, text = msgs[0]
-    return _h(f'{dt.isoformat()}|{text[:200]}')
+            return _h(f'{dt.isoformat()}|{(key[0] if key else text)[:200]}')
+    dt, _, text, *key = msgs[0]
+    return _h(f'{dt.isoformat()}|{(key[0] if key else text)[:200]}')
 
 
 # ------------------------------------------------------------------ parsers
-# 每个 parser yield dict(title, title_fallback, msgs=[(dt, role, text)])
+# 每个 parser yield dict(title, title_fallback, msgs=[(dt, role, text)])；可以多一项「算 id 用的正文」（claude.ai：不含附件那行）
 
 _H_RE = re.compile(r'\n## (Human|Claude|ChatGPT) \(([^)]*)\):\n')     # ChatGPT：同一个浏览器插件导出的 GPT 对话，格式一样
 
@@ -138,6 +138,23 @@ def _msg_text(m):
     return (m.get('text') or '').strip()
 
 
+def attach_note(names):
+    """消息里有附件 / 文件，只在正文后面记一行名字（内容不存：多半是电脑上本来就有的，存了乱、还重复。10-28 用户定的）。
+    这样读的人知道「你帮我看看」看的是什么，研究版判「谁先提的」也不会把文件里的东西算成 AI 的。"""
+    return '\n[附件：' + '、'.join(names[:5]) + ']' if names else ''
+
+
+def _claude_files(m):
+    """一条 claude.ai 消息带的附件名。官方导出：attachments（贴的长文没名字）+ files；每日同步：attachments 已经是名字。"""
+    names = []
+    for key in ('attachments', 'files', 'files_v2'):
+        for f in m.get(key) or []:
+            n = f if isinstance(f, str) else (f.get('file_name') or ('粘贴的长文' if key == 'attachments' else ''))
+            if n:
+                names.append(n)
+    return list(dict.fromkeys(names))
+
+
 def _load_claude_json(path):
     """claude.ai 官方「导出数据」下载的是 zip，里面的 conversations.json 才是对话；直接拖 zip 进来也认。"""
     if zipfile.is_zipfile(path):
@@ -158,7 +175,8 @@ def parse_claude_json(path):
         msgs = []
         for m in c.get('messages') or c.get('chat_messages') or []:
             ts, text = m.get('created_at'), _msg_text(m)
-            if not (ts and text):
+            full = (text + attach_note(_claude_files(m))).strip()
+            if not (ts and full):
                 continue
             try:
                 dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
@@ -166,7 +184,8 @@ def parse_claude_json(path):
                 continue
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
-            msgs.append((dt, m.get('role') or m.get('sender') or 'human', text))
+            # 第 4 项是算消息 id 用的正文：不含附件那行，不然 10-28 之前存的消息补上附件后会变成另一条
+            msgs.append((dt, m.get('role') or m.get('sender') or 'human', full, text))
         if msgs:
             # uuid 带出来当窗口身份 —— 指纹是给「没有稳定 id 的导出」用的兜底，
             # 有 uuid 还用指纹的话，同一个对话从 md 和 json 两条路进来会算出两个窗口
@@ -259,8 +278,7 @@ def parse_gemini_takeout(path):
                 names = [f.get('name') if isinstance(f, dict) else str(f)
                          for f in (a.get('attachedFiles') or [])]
                 names = [n for n in names if n]
-                if names:
-                    body += '\n[附件：' + '、'.join(names[:5]) + ']'
+                body += attach_note(names)
                 if body:
                     pair.append((dt, 'human', body))
                 break
@@ -568,9 +586,9 @@ def ingest(conn, path, kind=None, source=None, label=None, invalidate=True):
         existing = conn.execute('SELECT id, title, title_fallback FROM conversations WHERE id=?', (cid,)).fetchone()
 
         rows = []
-        for dt, role, text in msgs:
+        for dt, role, text, *key in msgs:
             date, hhmm = bucket(dt)
-            rows.append((_h(f'{cid}|{dt.isoformat()}|{text[:300]}'), cid, source,
+            rows.append((_h(f'{cid}|{dt.isoformat()}|{(key[0] if key else text)[:300]}'), cid, source,
                          dt.isoformat(), date, hhmm, role, text, len(text)))
         # 只算真正新增的消息，和它们落在哪些天
         new_ids = [r[0] for r in rows]

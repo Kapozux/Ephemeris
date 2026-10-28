@@ -87,8 +87,11 @@
         const text = (m.content || [])
           .filter(x => x.type === 'text' || !x.type)
           .map(x => x.text ?? '').join('').trim();
-        if (!text) continue;
-        messages.push({ role, created_at: m.created_at, text });   // ISO 原样保留
+        // 附件只要名字（导入时 index.attach_note 记成一行）；贴的长文没名字
+        const attachments = [...(m.attachments || []).map(a => a.file_name || '粘贴的长文'),
+                             ...(m.files || []).concat(m.files_v2 || []).map(f => f.file_name)].filter(Boolean);
+        if (!text && !attachments.length) continue;
+        messages.push({ role, created_at: m.created_at, text, attachments });   // ISO 原样保留
       }
       if (!messages.length) throw new Error('无正文');
 

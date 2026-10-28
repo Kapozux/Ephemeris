@@ -11,6 +11,7 @@
     chat_features.csv 要并进她自己的表用这份：只有 pid, period_number, survey_date + 全带 chat_ 前缀的列
                      （chat_active_days 等），不会跟她截图算的 active_days 撞名
     evidence.json    每个数背后的原话（做法 A 才写：做法 B 原话不出本机）
+    evidence.csv     同样的证据摊成长表，逐字原话 / 规则写的挑选理由 / 模型生成的判断分列，gold_sample 标出盲评样本
     manifest.json    研究方案的指纹、代码版本、指标说明——拿结果的人能复现
 """
 import csv
@@ -63,7 +64,35 @@ def _quote(e, msgs):
     if not m:
         return {'why': e['why']}
     return {'why': e['why'], 'msg': m.id, 'conv': m.conv, 'source': m.source, 'role': m.role,
-            'at': m.at.isoformat(), 'text': m.text}
+            'at': m.at.isoformat(), 'text': m.text, **({'llm': e['llm']} if e.get('llm') else {})}
+
+
+EVIDENCE_COLS = ['pid', 'period_number', 'measure', 'msg_id', 'conv_id', 'at_local', 'speaker', 'platform',
+                 'verbatim_text', 'selection_reason', 'llm_label', 'llm_quote', 'llm_quote_verified', 'gold_sample']
+
+
+def _evidence_rows(evidence, gold):
+    """verbatim_text 是库里原样的消息；selection_reason 是规则写的；llm_* 是模型生成的（没用模型就空着）。"""
+    for pid, periods in evidence.items():
+        for k, by_measure in periods.items():
+            for name, items in by_measure.items():
+                for e in items:
+                    if not e.get('msg'):
+                        continue
+                    llm = e.get('llm') or {}
+                    yield {'pid': pid, 'period_number': k, 'measure': name, 'msg_id': e['msg'], 'conv_id': e['conv'],
+                           'at_local': e['at'][:19], 'speaker': 'participant' if e['role'] == 'human' else 'ai',
+                           'platform': e['source'], 'verbatim_text': e['text'], 'selection_reason': e['why'],
+                           'llm_label': llm.get('label', ''), 'llm_quote': llm.get('quote', ''),
+                           'llm_quote_verified': '' if not llm else int(bool(llm.get('verified'))),
+                           'gold_sample': int((pid, e['conv']) in gold)}
+
+
+def _gold():
+    path = os.path.join(research.HERE, 'spotcheck.demo.json')
+    if not os.path.exists(path):
+        return set()
+    return {(w['pid'], w['conv']) for w in json.load(open(path, encoding='utf-8'))['windows']}
 
 
 def _cell(v):
@@ -97,6 +126,10 @@ def write(study, study_path, rows, evidence):
     if study.get('privacy') == 'A':
         with open(os.path.join(OUT, 'evidence.json'), 'w', encoding='utf-8') as f:
             json.dump(evidence, f, ensure_ascii=False, indent=1)
+        with open(os.path.join(OUT, 'evidence.csv'), 'w', newline='', encoding='utf-8') as f:
+            w = csv.DictWriter(f, EVIDENCE_COLS)
+            w.writeheader()
+            w.writerows(_evidence_rows(evidence, _gold()))
     raw = open(study_path, 'rb').read()
     manifest = {
         'study': study['study'], 'study_sha256': hashlib.sha256(raw).hexdigest(), 'study_file': study,
@@ -106,8 +139,16 @@ def write(study, study_path, rows, evidence):
                      for n in study['measures']},
         'period_definition': 'Period t runs from survey t-1 (inclusive) to survey t (exclusive). Dates are participant '
                              'local time without offset; the tz column gives the IANA time zone.',
-        'speaker': 'Only messages the participant typed; text over 400 chars, with code blocks or many line breaks '
-                   'is treated as pasted and excluded.',
+        'speaker': 'Speaker comes from the export file structure (role field), never from a model. Only messages the '
+                   'participant typed count; text over 400 chars, with code blocks or many line breaks is treated as '
+                   'pasted (kept as context, excluded from measures).',
+        'branches': 'ChatGPT and DeepSeek exports are trees (regenerated replies branch). Ephemeris keeps the branch that '
+                    'was finally shown: from current_node up to the root (ChatGPT); last child at each level (DeepSeek).',
+        'llm_columns': 'In evidence.csv, verbatim_text is the stored message as-is; selection_reason is written by rules; '
+                       'llm_label / llm_quote are model-generated, and llm_quote_verified says whether the quote occurs '
+                       'verbatim in that window. Judgments with unverified quotes are dropped from measures.',
+        'models': {'chat_ai_first_idea_ratio': 'DeepSeek via Ephemeris llm route=cheap; prompt in '
+                                               'research/measures/chat_ai_first_idea_ratio.py (VERSION)'},
     }
     with open(os.path.join(OUT, 'manifest.json'), 'w', encoding='utf-8') as f:
         json.dump(manifest, f, ensure_ascii=False, indent=1)

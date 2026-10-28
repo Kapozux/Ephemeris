@@ -76,7 +76,8 @@ def compute(person, study):
         js = [judged[c] for c in convs if c in judged and judged[c]['idea_from'] != 'none']
         ok = [j for j in js if j['verified']]
         ai = [j for j in ok if j['idea_from'] == 'ai']
-        ev = [{'msg': j['msg'], 'why': 'AI first proposed the option the participant went with'} for j in ai[:3]]
+        ev = [{'msg': j['msg'], 'why': 'AI first proposed the option the participant went with',
+               'llm': {'label': j['idea_from'], 'quote': j['quote'], 'verified': j['verified']}} for j in ai[:3]]
         ev += [{'msg': None, 'why': f'{len(js) - len(ok)} judgment(s) dropped: quote not found verbatim'}] if len(ok) < len(js) else []
         out[p.number] = (len(ai) / len(ok) if ok else None, ev)
     return out

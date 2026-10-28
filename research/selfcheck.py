@@ -8,12 +8,16 @@
 - 误报：没埋任何东西的参与者（personas.CONTROL）里，|z| > 2 的期数
 - 一致率：「想法由谁先提」的判断，跟生成聊天的模型自己标的 idea_from 对上几成。那个标签也是模型写的、
   抽查过错得不少，所以叫一致率，不叫准确率
+- 逐字核对三个数（照 Bakharia 2025 / Hill 2026 的要求）：判断里给的原话对不上、被丢掉的占多少；丢掉的里面
+  模糊匹配能找到原文的占多少（那是改了措辞，不是编的）；留下的里面原话确实支持结论的占多少（拿盲评近似）
 - 盲评：spotcheck.demo.json 里 20 个随机窗口，另一个模型（Claude，不是人）不看两边标签自己标的；
   报判断模型和生成标签各对几个。人工抽查还没做
 """
 import csv
+import difflib
 import json
 import os
+import sqlite3
 import statistics
 
 import research
@@ -87,9 +91,43 @@ def spotcheck(path=os.path.join(research.HERE, 'spotcheck.demo.json')):
         judge[pid] = json.load(open(os.path.join(research.DATA, f'{pid}.judge.json')))
         truth[pid] = json.load(open(os.path.join(research.DATA, f'{pid}.truth.json')))
     ws = d['windows']
+    kept = [w for w in ws if judge[w['pid']][w['conv']]['verified'] and judge[w['pid']][w['conv']]['idea_from'] != 'none']
     return {'annotator': d['annotator'], 'note': d['note'], 'n': len(ws),
+            'kept_n': len(kept), 'kept_supported': sum(judge[w['pid']][w['conv']]['idea_from'] == w['label'] for w in kept),
             'judge_correct': sum(judge[w['pid']][w['conv']]['idea_from'] == w['label'] for w in ws),
             'generator_correct': sum(truth[w['pid']][w['conv']]['idea_from'] == w['label'] for w in ws)}
+
+
+FUZZY = 0.6     # 原话里最长的一段连续重合占原话长度的比例 ≥ 它，算「改了措辞」
+
+
+def _fuzzy(quote, texts):
+    best = 0.0
+    for t in texts:
+        m = difflib.SequenceMatcher(None, quote, t, autojunk=False).find_longest_match(0, len(quote), 0, len(t))
+        best = max(best, m.size / len(quote))
+    return best
+
+
+def verbatim(pids, spot):
+    claimed, dropped, near = 0, 0, 0
+    for pid in pids:
+        path = os.path.join(research.DATA, f'{pid}.judge.json')
+        if not os.path.exists(path):
+            continue
+        db = sqlite3.connect(f'file:{research.db_path(pid)}?mode=ro', uri=True)
+        for conv, j in json.load(open(path)).items():
+            if j['idea_from'] == 'none':
+                continue
+            claimed += 1
+            if not j['verified']:
+                dropped += 1
+                texts = [t for (t,) in db.execute('SELECT text FROM messages WHERE conv_id=?', (conv,))]
+                near += bool(j['quote']) and _fuzzy(j['quote'], texts) >= FUZZY
+        db.close()
+    return {'claimed': claimed, 'dropped': dropped, 'dropped_rate': dropped / claimed if claimed else None,
+            'dropped_fuzzy_found': near, 'fuzzy_threshold': FUZZY,
+            'kept_supported': spot and {'n': spot['kept_n'], 'supported': spot['kept_supported']}}
 
 
 def main():
@@ -97,7 +135,9 @@ def main():
     with open(os.path.join(OUT, 'data_clean.csv'), newline='') as f:
         rows = list(csv.DictReader(f))
     r = {'recall': recall(rows), 'false_alarms': false_alarms(rows, study['measures']),
-         'idea_agreement': agreement(study['participants']), 'spotcheck': spotcheck(), 'found_z': FOUND_Z}
+         'idea_agreement': agreement(study['participants']), 'found_z': FOUND_Z}
+    r['spotcheck'] = spotcheck()
+    r['verbatim'] = verbatim(study['participants'], r['spotcheck'])
     with open(os.path.join(OUT, 'selfcheck.json'), 'w', encoding='utf-8') as f:
         json.dump(r, f, ensure_ascii=False, indent=1)
     found = sum(p['found'] for p in r['recall'])
@@ -112,6 +152,9 @@ def main():
           f"（{a['agree_rate'] if a['agree_rate'] is None else round(a['agree_rate'], 2)}）")
     sc = r['spotcheck']
     if sc:
+        v = r['verbatim']
+        print(f"  逐字核对：模型给了原话的 {v['claimed']} 个，丢掉 {v['dropped']}，其中模糊匹配找得到 {v['dropped_fuzzy_found']}；"
+              f"留下的里盲评支持结论 {sc['kept_supported']}/{sc['kept_n']}")
         print(f"  盲评 {sc['n']} 个窗口（{sc['annotator'][:40]}…）：判断模型对 {sc['judge_correct']}，生成标签对 {sc['generator_correct']}")
 
 

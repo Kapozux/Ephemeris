@@ -57,6 +57,7 @@ th { font-weight: 600; font-size: 12px; color: var(--muted); }
 .rs-quote-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .rs-quote-why { font-size: 12px; color: var(--accent); margin-top: 4px; }
 .rs-verified { color: var(--ok); font-size: 12px; }
+.rs-llm { margin-top: 6px; font-size: 12px; color: var(--muted); border-left: 2px dashed var(--line); padding-left: 8px; overflow-wrap: anywhere; }
 .rs-dropped { color: var(--bad); font-size: 12px; }
 .rs-ctx-btn { border: 0; background: none; color: var(--accent); cursor: pointer; padding: 0; font: inherit; font-size: 12px; margin-top: 6px; }
 .rs-ctx { margin-top: 8px; border-top: 1px dashed var(--line); padding-top: 8px; font-size: 13px; }
@@ -115,7 +116,7 @@ code { font-size: 12px; }
   </section>
 
   <section class="rs-view" id="view-export">
-    <p class="rs-note"><code>data_clean.csv</code> uses the input columns of <code>within-person-cesd-screenome</code> (one row per participant × period) and has the columns its <code>build_features</code> requires. Its feature lists are fixed in code, so the <code>chat_</code> columns have to be added to them (4 lists in 3 files) to be used. <code>chat_features.csv</code> has only <code>chat_</code>-prefixed columns, to merge with Screenome features on <code>pid</code> + <code>period_number</code>.</p>
+    <p class="rs-note"><code>data_clean.csv</code> uses the input columns of <code>within-person-cesd-screenome</code> (one row per participant × period) and has the columns its <code>build_features</code> requires. Its feature lists are fixed in code, so the <code>chat_</code> columns have to be added to them (4 lists in 3 files) to be used. <code>evidence.csv</code> lists the messages behind every number, with the verbatim text, the rule-written selection reason and any LLM-generated judgment in separate columns; <code>gold_sample</code> marks rows in the blind re-label sample. <code>chat_features.csv</code> has only <code>chat_</code>-prefixed columns, to merge with Screenome features on <code>pid</code> + <code>period_number</code>.</p>
     <div id="rs-export"></div>
   </section>
 </main>
@@ -240,6 +241,8 @@ function quote(e) {
       <span>${e.source}</span><span class="rs-verified">✓ verbatim from transcript</span></div>
     <div class="rs-quote-text">${esc(e.text)}</div>
     <div class="rs-quote-why">${esc(e.why)}</div>
+    ${e.llm ? `<div class="rs-llm"><span class="rs-chip">LLM-generated</span> judgment: <b>${esc(e.llm.label)}</b> proposed it ·
+      quote: “${esc(e.llm.quote)}” <span class="${e.llm.verified ? 'rs-verified' : 'rs-dropped'}">${e.llm.verified ? '✓ found verbatim in window' : '✗ not found verbatim'}</span></div>` : ''}
     <button class="rs-ctx-btn" data-conv="${e.conv}" data-msg="${e.msg}">Show whole window</button>
   </div>`;
 }
@@ -276,6 +279,11 @@ function toggleCtx(b) {
       <p class="rs-note">Annotator: ${esc(c.spotcheck.annotator)}. ${esc(c.spotcheck.note)} Most disagreements are windows where the
       participant takes an AI suggestion (a recipe, a fix): the generator called these "no decision", the judge "AI proposed". Whether
       adopting advice counts as a decision is a definition choice to agree on with the researcher.</p>` : ''}
+    ${c.verbatim ? `<h3>Verbatim check (three numbers)</h3>
+      <table><tr><th>Judgments that cited a quote</th><th>Dropped: quote not found verbatim</th><th>Of dropped: found by fuzzy match (≥ ${c.verbatim.fuzzy_threshold} overlap) = reworded, not invented</th><th>Of kept: quote actually supports the label (blind re-label sample)</th></tr>
+      <tr><td>${c.verbatim.claimed}</td><td>${c.verbatim.dropped} (${(c.verbatim.dropped_rate * 100).toFixed(1)}%)</td><td>${c.verbatim.dropped_fuzzy_found} of ${c.verbatim.dropped}</td>
+      <td>${c.verbatim.kept_supported ? `${c.verbatim.kept_supported.supported} of ${c.verbatim.kept_supported.n}` : '—'}</td></tr></table>
+      <p class="rs-note">A quote that exists verbatim does not by itself support the conclusion, so the third number is reported separately.</p>` : ''}
     <table><tr><th>generator → judge</th>${['user', 'ai', 'none'].map(j => `<th>${j}</th>`).join('')}</tr>
     ${['user', 'ai', 'none'].map(t => `<tr><th>${t}</th>${['user', 'ai', 'none'].map(j => `<td>${a.confusion[t + '->' + j]}</td>`).join('')}</tr>`).join('')}</table>`;
 })();

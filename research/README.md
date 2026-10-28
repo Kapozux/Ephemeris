@@ -24,11 +24,24 @@
 | `synth.py` | 生成虚构聊天、装库、写 CES-D |
 | `participant.py` | 读一个参与者，按量表切期；「这个人自己打的话」只在 `Period.said()` |
 | `measures/*.py` | 指标插件，一个文件一个指标，文件名 = 导出的列名 |
-| `export.py` | 对齐、导出 `data_clean.csv` / `chat_features.csv` / `evidence.json` / `manifest.json` |
-| `selfcheck.py` | 找回埋的故事线、对照组误报、「想法谁先提」的一致率和盲评 |
+| `export.py` | 对齐、导出 `data_clean.csv` / `chat_features.csv` / `evidence.json` / `evidence.csv` / `manifest.json` |
+| `selfcheck.py` | 找回埋的故事线、对照组误报、「想法谁先提」的一致率、盲评、逐字核对三个数 |
 | `report.py` + `report_template.html` | 演示页 |
 
 只许引用 `research.CORE` 里的 Ephemeris 模块（`tests/test_research.py` 查）。「打的还是贴的、主动还是复述」用根目录的 `speech.py`。
+
+## 方法上的几条约定（照 `devtools/research/hai_tools.md` 调研里研究者要的）
+
+- **说话人只看导出文件的结构**（role 字段），不交给模型；贴进来的内容按 `speech.typed` 判掉，只当上下文。
+- **ChatGPT / DeepSeek 导出是分支树**：取最后显示的那一支（ChatGPT 从 current_node 往上，DeepSeek 每层取最后一个孩子），写在 manifest 里。
+- **逐字核对报三个数**：模型给的原话对不上被丢掉的比例；丢掉的里模糊匹配找得到原文的（改了措辞，不是编的）；
+  留下的里原话确实支持结论的（拿盲评近似）。原话逐字存在不等于支持结论。
+- **`evidence.csv` 把三样分列**：`verbatim_text`（库里原样）、`selection_reason`（规则写的）、`llm_*`（模型生成的）；
+  `gold_sample` 标出盲评样本，以后做下游校正（Egami 的 DSL）要用。
+- 跨平台导入字段可以对照开源的 AgenticSearchLens（ChatGPT / Claude / Grok / DeepSeek 四家，没有 Gemini）。
+
+**对外说法**：不说「没人做过 X」——每一项单独看都有接近的工作。说「把本地、多平台、逐字核对、按人的时间序列、
+想法来源、导出长表这几样组合起来的可复用工具」。
 
 ## 跟 Merve 的代码怎么接（github.com/mediacontentatlas/within-person-cesd-screenome）
 
@@ -44,6 +57,7 @@
 
 - 5 人、492 个窗口、约 3100 条消息、每人 13 期。
 - 埋的 5 条故事线全找回（第一人称那条勉强：z = 0.54，门槛 0.5）；对照 P02 的 52 个数里 4 个 |z| > 2，跟随机波动差不多。
+- 逐字核对：模型给了原话的 434 个判断里丢掉 2 个（0.5%），其中 1 个模糊匹配找得到；留下的里盲评支持结论 16/17。
 - 「想法谁先提」：判断跟生成标签只有 55% 一致；20 个随机窗口盲评（标的是 Claude，**不是人**），判断模型对 18 个、生成标签对 12 个。
   分歧多在「照着 AI 的建议做了」算不算一个决定——要跟研究者商量定义。这个定义下大家的 AI 先提比例本来就高（0.4–0.9）。
 

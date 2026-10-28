@@ -1,0 +1,82 @@
+"""读一个参与者：库里的消息（只读打开）+ 量表日期 → 按期切好。指标插件只看这里给的东西。
+
+一期 = 上一次量表到这一次量表之间（跟 Merve 的代码一样：period t 的特征来自 survey t 之前那段）。
+时间一律换成参与者当地时间（tz 在研究方案的参与者表里，演示版来自 personas）。
+"""
+import csv
+import os
+import sqlite3
+from dataclasses import dataclass, field
+from datetime import date, datetime, time
+from zoneinfo import ZoneInfo
+
+import speech
+from research import DATA, db_path
+
+
+@dataclass
+class Msg:
+    id: str
+    conv: str
+    source: str
+    at: datetime          # 参与者当地时间
+    role: str             # 'human' / 'assistant'
+    text: str
+    typed: bool           # 自己打的（不是贴进来的）；只对 human 有意义
+
+
+@dataclass
+class Period:
+    number: int           # 1 起；第 number 次量表结束这一期
+    start: datetime
+    end: datetime
+    score: float
+    msgs: list = field(default_factory=list)
+
+    @property
+    def days(self):
+        return (self.end.date() - self.start.date()).days
+
+    def said(self):
+        """这一期这个人自己打的话（研究方案 speaker=human、exclude_pasted）。"""
+        return [m for m in self.msgs if m.role == 'human' and m.typed]
+
+    def active_days(self):
+        return sorted({m.at.date() for m in self.said()})
+
+
+@dataclass
+class Participant:
+    pid: str
+    tz: str
+    periods: list
+    convs: dict           # conv_id -> 按时间排好的 [Msg]
+
+
+def surveys(pid, path=None):
+    with open(path or os.path.join(DATA, 'cesd.csv'), newline='') as f:
+        rows = [r for r in csv.DictReader(f) if r['pid'] == pid]
+    return sorted((int(r['survey_number']), date.fromisoformat(r['survey_date']), float(r['cesd_score'])) for r in rows)
+
+
+def load(pid, tz, sources=None):
+    zone = ZoneInfo(tz)
+    db = sqlite3.connect(f'file:{db_path(pid)}?mode=ro', uri=True)
+    sql = 'SELECT id, conv_id, source, ts, role, text FROM messages WHERE text IS NOT NULL'
+    args = ()
+    if sources:
+        sql += f" AND source IN ({','.join('?' * len(sources))})"
+        args = tuple(sources)
+    msgs = [Msg(i, c, s, datetime.fromisoformat(ts).astimezone(zone), r, t, speech.typed(t))
+            for i, c, s, ts, r, t in db.execute(sql + ' ORDER BY ts, rowid', args)]
+    db.close()
+    convs = {}
+    for m in msgs:
+        convs.setdefault(m.conv, []).append(m)
+    sv = surveys(pid)
+    periods = []
+    for (_, d0, _), (n, d1, score) in zip(sv, sv[1:]):
+        p = Period(n, datetime.combine(d0, time(), zone), datetime.combine(d1, time(), zone), score)
+        p.msgs = [m for m in msgs if p.start <= m.at < p.end]
+        periods.append(p)
+    return Participant(pid, tz, periods, convs)

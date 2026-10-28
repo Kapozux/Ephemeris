@@ -1,4 +1,4 @@
-"""研究版（research/）：只许引用 research.CORE 里的 Ephemeris 模块；共用的 speech 判断对。"""
+"""研究版（research/）：只许引用 research.CORE 里的 Ephemeris 模块；共用的 speech 判断对；指标算得对。"""
 import _env  # noqa: F401
 import ast
 import os
@@ -6,6 +6,10 @@ import unittest
 
 import research
 import speech
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from research.measures import chat_first_person_ratio as fp, chat_mean_daily_overnight_ratio as night
+from research.participant import Msg, Participant, Period
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -51,6 +55,39 @@ class Speech(unittest.TestCase):
         w = speech.Window()
         w.show('human', {'颗粒度'})                    # 你贴进来的文章里有
         self.assertEqual(w.say('assistant', {'颗粒度'}), (set(), {'颗粒度'}))   # AI 跟着说不算主动
+
+
+TZ = ZoneInfo('America/Los_Angeles')
+
+
+def _msg(i, conv, day, hour, text='ok', role='human'):
+    return Msg(f'm{i}', conv, 'claude', datetime(2026, 5, day, hour, 0, tzinfo=TZ), role, text, speech.typed(text))
+
+
+def _person(msgs):
+    p = Period(1, datetime(2026, 5, 1, tzinfo=TZ), datetime(2026, 5, 15, tzinfo=TZ), 20.0, msgs)
+    return Participant('T', 'America/Los_Angeles', [p], {})
+
+
+class Measures(unittest.TestCase):
+    def test_first_person_counts(self):
+        self.assertEqual(fp.counts("I'm tired and my code broke"), (2, 6))
+        self.assertEqual(fp.counts('我们觉得我想睡'), (1, 7))          # 「我们」不算
+        self.assertEqual(fp.counts('Mine'), (1, 1))
+
+    def test_overnight_is_mean_of_daily_ratios(self):
+        msgs = [_msg(1, 'a', 3, 1), _msg(2, 'a', 3, 14),               # 5/3：一半在 0–6 点
+                _msg(3, 'b', 4, 10), _msg(4, 'b', 4, 11), _msg(5, 'b', 4, 12), _msg(6, 'b', 4, 13),   # 5/4：没有
+                _msg(7, 'c', 5, 2, role='assistant'),                  # AI 说的不算
+                _msg(8, 'd', 6, 3, text='x' * 500)]                    # 贴进来的不算
+        value, ev = night.compute(_person(msgs), {'overnight_hours': [0, 6]})[1]
+        self.assertAlmostEqual(value, (0.5 + 0.0) / 2)
+        self.assertEqual([e['msg'] for e in ev], ['m1'])
+
+    def test_overnight_evidence_one_per_window(self):
+        msgs = [_msg(1, 'a', 3, 1), _msg(2, 'a', 3, 2), _msg(3, 'b', 4, 3)]
+        _, ev = night.compute(_person(msgs), {})[1]
+        self.assertEqual([e['msg'] for e in ev], ['m1', 'm3'])
 
 
 if __name__ == '__main__':

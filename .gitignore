@@ -42,6 +42,7 @@
 !/research/*.py
 !/research/*.md
 !/research/*.json
+!/research/*.html
 !/research/measures/
 /research/measures/*
 !/research/measures/*.py

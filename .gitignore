@@ -19,6 +19,7 @@
 !/templates/
 !/tests/
 !/skills/
+!/research/
 
 # 白名单里的目录也只放行代码类型
 /static/*
@@ -37,3 +38,10 @@
 !/tests/*.py
 /skills/*
 !/skills/*.md
+/research/*
+!/research/*.py
+!/research/*.md
+!/research/*.json
+!/research/measures/
+/research/measures/*
+!/research/measures/*.py

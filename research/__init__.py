@@ -24,3 +24,13 @@ def study(path=None):
 
 def db_path(pid):
     return os.path.join(DATA, f'{pid}.db')
+
+
+def ledger():
+    """要调模型之前先调它：llm 会把每次调用的花费记进 store 的库，指到研究版自己的账本，别写进真的 chats.db。
+    得在第一次 import llm / store 之前调。"""
+    os.makedirs(DATA, exist_ok=True)
+    os.environ['DIARY_DB'] = os.path.join(DATA, '_usage.db')
+    os.environ['EPHEMERIS_NO_USAGE'] = '1'
+    import store
+    assert os.path.abspath(store.DB_PATH) == os.path.abspath(os.environ['DIARY_DB']), store.DB_PATH

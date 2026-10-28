@@ -3,7 +3,7 @@
     ../venv/bin/python -m research.annotate sample    固定种子抽题：100 条消息（说话人 + 粘贴）、50 段对话（想法谁先提）
     ../venv/bin/python -m research.annotate judge     模型把那 50 段判两遍（盲标对照 + 模型自己稳不稳），省钱路线
     ../venv/bin/python -m research.annotate topics    每段一个中性话题（第 3 项跟题目一起显示）
-    ../venv/bin/python -m research.annotate serve     开 http://127.0.0.1:5061 标；随时关，标过的都存着
+    ../venv/bin/python -m research.annotate serve     开 http://127.0.0.1:5065 标；随时关，标过的都存着
     ../venv/bin/python -m research.annotate score     算数：准确率、精确率 / 召回率、一致率、Cohen's κ、Gwet's AC1
 
 全在 realval 的只读拷贝上（data/real/chats.db）；题目和标注只存在 data/real/annotate/（不进仓库），对外只给数字。
@@ -38,7 +38,7 @@ RETEST = 10
 RETEST_DAYS = 3
 SEG_MSGS = 30
 LONG = 400                   # 长消息有意多抽：一半是超过这么多字或带代码块 / 多行的
-PORT = 5061
+PORT = 5065               # 5060、5061 是 SIP，Chrome 不让开（ERR_UNSAFE_PORT）
 IDEA = {'user': '我先提的', 'ai': 'AI 先提的', 'unsure': '分不清', 'none': '这个话题上没定下什么'}
 
 

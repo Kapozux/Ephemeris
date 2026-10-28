@@ -81,6 +81,29 @@ class Cards(unittest.TestCase):
         self.assertEqual(store.one("SELECT date FROM cards WHERE id='m4·1'")['date'], DAY2)
         self.assertEqual(cards.due(['c1']), [])
 
+    def test_dropped_count_accumulates_when_continuing(self):
+        """接着做（more）时 n 是累计的卡数，dropped 也得累计（10-28 前只记最后一趟，丢弃率被算低）。"""
+        self.fake([{'m': 1, 'k': '决定', 't': '我决定 ED 交 MIT', 'q': 'ED 交 MIT，Purdue'},
+                   {'m': 1, 'k': '决定', 't': '编的', 'q': '我决定不申请了'}])
+        cards.build_conv('c1')
+        add('m4', 'c1', DAY2, '09:00', 'human', '就按刚才那个方案，MIT 文书今天开写。')
+        self.fake([{'m': 1, 'k': '计划', 't': '我今天开写 MIT 文书', 'q': 'MIT 文书今天开写'},
+                   {'m': 1, 'k': '计划', 't': '编的', 'q': '我明天才写'}])
+        cards.build_conv('c1')
+        r = store.one("SELECT n, dropped FROM card_convs WHERE conv_id='c1'")
+        self.assertEqual((r['n'], r['dropped']), (2, 2))
+
+    def test_verify_logs_why_each_card_was_dropped(self):
+        seg = [{'id': 'a', 'role': 'human', 'text': '我决定 ED 交 MIT，Purdue 放 EA。'},
+               {'id': 'b', 'role': 'assistant', 'text': '好的，MIT 文书先写。'},
+               {'id': 'c', 'role': 'human', 'text': '好的，MIT 文书先写。'}]
+        log = []
+        good, n = cards._verify(seg, [7, {'m': 1, 't': '空的', 'q': ''}, {'m': 1, 't': '两处都有', 'q': '好的，MIT 文书先写'},
+                                      {'m': 1, 't': '编的', 'q': '我决定不申请了'},
+                                      {'m': 1, 't': '对的', 'q': 'ED 交 MIT'}], log)
+        self.assertEqual((len(good), n), (1, 4))
+        self.assertEqual([d['why'] for d in log], ['not_card', 'empty', 'ambiguous', 'not_found'])
+
     def test_changed_old_message_redoes_whole_window(self):
         self.fake([{'m': 1, 'k': '决定', 't': '我决定 ED 交 MIT', 'q': 'ED 交 MIT，Purdue'}])
         cards.build_conv('c1')

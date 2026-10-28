@@ -283,13 +283,22 @@ def prompt(conv_id, seg):
 
 # ---------------------------------------------------------------- 核对 + 写
 
-def _verify(seg, raw):
-    """模型给的卡 → 核对过的卡。原话找不到、编号不对的丢掉。返回 (卡, 丢了几张)。"""
+def _verify(seg, raw, log=None):
+    """模型给的卡 → 核对过的卡。原话找不到、编号不对的丢掉。返回 (卡, 丢了几张)。
+    log：传一个列表进来就把每张丢掉的卡和原因记进去（研究版验证要分「改写」还是「编造」）：
+    not_card 不是卡 / empty 原话或要点空、太短 / ambiguous 原话在好几条消息里、编号又不对 / not_found 哪条都找不到。"""
     pool = numbered(seg)
     good, dropped = [], 0
+
+    def drop(c, why):
+        nonlocal dropped
+        dropped += 1
+        if log is not None:
+            log.append({'card': c, 'why': why})
+
     for c in raw if isinstance(raw, list) else []:
         if not isinstance(c, dict):                      # 模型偶尔吐一串数字之类的（10-12 全量做卡时把整个任务弄崩过）
-            dropped += 1
+            drop(c, 'not_card')
             continue
         try:
             m = pool[int(c.get('m')) - 1] if int(c.get('m')) >= 1 else None
@@ -298,13 +307,13 @@ def _verify(seg, raw):
         q, t, k = (str(c.get('q') or '')).strip(), (str(c.get('t') or '')).strip(), (str(c.get('k') or '')).strip()
         nq = _norm(q)
         if not q or not t or len(nq) < 4:
-            dropped += 1
+            drop(c, 'empty')
             continue
         if m is None or nq not in _norm(m['text']):
             # 原话是对的、编号写错了：这一段里只有一条消息有这句 → 改指那条（照 Verbatim 代码卡「原文唯一但行号错就改行号」）
             others = [x for x in pool if nq in _norm(x['text'])]
             if len(others) != 1:
-                dropped += 1
+                drop(c, 'ambiguous' if others else 'not_found')
                 continue
             m = others[0]
         good.append({'msg': m, 'who': 'me' if m['role'] == 'human' else 'ai', 'kind': k if k in KINDS else '事实',
@@ -355,7 +364,7 @@ def apply(conv_id, mode, segs, raws, cost=0.0, src='api'):
             if first_bad is None and summ:
                 summaries.append(f"{seg[0]['date']}：{summ}")
         done = segs if first_bad is None else segs[:first_bad]
-        old = db.execute('SELECT fp, upto, upto_id, summary FROM card_convs WHERE conv_id=?', (conv_id,)).fetchone()
+        old = db.execute('SELECT fp, upto, upto_id, summary, dropped FROM card_convs WHERE conv_id=?', (conv_id,)).fetchone()
         if done:
             last = done[-1][-1]
             # 指纹只算要做卡的消息，跟 _all_rows / _plan 判断时同一个口径（10-14：这里以前算上了写代码那几家 AI 的回复，
@@ -373,8 +382,10 @@ def apply(conv_id, mode, segs, raws, cost=0.0, src='api'):
             fp, upto, upto_id = '', '', ''
         summary = '\n'.join(([old[3]] if mode == 'more' and old and old[3] else []) + summaries)
         total = db.execute('SELECT COUNT(*) FROM cards WHERE conv_id=?', (conv_id,)).fetchone()[0]
+        # n 是这个窗口累计的卡数，dropped 也得累计（10-28 前接着做时只记了这一趟丢的，丢弃率被算低了）
+        all_dropped = dropped + ((old[4] or 0) if mode == 'more' and old else 0)
         db.execute('INSERT OR REPLACE INTO card_convs (conv_id, fp, upto, upto_id, n, dropped, cost, summary, src, made_at) '
-                   'VALUES (?,?,?,?,?,?,?,?,?,?)', (conv_id, fp, upto, upto_id, total, dropped, round(cost, 5), summary, src, now))
+                   'VALUES (?,?,?,?,?,?,?,?,?,?)', (conv_id, fp, upto, upto_id, total, all_dropped, round(cost, 5), summary, src, now))
     return {'n': n, 'dropped': dropped, 'cost': cost, 'failed': failed}
 
 

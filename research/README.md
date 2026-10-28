@@ -9,6 +9,7 @@
 ../venv/bin/python -m research.synth gen       # 生成虚构聊天（DeepSeek，约 65 次调用；生成过的跳过）
 ../venv/bin/python -m research.synth load      # 装进 data/<pid>.db，写 data/cesd.csv
 ../venv/bin/python -m research.export          # 算指标（「想法谁先提」要调 DeepSeek，判过的缓存着）→ data/out/
+../venv/bin/python -m research.stability      # 「想法谁先提」再判 2 遍算稳定性（DeepSeek，跑过的跳过）
 ../venv/bin/python -m research.selfcheck       # 流程自检 → data/out/selfcheck.json
 ../venv/bin/python -m research.report          # 演示页 → data/out/report.html（自包含，双击打开）
 ```
@@ -25,7 +26,8 @@
 | `participant.py` | 读一个参与者，按量表切期；「这个人自己打的话」只在 `Period.said()` |
 | `measures/*.py` | 指标插件，一个文件一个指标，文件名 = 导出的列名 |
 | `export.py` | 对齐、导出 `data_clean.csv` / `chat_features.csv` / `evidence.json` / `evidence.csv` / `manifest.json` |
-| `selfcheck.py` | 找回埋的故事线、对照组误报、「想法谁先提」的一致率、盲评、逐字核对三个数 |
+| `selfcheck.py` | 找回埋的故事线、对照组误报、「想法谁先提」的一致率、盲评、逐字核对三个数、按平台 / 语言分开报 |
+| `stability.py` | 「想法谁先提」同一提示再判几遍，算 Krippendorff α |
 | `report.py` + `report_template.html` | 演示页 |
 
 只许引用 `research.CORE` 里的 Ephemeris 模块（`tests/test_research.py` 查）。「打的还是贴的、主动还是复述」用根目录的 `speech.py`。
@@ -57,6 +59,11 @@
 
 - 5 人、492 个窗口、约 3100 条消息、每人 13 期。
 - 埋的 5 条故事线全找回（第一人称那条勉强：z = 0.54，门槛 0.5）；对照 P02 的 52 个数里 4 个 |z| > 2，跟随机波动差不多。
+- **「想法谁先提」不稳定**：同一提示跑 3 遍，492 个窗口里每遍都一样的只有 313 个（64%），Krippendorff α = 0.56，
+  低于常用的 0.667 / 0.8。翻来翻去的多是「用户 ↔ AI」：用户问、AI 给几个选项、用户挑一个。先跟研究者把定义说清，
+  再考虑多遍投票（投票会把定义上的模糊藏起来，所以现在不做）。
+- 分平台 / 语言：中文、gemini 的一致率和稳定性略高；但演示里平台是生成模型分配的，这个差别不代表真实导出。
+- 会话数（隔 30 分钟算新的一段）：虚构数据里多数日子只有 1 段，标准差很小，对照 P02 有一期 z = 3.46，是这个原因。
 - 逐字核对：模型给了原话的 434 个判断里丢掉 2 个（0.5%），其中 1 个模糊匹配找得到；留下的里盲评支持结论 16/17。
 - 「想法谁先提」：判断跟生成标签只有 55% 一致；20 个随机窗口盲评（标的是 Claude，**不是人**），判断模型对 18 个、生成标签对 12 个。
   分歧多在「照着 AI 的建议做了」算不算一个决定——要跟研究者商量定义。这个定义下大家的 AI 先提比例本来就高（0.4–0.9）。
@@ -72,5 +79,5 @@
 
 定性编码 / 多人标注、参与者端（做法 B）的安装程序、第三方信息打码、研究方案里 `sources` 以外的过滤、真实数据的导入路径
 （核心模块有，研究版还没接）。
-验证上还差（调研里研究者要的）：人工金标准和人与人一致性（AC1 / F1）、同一提示多跑几次的稳定性（Krippendorff α）、
-按平台和语言分开报、按「间隔 30 分钟算新会话」切分并按长度校正。
+验证上还差（调研里研究者要的）：人工金标准和人与人一致性（AC1 / F1）——要人来标；换几种措辞再跑的稳定性；
+按会话汇总「命中」类指标时按会话长度校正（现在还没有这类指标）。

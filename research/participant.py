@@ -7,7 +7,7 @@ import csv
 import os
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import speech
@@ -80,3 +80,13 @@ def load(pid, tz, sources=None):
         p.msgs = [m for m in msgs if p.start <= m.at < p.end]
         periods.append(p)
     return Participant(pid, tz, periods, convs)
+
+
+def sessions(msgs, gap_minutes=30):
+    """按时间排好的消息切成会话：跟上一条隔了超过 gap_minutes 分钟就算新的一段（De Freitas 的做法），不管换没换平台 / 窗口。"""
+    out, gap = [], timedelta(minutes=gap_minutes)
+    for m in sorted(msgs, key=lambda m: m.at):
+        if not out or m.at - out[-1][-1].at > gap:
+            out.append([])
+        out[-1].append(m)
+    return out

@@ -10,6 +10,8 @@
   抽查过错得不少，所以叫一致率，不叫准确率
 - 逐字核对三个数（照 Bakharia 2025 / Hill 2026 的要求）：判断里给的原话对不上、被丢掉的占多少；丢掉的里面
   模糊匹配能找到原文的占多少（那是改了措辞，不是编的）；留下的里面原话确实支持结论的占多少（拿盲评近似）
+- 分组：上面这些按平台、按语言分开报（研究者要求：不同平台 / 语言的导出和模型表现可能不一样）
+- 稳定性：research.stability 跑过的话，把三遍判断的 Krippendorff α 一起带上
 - 盲评：spotcheck.demo.json 里 20 个随机窗口，另一个模型（Claude，不是人）不看两边标签自己标的；
   报判断模型和生成标签各对几个。人工抽查还没做
 """
@@ -19,6 +21,7 @@ import json
 import os
 import sqlite3
 import statistics
+from collections import Counter
 
 import research
 from research import personas as P
@@ -130,6 +133,35 @@ def verbatim(pids, spot):
             'kept_supported': spot and {'n': spot['kept_n'], 'supported': spot['kept_supported']}}
 
 
+def by_group(pids):
+    """按平台、按语言：判断跟生成标签的一致率、原话对不上的比例、多遍判断都一样的比例。"""
+    from research.stability import RUNS
+    groups = {}
+    for pid in pids:
+        lang = P.by_pid(pid)['lang'].split(',')[0]
+        db = sqlite3.connect(f'file:{research.db_path(pid)}?mode=ro', uri=True)
+        platform = dict(db.execute('SELECT id, source FROM conversations'))
+        db.close()
+        truth = json.load(open(os.path.join(research.DATA, f'{pid}.truth.json')))
+        runs = [json.load(open(os.path.join(research.DATA, f'{pid}.judge.json')))]
+        runs += [json.load(open(os.path.join(RUNS, f)))
+                 for f in sorted(os.listdir(RUNS)) if f.startswith(pid + '.')] if os.path.isdir(RUNS) else []
+        for conv, t in truth.items():
+            j = runs[0].get(conv)
+            if not j:
+                continue
+            labels = {r[conv]['idea_from'] for r in runs if conv in r}
+            for key in (f'platform:{platform.get(conv)}', f'language:{lang}'):
+                g = groups.setdefault(key, Counter())
+                g['windows'] += 1
+                g['verified'] += j['verified']
+                g['agree'] += j['verified'] and j['idea_from'] == t['idea_from']
+                g['stable'] += len(labels) == 1
+    return {k: {'windows': g['windows'], 'agree_rate': g['agree'] / g['verified'] if g['verified'] else None,
+                'dropped_rate': 1 - g['verified'] / g['windows'], 'stable_rate': g['stable'] / g['windows']}
+            for k, g in sorted(groups.items())}
+
+
 def main():
     study = research.study()
     with open(os.path.join(OUT, 'data_clean.csv'), newline='') as f:
@@ -138,6 +170,9 @@ def main():
          'idea_agreement': agreement(study['participants']), 'found_z': FOUND_Z}
     r['spotcheck'] = spotcheck()
     r['verbatim'] = verbatim(study['participants'], r['spotcheck'])
+    r['by_group'] = by_group(study['participants'])
+    stab = os.path.join(OUT, 'stability.json')
+    r['stability'] = json.load(open(stab)) if os.path.exists(stab) else None
     with open(os.path.join(OUT, 'selfcheck.json'), 'w', encoding='utf-8') as f:
         json.dump(r, f, ensure_ascii=False, indent=1)
     found = sum(p['found'] for p in r['recall'])
@@ -155,6 +190,8 @@ def main():
         v = r['verbatim']
         print(f"  逐字核对：模型给了原话的 {v['claimed']} 个，丢掉 {v['dropped']}，其中模糊匹配找得到 {v['dropped_fuzzy_found']}；"
               f"留下的里盲评支持结论 {sc['kept_supported']}/{sc['kept_n']}")
+        for k, g in r['by_group'].items():
+            print(f"    {k}: {g['windows']} 窗口，一致 {g['agree_rate']:.2f}，丢弃 {g['dropped_rate']:.3f}，多遍都一样 {g['stable_rate']:.2f}")
         print(f"  盲评 {sc['n']} 个窗口（{sc['annotator'][:40]}…）：判断模型对 {sc['judge_correct']}，生成标签对 {sc['generator_correct']}")
 
 

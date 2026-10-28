@@ -53,16 +53,23 @@ def _judge(batch):
     return out
 
 
+def judge(windows):
+    """[(conv_id, [Msg])] → {conv_id: 判断}。不读不写缓存（稳定性检查要重跑同一批窗口）。没判出来的窗口不在结果里。"""
+    research.ledger()
+    out = {}
+    batches = [windows[i:i + BATCH] for i in range(0, len(windows), BATCH)]
+    with ThreadPoolExecutor(6) as pool:
+        for got in pool.map(_judge, batches):
+            out.update(got)
+    return out
+
+
 def judgments(person):
     path = os.path.join(research.DATA, f'{person.pid}.judge.json')
     cache = json.load(open(path, encoding='utf-8')) if os.path.exists(path) else {}
     todo = [(c, ms) for c, ms in person.convs.items() if cache.get(c, {}).get('version') != VERSION]
     if todo:
-        research.ledger()
-        batches = [todo[i:i + BATCH] for i in range(0, len(todo), BATCH)]
-        with ThreadPoolExecutor(6) as pool:
-            for got in pool.map(_judge, batches):
-                cache.update(got)
+        cache.update(judge(todo))
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(cache, f, ensure_ascii=False, indent=1)
     return cache

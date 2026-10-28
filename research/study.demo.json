@@ -2,18 +2,40 @@
   "study": "demo-v0",
   "note": "Demo study with 5 fictional participants. No real person's data.",
   "privacy": "A",
-  "participants": ["P01", "P02", "P03", "P04", "P05"],
-  "sources": ["claude", "chatgpt", "gemini"],
+  "participants": [
+    "P01",
+    "P02",
+    "P03",
+    "P04",
+    "P05"
+  ],
+  "sources": [
+    "claude",
+    "chatgpt",
+    "gemini"
+  ],
   "speaker": "human",
   "exclude_pasted": true,
   "measures": [
     "chat_mean_daily_msgs",
+    "chat_mean_daily_sessions",
     "chat_mean_daily_overnight_ratio",
     "chat_first_person_ratio",
     "chat_ai_first_idea_ratio"
   ],
-  "outcome": {"instrument": "CES-D", "file": "cesd.csv", "period": "between consecutive surveys"},
-  "overnight_hours": [0, 6],
+  "outcome": {
+    "instrument": "CES-D",
+    "file": "cesd.csv",
+    "period": "between consecutive surveys"
+  },
+  "overnight_hours": [
+    0,
+    6
+  ],
   "baseline": "within_person",
-  "export": {"format": "screenome_data_clean", "file": "data_clean.csv"}
+  "export": {
+    "format": "screenome_data_clean",
+    "file": "data_clean.csv"
+  },
+  "session_gap_minutes": 30
 }

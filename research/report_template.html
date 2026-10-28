@@ -284,6 +284,18 @@ function toggleCtx(b) {
       <tr><td>${c.verbatim.claimed}</td><td>${c.verbatim.dropped} (${(c.verbatim.dropped_rate * 100).toFixed(1)}%)</td><td>${c.verbatim.dropped_fuzzy_found} of ${c.verbatim.dropped}</td>
       <td>${c.verbatim.kept_supported ? `${c.verbatim.kept_supported.supported} of ${c.verbatim.kept_supported.n}` : '—'}</td></tr></table>
       <p class="rs-note">A quote that exists verbatim does not by itself support the conclusion, so the third number is reported separately.</p>` : ''}
+    ${c.stability ? `<h3>Stability: same prompt, ${c.stability.runs} runs</h3>
+      <p>${c.stability.windows} windows; identical label in every run: <b>${c.stability.all_runs_agree}</b>
+      (${(c.stability.all_runs_agree / c.stability.windows * 100).toFixed(0)}%); Krippendorff α (nominal) = <b>${c.stability.alpha.toFixed(2)}</b>.</p>
+      <p class="rs-note">Below the usual 0.667 / 0.8 thresholds: this measure is not reliable yet. Most flips are user ↔ AI on windows
+      where the participant asks, the AI offers options and the participant picks one — a definition problem before a model problem.
+      Majority voting over runs would hide it, so it is reported as is.</p>` : ''}
+    ${c.by_group ? `<h3>By platform and language</h3>
+      <table><tr><th>Group</th><th>Windows</th><th>Judge–generator agreement</th><th>Quotes dropped</th><th>Same label in all runs</th></tr>
+      ${Object.entries(c.by_group).map(([k, g]) => `<tr><td>${esc(k)}</td><td>${g.windows}</td><td>${g.agree_rate == null ? '—' : (g.agree_rate * 100).toFixed(0) + '%'}</td>
+        <td>${(g.dropped_rate * 100).toFixed(1)}%</td><td>${(g.stable_rate * 100).toFixed(0)}%</td></tr>`).join('')}</table>
+      <p class="rs-note">In this demo the platform label was assigned by the chat generator, so platform differences here say nothing about real export formats.</p>` : ''}
+    <h3>Generator labels vs. judge (all windows)</h3>
     <table><tr><th>generator → judge</th>${['user', 'ai', 'none'].map(j => `<th>${j}</th>`).join('')}</tr>
     ${['user', 'ai', 'none'].map(t => `<tr><th>${t}</th>${['user', 'ai', 'none'].map(j => `<td>${a.confusion[t + '->' + j]}</td>`).join('')}</tr>`).join('')}</table>`;
 })();

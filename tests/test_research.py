@@ -9,7 +9,7 @@ import speech
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from research.measures import chat_first_person_ratio as fp, chat_mean_daily_overnight_ratio as night
-from research.participant import Msg, Participant, Period
+from research.participant import Msg, Participant, Period, sessions
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -88,6 +88,13 @@ class Measures(unittest.TestCase):
         msgs = [_msg(1, 'a', 3, 1), _msg(2, 'a', 3, 2), _msg(3, 'b', 4, 3)]
         _, ev = night.compute(_person(msgs), {})[1]
         self.assertEqual([e['msg'] for e in ev], ['m1', 'm3'])
+
+
+    def test_sessions_split_on_30_minute_gap(self):
+        msgs = [_msg(1, 'a', 3, 10), _msg(2, 'b', 3, 10), _msg(3, 'a', 3, 11), _msg(4, 'a', 3, 13)]
+        msgs[1].at = msgs[0].at.replace(minute=25)                    # 隔 25 分钟、换了窗口：同一段
+        msgs[2].at = msgs[0].at.replace(hour=11, minute=0)            # 隔 35 分钟：新的一段
+        self.assertEqual([[m.id for m in s] for s in sessions(msgs)], [['m1', 'm2'], ['m3'], ['m4']])
 
 
 if __name__ == '__main__':

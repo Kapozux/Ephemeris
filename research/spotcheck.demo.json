@@ -1,0 +1,106 @@
+{
+ "annotator": "Claude Opus 5.5 (a second model, NOT a human), blind to both the judge and the generator labels, 2026-10-28",
+ "note": "Human spot check still to do.",
+ "windows": [
+  {
+   "pid": "P01",
+   "conv": "040563bc-8a93-5122-9302-efba5a4cb6b2",
+   "label": "user"
+  },
+  {
+   "pid": "P02",
+   "conv": "9a7a27ed-5ae1-58a4-b106-ea7f90771141",
+   "label": "ai"
+  },
+  {
+   "pid": "P03",
+   "conv": "a5f4146e-66d3-5428-8557-c0596d23872b",
+   "label": "ai"
+  },
+  {
+   "pid": "P03",
+   "conv": "fc885dea-64df-5ca0-8842-dbec1569990a",
+   "label": "none"
+  },
+  {
+   "pid": "P04",
+   "conv": "2fba7f9c-2a7d-541c-848d-456610b57711",
+   "label": "ai"
+  },
+  {
+   "pid": "P05",
+   "conv": "0905c58b-1a57-5337-bc1e-4ad825d508d7",
+   "label": "user"
+  },
+  {
+   "pid": "P01",
+   "conv": "34300596-63e5-5d5e-9c12-3b54d30e402c",
+   "label": "ai"
+  },
+  {
+   "pid": "P05",
+   "conv": "bc43ab64-920c-599c-b51c-80e750bbe41c",
+   "label": "user"
+  },
+  {
+   "pid": "P02",
+   "conv": "c1051d63-9c9b-51cd-bbb3-6be9aa8303af",
+   "label": "ai"
+  },
+  {
+   "pid": "P05",
+   "conv": "8d0ddd81-6c48-5d18-9cb3-4d33b0827add",
+   "label": "user"
+  },
+  {
+   "pid": "P04",
+   "conv": "c6982f88-6fd4-5286-90cb-917bd6ecb276",
+   "label": "ai"
+  },
+  {
+   "pid": "P04",
+   "conv": "89c46d00-7619-57ce-a850-d0ec84688681",
+   "label": "user"
+  },
+  {
+   "pid": "P03",
+   "conv": "4ba471ab-daa2-5928-8fc1-5d8f09d5c425",
+   "label": "none"
+  },
+  {
+   "pid": "P03",
+   "conv": "bc145cd8-44e5-52a1-a384-6466be7c8232",
+   "label": "user"
+  },
+  {
+   "pid": "P05",
+   "conv": "b60c7d9a-d8c0-5978-8c7c-b2b2d7e884c5",
+   "label": "user"
+  },
+  {
+   "pid": "P04",
+   "conv": "1f58e25d-3a48-5fca-9899-b72a20e517c5",
+   "label": "ai"
+  },
+  {
+   "pid": "P03",
+   "conv": "1b6e0ba7-8464-5038-941e-16951652bbae",
+   "label": "ai"
+  },
+  {
+   "pid": "P05",
+   "conv": "c0400ad8-1a08-5ecd-b452-0c1d8253cd66",
+   "label": "ai"
+  },
+  {
+   "pid": "P04",
+   "conv": "ccbc990c-4544-53b1-90b3-04e90e779142",
+   "label": "ai"
+  },
+  {
+   "pid": "P05",
+   "conv": "ed27ce90-b0f5-5143-88a6-2b75ddfe7b70",
+   "label": "ai"
+  }
+ ]
+}

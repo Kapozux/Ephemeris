@@ -6,7 +6,7 @@
 ## 跑一遍
 
 ```bash
-../venv/bin/python -m research.synth gen       # 生成虚构聊天（DeepSeek，约 65 次调用；生成过的跳过）
+../venv/bin/python -m research.synth gen       # 生成虚构聊天（研究方案 models 里的模型，演示版是 DeepSeek 官方；约 65 次调用；生成过的跳过）
 ../venv/bin/python -m research.synth load      # 装进 data/<pid>.db，写 data/cesd.csv
 ../venv/bin/python -m research.export          # 算指标（「想法谁先提」要调 DeepSeek，判过的缓存着）→ data/out/
 ../venv/bin/python -m research.stability      # 「想法谁先提」再判 2 遍算稳定性（DeepSeek，跑过的跳过）
@@ -34,6 +34,11 @@
 
 ## 方法上的几条约定（照 `devtools/research/hai_tools.md` 调研里研究者要的）
 
+- **模型只用研究方案写明的那几家**（`models: ["厂商:模型", ...]`，按顺序；10-29）：研究版代码里调模型只走 `research.route`，
+  它只调 `llm.ask_only`（一家一个模型，失败就报错，不重试、不换）。Ephemeris 自己的 `llm.ask` 会在 Claude / 百炼 / DeepSeek 官方 /
+  OpenRouter / Gemini 之间自动换，研究里这等于违反写给 IRB 的数据流，所以研究版不许用（`tests/test_research.py` 会扫）。
+  每次尝试记进 `data/flow.jsonl`（不记内容），导出时汇总成 manifest 的 `data_flow`：数据经过哪些厂商、多少字、多少参与者。
+  没写 models 的方案不调模型；`local:` 留给本机模型，还没接。
 - **说话人只看导出文件的结构**（role 字段），不交给模型；贴进来的内容按 `speech.typed` 判掉，只当上下文。
 - **ChatGPT / DeepSeek 导出是分支树**：取最后显示的那一支（ChatGPT 从 current_node 往上，DeepSeek 每层取最后一个孩子），写在 manifest 里。
 - **逐字核对报三个数**：模型给的原话对不上被丢掉的比例；丢掉的里模糊匹配找得到原文的（改了措辞，不是编的）；

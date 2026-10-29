@@ -3,7 +3,7 @@
     ../venv/bin/python -m research.synth gen [P01 ...]   每人每期调一次 DeepSeek，存 data/raw/<pid>/pNN.json（有了就跳过）
     ../venv/bin/python -m research.synth load            把 raw 装进 data/<pid>.db，写 data/cesd.csv、data/<pid>.truth.json
 
-一次性的批量活，走省钱路线（route='cheap'，规矩 4）。装库每个人单开一个进程：store 一个进程只认一个库。
+用哪家模型照研究方案的 models（research.route），不自动换。装库每个人单开一个进程：store 一个进程只认一个库。
 """
 import csv
 import hashlib
@@ -18,7 +18,7 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import research
-from research import DATA, db_path
+from research import DATA, db_path, route
 from research import personas as P
 
 RAW = os.path.join(DATA, 'raw')
@@ -112,12 +112,11 @@ def check(d, person, k):
 
 
 def gen_one(person, k):
-    import llm     # gen() 已经用 research.ledger() 把库指好了
     path = os.path.join(RAW, person['pid'], f'p{k:02d}.json')
     if os.path.exists(path):
         return path, 'cached'
     for attempt in range(3):
-        d = llm.parse_json(llm.ask(prompt(person, k), route='cheap', json_mode=True, purpose='research-synth'), dict)
+        d = route.call_json(research.study(), prompt(person, k), 'research-synth', person['pid'])
         errs = check(d or {}, person, k)
         if d and not errs:
             os.makedirs(os.path.dirname(path), exist_ok=True)

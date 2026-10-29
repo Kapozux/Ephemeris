@@ -99,3 +99,62 @@ class Measures(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class Route(unittest.TestCase):
+    """研究版只用研究方案写明的厂商和模型（10-29）：名单外的不碰、不自动换，每次尝试都记账。"""
+
+    def setUp(self):
+        import tempfile
+        import llm
+        from research import route
+        self.route, self.llm = route, llm
+        self.old_flow, self.old_ask = route.FLOW, llm.ask_only
+        route.FLOW = os.path.join(tempfile.mkdtemp(prefix='ephemeris-flow-'), 'flow.jsonl')
+        self.calls = []
+
+    def tearDown(self):
+        self.route.FLOW, self.llm.ask_only = self.old_flow, self.old_ask
+
+    def fake(self, fail=()):
+        def ask_only(provider, model, prompt, **kw):
+            self.calls.append((provider, model))
+            if provider in fail:
+                raise RuntimeError('down')
+            return '{"ok": 1}'
+        self.llm.ask_only = ask_only
+
+    def test_no_models_no_call(self):
+        self.fake()
+        with self.assertRaises(ValueError):
+            self.route.call({'study': 's'}, 'p', 'x')
+        with self.assertRaises(ValueError):
+            self.route.call({'study': 's', 'models': ['somewhere:m']}, 'p', 'x')
+        self.assertEqual(self.calls, [])
+
+    def test_only_listed_in_order_and_logged(self):
+        self.fake(fail=('deepseek',))
+        study = {'study': 's', 'models': ['deepseek:a', 'claude:b']}
+        self.assertEqual(self.route.call_json(study, 'hello', 'x', pid='P1'), {'ok': 1})
+        self.assertEqual(self.calls, [('deepseek', 'a'), ('claude', 'b')])
+        flow = self.route.flow('s')
+        self.assertEqual(flow['deepseek']['a']['ok'], 0)
+        self.assertEqual(flow['claude']['b'], {'calls': 1, 'ok': 1, 'chars': 5, 'participants': 1})
+
+    def test_all_listed_fail_raises_without_other_vendors(self):
+        self.fake(fail=('deepseek',))
+        with self.assertRaises(RuntimeError):
+            self.route.call({'study': 's', 'models': ['deepseek:a']}, 'p', 'x')
+        self.assertEqual(self.calls, [('deepseek', 'a')])
+
+    def test_research_never_calls_auto_routing(self):
+        """llm.ask / ask_json / claude / _call 会自动换厂商：研究版代码里只许 route.py 调 llm.ask_only。"""
+        bad = []
+        for dirpath, _, files in os.walk(os.path.join(ROOT, 'research')):
+            for f in files:
+                if f.endswith('.py'):
+                    src = open(os.path.join(dirpath, f), encoding='utf-8').read()
+                    for name in ('ask', 'ask_json', 'claude', 'claude_stream', 'ask_stream', '_call', '_cheap', '_gemini'):
+                        if f'llm.{name}(' in src:
+                            bad.append(f'{f}: llm.{name}')
+        self.assertEqual(bad, [])

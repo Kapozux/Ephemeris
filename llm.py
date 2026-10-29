@@ -117,19 +117,13 @@ def _gemini(prompt, model=None):
             client, err = None, e
         for m in ((model,) if model and client else MODELS if client else ()):
             try:
-                resp = client.models.generate_content(model=m, contents=prompt)
+                return _gemini_direct(prompt, m, client)
             except Exception as e:                           # noqa: BLE001
                 err = e
                 if any(k in str(e) for k in _GEMINI_HARD):
                     _paused['gemini'] = time.time() + PAUSE_S
                     print(f'[llm] gemini 直连停 30 分钟，改走 OpenRouter：{str(e)[:160]}', flush=True)
                     break
-                continue
-            _record('record_gemini', resp, m, 'ephemeris')
-            text = (resp.text or '').strip()
-            if text:
-                return text
-            err = RuntimeError(f'{m} 返回空（多半是安全过滤）')
     if openrouter_key():
         for m in ((model,) if model else MODELS):
             try:
@@ -137,6 +131,17 @@ def _gemini(prompt, model=None):
             except Exception as e:                           # noqa: BLE001
                 err = e
     raise err or RuntimeError('没有可用的模型')
+
+
+def _gemini_direct(prompt, m, client=None):
+    """直连 Gemini（AI Studio）一次，失败抛异常，不转 OpenRouter。"""
+    client = client or _client()          # 要先存住：临时的 client 一被回收就关了，请求发不出去
+    resp = client.models.generate_content(model=m, contents=prompt)
+    _record('record_gemini', resp, m, 'ephemeris')
+    text = (resp.text or '').strip()
+    if not text:
+        raise RuntimeError(f'{m} 返回空（多半是安全过滤）')
+    return text
 
 
 _GEMINI_HARD = ('spending cap', 'spend cap', 'API key not valid', 'API_KEY_INVALID', 'PERMISSION_DENIED', 'billing')
@@ -361,6 +366,28 @@ def _picked_deepseek():
     return m if m and m.startswith('deepseek') else None
 
 
+def _cheap_post(route, prompt, json_mode=False, purpose=''):
+    """在 _cheap_routes 的一条路上发一次请求，拿到文字返回，失败抛异常（不重试、不换路）。"""
+    import requests
+    name, base, k, model, extra = route
+    body_json = {'model': model, 'messages': [{'role': 'system', 'content': CHEAP_SYSTEM}, {'role': 'user', 'content': prompt}],
+                 **extra}
+    if json_mode and name == 'deepseek' and 'reasoner' not in model and 'json' in prompt.lower():
+        body_json['response_format'] = {'type': 'json_object'}
+    t = time.time()
+    with _cheap_sem:
+        r = requests.post(base + '/chat/completions', timeout=300, headers={'Authorization': f'Bearer {k}'}, json=body_json)
+    if r.status_code != 200:
+        raise RuntimeError(f'{r.status_code}: {r.text[:200]}')
+    body = r.json()
+    text = (((body.get('choices') or [{}])[0].get('message') or {}).get('content') or '').strip()
+    if not text:
+        raise RuntimeError('返回空')
+    _record('record_openai', body, name, model, 'ephemeris')
+    _api_record(name, model, purpose, body.get('usage') or {}, time.time() - t, True)
+    return text
+
+
 def _cheap(prompt, why=None, force=False, json_mode=False, purpose=''):
     """走 DeepSeek，拿到文字就返回；涉政、没有路线、全失败返回 None（调用方接着用 Gemini）。
     why：传一个 dict 进来，会记下是不是被内容审核拦了（why['moderated']=True）—— 词表没认出来、审核却拦了的，
@@ -373,7 +400,6 @@ def _cheap(prompt, why=None, force=False, json_mode=False, purpose=''):
         with _lock:
             _cheap_state['guarded'] += 1
         return None
-    import requests
     routes = _cheap_routes()
     picked = _picked_deepseek()
     if picked:
@@ -383,24 +409,9 @@ def _cheap(prompt, why=None, force=False, json_mode=False, purpose=''):
         i = _turn[0] % max(len(routes), 1)
         _turn[0] += 1
     for name, base, k, model, extra in routes[i:] + routes[:i]:     # 轮流先上，失败了再试别的
-        body_json = {'model': model, 'messages': [{'role': 'system', 'content': CHEAP_SYSTEM}, {'role': 'user', 'content': prompt}],
-                     **extra}
-        if json_mode and name == 'deepseek' and 'reasoner' not in model and 'json' in prompt.lower():
-            body_json['response_format'] = {'type': 'json_object'}
         for attempt in range(tries):
-            t = time.time()
             try:
-                with _cheap_sem:
-                    r = requests.post(base + '/chat/completions', timeout=300, headers={'Authorization': f'Bearer {k}'},
-                                      json=body_json)
-                if r.status_code != 200:
-                    raise RuntimeError(f'{r.status_code}: {r.text[:200]}')
-                body = r.json()
-                text = (((body.get('choices') or [{}])[0].get('message') or {}).get('content') or '').strip()
-                if not text:
-                    raise RuntimeError('返回空')
-                _record('record_openai', body, name, model, 'ephemeris')
-                _api_record(name, model, purpose, body.get('usage') or {}, time.time() - t, True)
+                text = _cheap_post((name, base, k, model, extra), prompt, json_mode, purpose)
                 with _lock:
                     _cheap_state['calls'] += 1
                     if force:
@@ -905,6 +916,32 @@ def _call(prompt, model=None, fallback=True, effort='medium', route='auto', purp
         if not guarded and not fallback and not why.get('moderated'):
             raise RuntimeError('DeepSeek 这次没拿到（限流 / 断线），按要求不回 Gemini')
     return _gemini(prompt, model)
+
+
+# 只走指定的一家（研究版，2026-10-29）：IRB 和同意书写明了数据经过哪些厂商，悄悄换路由等于违反研究方案。
+# 上面的 _call 会在 Claude / 百炼 / DeepSeek 官方 / OpenRouter / Gemini 之间自动换，研究版一律不用它，只用 ask_only。
+# 厂商 → 数据去哪：claude = Anthropic（本机 claude -p）；deepseek = DeepSeek 官方；aliyun = 阿里云百炼；
+# openrouter = OpenRouter（再转给模型的厂商）；gemini = Google AI Studio 直连。local（本机模型）还没接。
+PROVIDERS = ('claude', 'deepseek', 'aliyun', 'openrouter', 'gemini', 'local')
+
+
+def ask_only(provider, model, prompt, effort='medium', json_mode=False, purpose=''):
+    """用 provider 家的 model 调一次，失败抛异常：不重试、不换厂商、不换模型、不看涉政词表。"""
+    if provider not in PROVIDERS:
+        raise ValueError(f'不认识的厂商：{provider}（只有 {"、".join(PROVIDERS)}）')
+    if _override:
+        return _override(prompt)
+    if provider == 'claude':
+        with using(model):
+            return claude(prompt, effort, purpose=purpose)[0]
+    if provider == 'gemini':
+        return _gemini_direct(prompt, model)
+    if provider == 'local':
+        raise RuntimeError('本机模型还没接：「只用本机模型」的研究现在跑不了')
+    route = next((r for r in _cheap_routes(all_routes=True) if r[0] == provider), None)
+    if not route:
+        raise RuntimeError(f'没有 {provider} 的 key')
+    return _cheap_post(route[:3] + (model,) + route[4:], prompt, json_mode, purpose)
 
 
 # ------------------------------------------------------------------ 大模型（只有交接包用）

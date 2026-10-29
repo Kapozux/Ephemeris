@@ -3,7 +3,7 @@
     ../venv/bin/python -m research.stability [遍数，默认再跑 2 遍]
 
 第 1 遍就是 data/<pid>.judge.json；新跑的存 data/judge_runs/<pid>.r<n>.json（有了就跳过，不重复花钱）。
-结果写进 data/out/stability.json，selfcheck / 演示页读它。DeepSeek，省钱路线（规矩 4）。
+结果写进 data/out/stability.json，selfcheck / 演示页读它。模型照研究方案的 models（research.route）。
 """
 import json
 import os
@@ -51,7 +51,7 @@ def run(extra=2):
         for n in range(2, extra + 2):
             path = os.path.join(RUNS, f'{pid}.r{n}.json')
             if not os.path.exists(path):
-                got = idea.judge(list(person.convs.items()))
+                got = idea.judge(list(person.convs.items()), study, pid)
                 with open(path, 'w', encoding='utf-8') as f:
                     json.dump(got, f, ensure_ascii=False, indent=1)
                 print(pid, f'run {n}: {len(got)} windows', flush=True)
@@ -61,7 +61,7 @@ def run(extra=2):
             units.append(labels)
             by_run[len(set(labels)) == 1] += 1
     r = {'runs': extra + 1, 'windows': len(units), 'all_runs_agree': by_run[True],
-         'alpha': alpha(units), 'model': 'DeepSeek (Ephemeris llm route=cheap)', 'prompt_version': idea.VERSION}
+         'alpha': alpha(units), 'models': study['models'], 'prompt_version': idea.VERSION}
     with open(os.path.join(OUT, 'stability.json'), 'w', encoding='utf-8') as f:
         json.dump(r, f, ensure_ascii=False, indent=1)
     print(f"{r['runs']} 遍、{r['windows']} 个窗口：每遍都一样的 {r['all_runs_agree']}，Krippendorff α = {r['alpha']:.3f}")

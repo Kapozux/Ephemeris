@@ -127,7 +127,7 @@ def judge(runs=2):
         key = f'r{r}'
         todo = [w for w in windows if w[0] not in got.get(key, {})]
         if todo:
-            got.setdefault(key, {}).update(idea.judge(todo))
+            got.setdefault(key, {}).update(idea.judge(todo, realval.STUDIES['cheap']))
             _save(JUDGE, got)
         print(key, f"{len(got[key])}/{len(windows)} 段判好（prompt {idea.VERSION}）")
 
@@ -149,7 +149,7 @@ def topics():
     模型判出想法的段：话题来自它判的那句（它在哪句、谁说的不给人看）；判成 none 的段：话题是这段主要在讨论什么。
     两种写法一样（都是「关于……」），看话题看不出模型判的是不是 none。"""
     research.ledger()
-    import llm
+    from research import route
     from research.measures.chat_ai_first_idea_ratio import _transcript
     items, r1 = _load(ITEMS, None), _load(JUDGE, {}).get('r1', {})
     got = _load(TOPICS, {})
@@ -163,8 +163,8 @@ def topics():
                      f'"{j["quote"]}". Label the question that this option answers.')
         else:
             focus = 'Label the main question this chat is about.'
-        d = llm.ask_json(TOPIC_PROMPT.format(focus=focus, transcript=_transcript(msgs)), want=dict, tries=2,
-                         route='cheap', purpose='research-topic') or {}
+        d = route.call_json(realval.STUDIES['cheap'], TOPIC_PROMPT.format(focus=focus, transcript=_transcript(msgs)),
+                            'research-topic') or {}
         t = str(d.get('topic') or '').strip()
         return s['id'], t if t.startswith('关于') and not BANNED.search(t) else ''
 

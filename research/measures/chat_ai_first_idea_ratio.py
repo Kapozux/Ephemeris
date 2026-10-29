@@ -2,13 +2,14 @@
 
 每个窗口让模型判一次：有没有决定、谁先提的、提出它的那句原话。原话必须逐字出现在那个窗口里才算数，
 对不上的不计入（verified=False，页面上标出来）。判过的存在 data/<pid>.judge.json，重跑不再花钱；
-改了提示词就改 VERSION，旧的判断自动作废。一次性的批量活走省钱路线（规矩 4）。
+改了提示词就改 VERSION，旧的判断自动作废。用哪家的模型只看研究方案的 models（research.route），不自动换。
 """
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
 
 import research
+from research import route
 
 DESCRIPTION = ('Among chat windows that contain a decision the participant goes with, the share where that option '
                'was first proposed by the AI. Judged per window by an LLM; counted only if its supporting quote '
@@ -33,11 +34,9 @@ def _transcript(msgs):
     return '\n'.join(f'  [{i}] {"H" if m.role == "human" else "A"}: {m.text[:600]}' for i, m in enumerate(msgs))
 
 
-def _judge(batch):
-    import llm
+def _judge(batch, study, pid):
     text = '\n\n'.join(f'W{i + 1}:\n{_transcript(msgs)}' for i, (_, msgs) in enumerate(batch))
-    d = llm.parse_json(llm.ask(PROMPT.format(n=len(batch), windows=text), route='cheap', json_mode=True,
-                               purpose='research-idea'), dict) or {}
+    d = route.call_json(study, PROMPT.format(n=len(batch), windows=text), 'research-idea', pid) or {}
     got = {j.get('window'): j for j in d.get('judgments') or [] if isinstance(j, dict)}
     out = {}
     for i, (conv, msgs) in enumerate(batch):
@@ -53,30 +52,30 @@ def _judge(batch):
     return out
 
 
-def judge(windows):
-    """[(conv_id, [Msg])] → {conv_id: 判断}。不读不写缓存（稳定性检查要重跑同一批窗口）。没判出来的窗口不在结果里。"""
+def judge(windows, study, pid=None):
+    """[(conv_id, [Msg])] → {conv_id: 判断}。用研究方案允许的模型（route）。不读不写缓存（稳定性检查要重跑同一批窗口）。没判出来的窗口不在结果里。"""
     research.ledger()
     out = {}
     batches = [windows[i:i + BATCH] for i in range(0, len(windows), BATCH)]
     with ThreadPoolExecutor(6) as pool:
-        for got in pool.map(_judge, batches):
+        for got in pool.map(lambda b: _judge(b, study, pid), batches):
             out.update(got)
     return out
 
 
-def judgments(person):
+def judgments(person, study):
     path = os.path.join(research.DATA, f'{person.pid}.judge.json')
     cache = json.load(open(path, encoding='utf-8')) if os.path.exists(path) else {}
     todo = [(c, ms) for c, ms in person.convs.items() if cache.get(c, {}).get('version') != VERSION]
     if todo:
-        cache.update(judge(todo))
+        cache.update(judge(todo, study, person.pid))
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(cache, f, ensure_ascii=False, indent=1)
     return cache
 
 
 def compute(person, study):
-    judged = judgments(person)
+    judged = judgments(person, study)
     out = {}
     for p in person.periods:
         convs = {m.conv for m in p.said()}

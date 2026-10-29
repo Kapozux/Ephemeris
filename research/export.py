@@ -23,7 +23,7 @@ import sys
 from datetime import datetime, timezone
 
 import research
-from research import measures, participant
+from research import measures, participant, route
 from research import personas as P
 
 OUT = os.path.join(research.DATA, 'out')
@@ -147,8 +147,11 @@ def write(study, study_path, rows, evidence):
         'llm_columns': 'In evidence.csv, verbatim_text is the stored message as-is; selection_reason is written by rules; '
                        'llm_label / llm_quote are model-generated, and llm_quote_verified says whether the quote occurs '
                        'verbatim in that window. Judgments with unverified quotes are dropped from measures.',
-        'models': {'chat_ai_first_idea_ratio': 'DeepSeek via Ephemeris llm route=cheap; prompt in '
-                                               'research/measures/chat_ai_first_idea_ratio.py (VERSION)'},
+        'models': {'allowed': study.get('models', []),
+                   'policy': 'Only the providers/models listed in the study file are ever called, in that order; no '
+                             'automatic switching to other vendors. Every attempt is logged (no content).',
+                   'chat_ai_first_idea_ratio': 'prompt in research/measures/chat_ai_first_idea_ratio.py (VERSION)'},
+        'data_flow': route.flow(study['study']),
     }
     with open(os.path.join(OUT, 'manifest.json'), 'w', encoding='utf-8') as f:
         json.dump(manifest, f, ensure_ascii=False, indent=1)

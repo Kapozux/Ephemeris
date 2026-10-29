@@ -32,6 +32,10 @@ SEED = 20261028
 N = 100
 FUZZY = 0.9
 REMAKE_CHARS = 12000
+# 自检的「研究方案」：只写允许哪家（两条路线各一份，配对比较）。10-28 那次跑的时候还没有 route：
+# claude 是本机 Opus 5.5；cheap 是 llm 的省钱路线，在百炼 / DeepSeek 官方 / OpenRouter 三家 DeepSeek 之间轮流
+STUDIES = {'claude': {'study': 'self-validation', 'models': ['claude:claude-opus-5-5']},
+           'cheap': {'study': 'self-validation', 'models': ['deepseek:deepseek-v4-flash']}}
 EXCLUDE = ('ask',)            # Ephemeris 自己的问答；手写日记（journal- 开头）不是聊天，也不算
 CJK = re.compile(r'[一-鿿]')
 LATIN = re.compile(r'[A-Za-z]')
@@ -132,17 +136,14 @@ def partial(q, text):
 def _one(cid, route):
     import cards
     import llm
+    from research import route as rt
     mode, segs = cards.segments(cid, 'full', size=REMAKE_CHARS)
     if not segs:
         return cid, {'error': 'no segments'}
     seg = segs[0]
     p = cards.prompt(cid, seg)
     try:
-        if route == 'claude':
-            raw = llm.parse_json(llm.claude(p, 'medium', purpose='research-realval')[0], None)
-        else:
-            raw = llm.ask_json(p, want=None, tries=2, model=cards.MODEL, fallback=False, route='cheap',
-                               purpose='research-realval')
+        raw = llm.parse_json(rt.call(STUDIES[route], p, 'research-realval', effort='medium', json_mode=route != 'claude'), None)
     except Exception as e:                                   # noqa: BLE001  一个窗口失败只记这个窗口
         return cid, {'error': f'{type(e).__name__}: {e}'[:200]}
     got = cards.unpack(raw)

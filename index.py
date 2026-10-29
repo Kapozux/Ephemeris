@@ -73,7 +73,8 @@ def conv_fingerprint(msgs):
 
 
 # ------------------------------------------------------------------ parsers
-# 每个 parser yield dict(title, title_fallback, msgs=[(dt, role, text)])；可以多一项「算 id 用的正文」（claude.ai：不含附件那行）
+# 每个 parser yield dict(title, title_fallback, msgs=[(dt, role, text)])；可以多两项：算 id 用的正文（claude.ai：不含附件那行）、
+# 写这条回复的模型（来源记了才有，写进 msg_models）
 
 _H_RE = re.compile(r'\n## (Human|Claude|ChatGPT) \(([^)]*)\):\n')     # ChatGPT：同一个浏览器插件导出的 GPT 对话，格式一样
 
@@ -184,8 +185,8 @@ def parse_claude_json(path):
                 continue
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
-            # 第 4 项是算消息 id 用的正文：不含附件那行，不然 10-28 之前存的消息补上附件后会变成另一条
-            msgs.append((dt, m.get('role') or m.get('sender') or 'human', full, text))
+            # 第 4 项是算消息 id 用的正文：不含附件那行，不然 10-28 之前存的消息补上附件后会变成另一条；第 5 项是模型（有才有）
+            msgs.append((dt, m.get('role') or m.get('sender') or 'human', full, text, m.get('model') or c.get('model')))
         if msgs:
             # uuid 带出来当窗口身份 —— 指纹是给「没有稳定 id 的导出」用的兜底，
             # 有 uuid 还用指纹的话，同一个对话从 md 和 json 两条路进来会算出两个窗口
@@ -358,7 +359,8 @@ def parse_chatgpt_export(path):
                 continue
             text = _chatgpt_text(m)
             if text:
-                msgs.append((datetime.fromtimestamp(t, timezone.utc), 'human' if role == 'user' else 'assistant', text))
+                msgs.append((datetime.fromtimestamp(t, timezone.utc), 'human' if role == 'user' else 'assistant', text, text,
+                             (m.get('metadata') or {}).get('model_slug')))
         cid = c.get('conversation_id') or c.get('id')
         if msgs and cid:
             yield {'uid': f'chatgpt-{cid}', 'title': c.get('title') or 'Untitled', 'title_fallback': not c.get('title'), 'msgs': msgs}
@@ -585,10 +587,13 @@ def ingest(conn, path, kind=None, source=None, label=None, invalidate=True):
         n_convs += 1
         existing = conn.execute('SELECT id, title, title_fallback FROM conversations WHERE id=?', (cid,)).fetchone()
 
-        rows = []
+        rows, models = [], []
         for dt, role, text, *key in msgs:
             date, hhmm = bucket(dt)
-            rows.append((_h(f'{cid}|{dt.isoformat()}|{(key[0] if key else text)[:300]}'), cid, source,
+            mid = _h(f'{cid}|{dt.isoformat()}|{(key[0] if key else text)[:300]}')
+            if role == 'assistant' and len(key) > 1:
+                models.append((mid, key[1]))
+            rows.append((mid, cid, source,
                          dt.isoformat(), date, hhmm, role, text, len(text)))
         # 只算真正新增的消息，和它们落在哪些天
         new_ids = [r[0] for r in rows]
@@ -611,6 +616,7 @@ def ingest(conn, path, kind=None, source=None, label=None, invalidate=True):
                             WHERE messages.text IS NOT excluded.text OR messages.date IS NOT excluded.date
                                OR messages.hhmm IS NOT excluded.hhmm OR messages.ts IS NOT excluded.ts
                                OR messages.conv_id IS NOT excluded.conv_id OR messages.role IS NOT excluded.role''', rows)
+        note_models(conn, models)
         n_msgs += len(rows)
         n_new_msgs += len(fresh)
 
@@ -650,6 +656,12 @@ def ingest(conn, path, kind=None, source=None, label=None, invalidate=True):
     return {'file': label, 'kind': kind, 'source': source, 'n_convs': n_convs, 'n_convs_new': n_new_convs,
             'n_msgs': n_msgs, 'n_msgs_new': n_new_msgs, 'days_touched': sorted(touched),
             'diaries_invalidated': invalidated}
+
+
+def note_models(conn, pairs):
+    """记下回复是哪个模型写的：[(消息 id, 模型名)]。没有名字的、Claude Code 自己塞的 <synthetic> 不记。"""
+    conn.executemany('INSERT INTO msg_models (msg_id, model) VALUES (?,?) ON CONFLICT(msg_id) DO UPDATE SET model=excluded.model',
+                     [(m, model) for m, model in pairs if model and not model.startswith('<')])
 
 
 def _recount(conn):

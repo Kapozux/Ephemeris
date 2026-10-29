@@ -162,7 +162,7 @@ _FETCH_JS = """(async () => {
                              ...(m.files || []).concat(m.files_v2 || []).map(f => f.file_name)].filter(Boolean);
         if (text || attachments.length) messages.push({role, created_at: m.created_at, text, attachments});
       }
-      if (messages.length) out.push({uuid: it.uuid, name: it.name || 'Untitled',
+      if (messages.length) out.push({uuid: it.uuid, name: it.name || 'Untitled', model: d.model || null,
                                      created_at: it.created_at, updated_at: it.updated_at, messages});
     } catch (e) { fail.push({uuid: it.uuid, error: String(e)}); }
     await new Promise(r => setTimeout(r, 350));

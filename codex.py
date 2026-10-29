@@ -50,8 +50,9 @@ def _files():
 
 
 def _parse(path):
-    """→ (会话 id, 项目名, [(消息 id, 时间, role, 文字)])。消息 id 用行号：jsonl 只往后加，行号不会变。"""
-    sid, cwd, out, meta = '', '', [], None
+    """→ (会话 id, 项目名, [(消息 id, 时间, role, 文字, 模型)])。消息 id 用行号：jsonl 只往后加，行号不会变。
+    模型来自前面最近的 turn_context（每一轮开头记一次），只有回复才填。"""
+    sid, cwd, out, meta, model = '', '', [], None, None
     with open(path, encoding='utf-8', errors='ignore') as fh:
         for n, line in enumerate(fh):
             try:
@@ -66,6 +67,9 @@ def _parse(path):
                         return p.get('id') or '', '', []          # 子代理 / 语音包装：整份不要
                 sid, cwd = sid or p.get('id') or '', cwd or p.get('cwd') or ''
                 continue
+            if d.get('type') == 'turn_context':
+                model = p.get('model') or model
+                continue
             if d.get('type') == 'event_msg' and p.get('type') == 'user_message':
                 role, text = 'human', _user_text(p.get('message'))
             elif d.get('type') == 'response_item' and p.get('type') == 'message' and p.get('role') == 'assistant':
@@ -73,9 +77,9 @@ def _parse(path):
             else:
                 continue
             if text and d.get('timestamp'):
-                out.append((n, d['timestamp'], role, text))
+                out.append((n, d['timestamp'], role, text, model if role == 'assistant' else None))
     sid = sid or os.path.splitext(os.path.basename(path))[0]
-    return sid, os.path.basename(cwd.rstrip('/')) or '?', [(f'{SOURCE}-{sid}-{n}', ts, role, t) for n, ts, role, t in out]
+    return sid, os.path.basename(cwd.rstrip('/')) or '?', [(f'{SOURCE}-{sid}-{n}', ts, role, t, m) for n, ts, role, t, m in out]
 
 
 def sync(say=print):
@@ -89,13 +93,14 @@ def sync(say=print):
         n_files += 1
         sid, project, msgs = _parse(path)
         cid = f'{SOURCE}-{sid}'
-        first = next((t for _, _, role, t in msgs if role == 'human'), '')
+        first = next((t for _, _, role, t, _ in msgs if role == 'human'), '')
         with store.tx() as db:
             if msgs:
                 db.execute("""INSERT INTO conversations (id, source, title, title_fallback, first_import, last_import)
                               VALUES (?,?,?,0,'codex','codex') ON CONFLICT(id) DO NOTHING""",
                            (cid, SOURCE, f"Codex·{project}：{' '.join(first.split())[:40] or '（没有文字）'}"))
-            for mid, ts, role, text in msgs:
+            idx.note_models(db, [(mid, model) for mid, _, _, _, model in msgs])
+            for mid, ts, role, text, _ in msgs:
                 when = datetime.fromisoformat(ts.replace('Z', '+00:00'))
                 date, hhmm = days.bucket(when)
                 # 不用 INSERT OR REPLACE：rowid 会变，全文索引对不上

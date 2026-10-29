@@ -57,7 +57,7 @@ def _files():
 
 
 def _parse(path):
-    """→ (会话 id, 项目名, [(消息 id, 时间, role, 文字)])"""
+    """→ (会话 id, 项目名, [(消息 id, 时间, role, 文字, 模型)])；模型只有回复才有"""
     sid, cwd, out = os.path.splitext(os.path.basename(path))[0], '', []
     with open(path, encoding='utf-8', errors='ignore') as fh:
         for line in fh:
@@ -72,7 +72,8 @@ def _parse(path):
             text = _user_text(msg.get('content')) if d['type'] == 'user' else _assistant_text(msg.get('content'))
             ts = d.get('timestamp')
             if text and ts and d.get('uuid'):
-                out.append((f"{SOURCE}-{d['uuid']}", ts, 'human' if d['type'] == 'user' else 'assistant', text))
+                out.append((f"{SOURCE}-{d['uuid']}", ts, 'human' if d['type'] == 'user' else 'assistant', text,
+                            msg.get('model') if d['type'] == 'assistant' else None))
     return sid, os.path.basename(cwd.rstrip('/')) or '?', out
 
 
@@ -95,13 +96,14 @@ def sync(say=print):
         n_files += 1
         sid, project, msgs = _parse(path)
         cid = f'{SOURCE}-{sid}'
-        first = next((t for _, _, role, t in msgs if role == 'human'), '')
+        first = next((t for _, _, role, t, _ in msgs if role == 'human'), '')
         with store.tx() as db:
             if msgs:
                 db.execute("""INSERT INTO conversations (id, source, title, title_fallback, first_import, last_import)
                               VALUES (?,?,?,0,'claude-code','claude-code') ON CONFLICT(id) DO NOTHING""",
                            (cid, SOURCE, title(project, first)))
-            for mid, ts, role, text in msgs:
+            idx.note_models(db, [(mid, model) for mid, _, _, _, model in msgs])
+            for mid, ts, role, text, _ in msgs:
                 when = datetime.fromisoformat(ts.replace('Z', '+00:00'))
                 date, hhmm = days.bucket(when)
                 # 不用 INSERT OR REPLACE：rowid 会变，全文索引对不上

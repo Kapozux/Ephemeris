@@ -92,7 +92,8 @@ _FETCH_JS = """(async () => {
         if (m.metadata && m.metadata.is_visually_hidden_from_conversation) continue;
         if (role === 'assistant' && m.recipient && m.recipient !== 'all') continue;
         const text = textOf(m);
-        if (text) messages.push({role: role === 'user' ? 'human' : 'assistant', created_at: iso(m.create_time), text});
+        if (text) messages.push({role: role === 'user' ? 'human' : 'assistant', created_at: iso(m.create_time), text,
+                                 model: (m.metadata && m.metadata.model_slug) || null});
       }
       if (messages.length) out.push({uuid: 'chatgpt-' + it.id, id: it.id, name: d.title || it.title || 'Untitled',
                                      created_at: iso(d.create_time || it.create_time), updated_at: it.update_time, messages});

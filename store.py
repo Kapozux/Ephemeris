@@ -38,6 +38,10 @@ CREATE TABLE IF NOT EXISTS messages (
   ts TEXT, date TEXT, hhmm TEXT, role TEXT, text TEXT, chars INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_msg_date ON messages(date);
+-- 哪条回复是哪个模型写的（2026-10-29，研究版的覆盖报告要：换模型也会让指标变）。只在来源记了的时候有：
+-- Claude Code / Codex 每条都有，claude.ai 同步按窗口记，ChatGPT 每条有；Gemini、Cursor、claude.ai 官方导出没有。
+-- 单独一张表：messages 有好几处按位置写入，加列会全坏。写只走 index.note_models
+CREATE TABLE IF NOT EXISTS msg_models (msg_id TEXT PRIMARY KEY, model TEXT);
 CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conv_id);
 -- 全文索引（search.py）：trigram 分词，中文子串也搜得到（2026-10-07 借 Verbatim 的；以前 unicode61 一个中文词都搜不到）。
 -- 不另存一份正文（content=messages），也不记位置（detail=none）：片段在 Python 里切。

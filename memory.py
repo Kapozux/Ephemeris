@@ -16,6 +16,7 @@ import json
 from datetime import date, datetime, timedelta
 
 import days
+import hidden
 import index as idx
 import jobs
 import llm
@@ -161,9 +162,11 @@ def plan_areas():
     """定领域：最近 60 天的主题账本 + 卡的话题 → 一次模型调用。已有的名字沿用。"""
     today = days.today()
     since = (date.fromisoformat(today) - timedelta(days=60)).isoformat()
-    themes = store.q("""SELECT t.name, t.desc, COUNT(DISTINCT d.date) n, MAX(d.date) last FROM themes t JOIN theme_days d ON d.theme_id = t.id
-                        WHERE d.date >= ? GROUP BY t.id HAVING n >= 2 ORDER BY n DESC LIMIT 80""", since)
-    tops = store.q("""SELECT topic, COUNT(*) n FROM cards WHERE date >= ? AND topic IS NOT NULL AND topic != ''
+    themes = store.q(f"""SELECT t.name, t.desc, COUNT(DISTINCT d.date) n, MAX(d.date) last FROM themes t JOIN theme_days d ON d.theme_id = t.id
+                        WHERE d.date >= ? AND d.date NOT IN ({hidden.DERIVED_DAYS})
+                        GROUP BY t.id HAVING n >= 2 ORDER BY n DESC LIMIT 80""", since)
+    tops = store.q(f"""SELECT topic, COUNT(*) n FROM cards WHERE date >= ? AND topic IS NOT NULL AND topic != ''
+                      AND id NOT IN ({hidden.HIDDEN_CARDS})
                       GROUP BY topic ORDER BY n DESC LIMIT 100""", since)
     existing = store.q("SELECT name, summary FROM memory_topics WHERE kind='area'")
     prompt = AREAS_PROMPT.format(
@@ -180,7 +183,8 @@ def plan_areas():
 
 def _pick_cards(t, since):
     plan = {'q': f"{t['name']}：{t['summary'] or ''}", 'keywords': json.loads(t['keywords'] or '[]'), 'since': since}
-    ids = qa.rank(plan, budget=BUDGET)
+    hide = hidden.card_hidden()                             # 屏蔽的（hidden.py）不进档案
+    ids = [i for i in qa.rank(plan, budget=BUDGET) if i not in hide]
     if t['kind'] == 'you':                                  # 关于他自己 / 对 AI 的要求：只看他说的
         mine = {r['id'] for r in store.q("SELECT id FROM cards WHERE who='me'" + (' AND date >= ?' if since else ''), *([since] if since else []))}
         ids = [i for i in ids if i in mine]
@@ -206,7 +210,8 @@ def refresh_topic(name, full=False):
     t = store.one('SELECT * FROM memory_topics WHERE name=?', name)
     if not t:
         raise ValueError('没有这个主题')
-    old = _facts(t['id'])
+    hide = hidden.card_hidden()                 # 出处被屏蔽的事实不给模型看，也就不会被换掉、折起来（取消屏蔽后原样回来）
+    old = [f for f in _facts(t['id']) if not set(f['cites']) & hide]
     since = (not full and (t['written_at'] or '')[:10]) or (None if t['kind'] == 'you' else
                                             (date.fromisoformat(days.today()) - timedelta(days=FIRST_DAYS)).isoformat())
     if since and old and not full:                                       # 接着上次：那天的卡也再看一眼（上次可能只做了一半）

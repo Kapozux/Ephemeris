@@ -9,6 +9,7 @@ from werkzeug.utils import secure_filename
 import backup
 import daily
 import export
+import hidden
 import index as idx
 import longchats
 import memory
@@ -191,6 +192,24 @@ def api_memory_edit():
     except (ValueError, TypeError) as e:
         return jsonify({'error': str(e)}), 400
     return jsonify(_memory())
+
+
+# ------------------------------------------------------------------ 屏蔽（hidden.py）：「问」一律查不到的日子 / 窗口 / 手写日记
+
+@bp.route('/api/hidden')
+def api_hidden():
+    return jsonify({'items': hidden.items()})
+
+
+@bp.route('/api/hidden', methods=['POST'])
+def api_hidden_set():
+    """body：{kind: day | conv | journal, ref, on}。"""
+    body = request.get_json(silent=True) or {}
+    try:
+        hidden.set_(body.get('kind'), body.get('ref'), bool(body.get('on', True)))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'items': hidden.items()})
 
 
 # ------------------------------------------------------------------ 第一次用（setup.py）

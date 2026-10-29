@@ -171,6 +171,10 @@ CREATE TABLE IF NOT EXISTS qa_chat (
 CREATE TABLE IF NOT EXISTS qa_threads (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, created TEXT, updated TEXT,
   named INTEGER DEFAULT 0, pinned INTEGER DEFAULT 0);
 
+-- 屏蔽（hidden.py，10-29）：「问」一律查不到的日子 / 窗口 / 手写日记。kind：day | conv | journal；ref：日期 / 窗口 id / Notion page_id；
+-- label：屏蔽时的标题（设置页列出来用）。日记页照常显示，只管「问」
+CREATE TABLE IF NOT EXISTS qa_hidden (kind TEXT NOT NULL, ref TEXT NOT NULL, label TEXT, added_at TEXT, PRIMARY KEY (kind, ref));
+
 -- 长聊清单（longchats.py，10-23）：他给长期在聊的窗口标的「要迁 / 不迁」（move 1 / 0，没标 NULL）、续集接着哪个窗口（after）
 CREATE TABLE IF NOT EXISTS long_chats (conv_id TEXT PRIMARY KEY, move INTEGER, after TEXT);
 

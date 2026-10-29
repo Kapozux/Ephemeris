@@ -175,6 +175,48 @@ export async function pollExport() {
 // 标「要迁 / 不迁」（再点一下取消）；续集并进它接着的那个（标题带 _2 /（3）的会猜一个，点了才并）。
 const SRC = { chatgpt: 'ChatGPT', gemini: 'Gemini', lobehub: 'LobeHub' };
 
+// ---------------------------------------------------------------- 屏蔽（hidden.py）
+// 日子 / 窗口 / 手写日记：「问」一律查不到（连带它们写出来的证据卡、小结、那几天的日记、档案条目）。在日记页上点「「问」不看…」加，这里列全部、能恢复
+const HID_KIND = { day: '这一天', conv: '窗口', journal: '手写日记' };
+
+function renderHidden(box, items) {
+  box.innerHTML = `<div class="set-note">这些「问」完全查不到：原文、证据卡、窗口小结，还有它们出现那几天的日记、引用它们的档案条目。日记页照常显示。
+      在日记页上点「「问」不看这天 / 这个窗口 / 这篇」就加进来。</div>`
+    + items.map(h => `<div class="set-row">
+        <span class="set-text"><b>${HID_KIND[h.kind] || esc(h.kind)}</b> ${h.kind === 'day'
+          ? `<a class="set-hid-a" href="#/day/${esc(h.ref)}">${esc(h.ref)}</a>`
+          : h.kind === 'conv' ? `<a class="set-hid-a" href="#/win/${encodeURIComponent(h.ref)}">${esc(h.label || '无标题')}</a>` : esc(h.label || h.ref)}
+          <span class="set-what">${rel(h.added_at)}屏蔽</span></span>
+        <span class="set-act"><button type="button" class="btn-secondary btn-small" data-kind="${esc(h.kind)}" data-ref="${esc(h.ref)}">恢复</button></span>
+      </div>`).join('')
+    + `<div class="set-row"><span class="set-text">屏蔽某一天</span><span class="set-act">
+        <input type="date" class="set-pw set-hid-d" aria-label="日期"><button type="button" class="btn-secondary btn-small" data-add>屏蔽这天</button></span></div>`;
+}
+
+async function hidPost(box, body) {
+  const r = await fetch('/api/hidden', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(r => r.json()).catch(() => null);
+  if (r && r.items) renderHidden(box, r.items);
+}
+
+export async function pollHidden() {
+  const box = $('#hidBox'); if (!box) return;
+  const r = await fetch('/api/hidden').then(r => r.json()).catch(() => null);
+  if (!r) return;
+  renderHidden(box, r.items);
+  if (box.dataset.bound) return;
+  box.dataset.bound = '1';
+  box.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.add !== undefined) {
+      const d = box.querySelector('.set-hid-d').value;
+      if (d) hidPost(box, { kind: 'day', ref: d, on: true });
+      return;
+    }
+    hidPost(box, { kind: b.dataset.kind, ref: b.dataset.ref, on: false });
+  });
+}
+
 function longRow(l, all) {
   const others = all.filter(x => x.id !== l.id);
   return `<div class="set-row set-lc" data-id="${esc(l.id)}">

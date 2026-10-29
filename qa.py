@@ -26,6 +26,7 @@ from datetime import datetime
 
 import cards
 import days
+import hidden
 import index as idx
 import jobs
 import llm
@@ -168,9 +169,10 @@ def card(cid):
 
 def select(plan, follow=()):
     """按计划挑卡（rank 的名次，取到预算为止）：返回按时间排好的卡。上一轮引用过的卡排最前（追问接得上）。"""
-    ids = rank(plan)
+    hide = hidden.card_hidden()                          # 屏蔽的（hidden.py）：「问」一律看不到
+    ids = [i for i in rank(plan) if i not in hide]
     picked, size = [], 0
-    for cid in list(follow) + [i for i in ids if i not in follow]:
+    for cid in [i for i in follow if i not in hide] + [i for i in ids if i not in follow]:
         c = card(cid)
         if not c:
             continue
@@ -190,7 +192,7 @@ def _summaries(picked, limit=SUMMARY_CHARS):
     out, size = [], 0
     for cid, _ in sorted(count.items(), key=lambda x: -x[1]):
         r = store.one(f"SELECT s.summary, {cards.TITLE.replace('c.conv_id', 's.conv_id')} AS title FROM card_convs s "
-                      'LEFT JOIN conversations v ON v.id = s.conv_id WHERE s.conv_id=?', cid)
+                      f'LEFT JOIN conversations v ON v.id = s.conv_id WHERE s.conv_id=? AND s.conv_id NOT IN ({hidden.SUMMARY_CONVS})', cid)
         if not r or not r['summary']:
             continue
         line = f"《{r['title'] or '无标题'}》\n{r['summary'][-1500:]}"

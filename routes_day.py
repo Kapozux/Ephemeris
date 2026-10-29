@@ -8,6 +8,7 @@ import days
 import diary
 import export
 import flashback
+import hidden
 import journal
 import ledger
 import mood
@@ -108,6 +109,7 @@ def api_day(date):
                     'diary': diary.get(date),
                     'themes': ledger.chips(date),
                     'journal': journal.for_date(date),
+                    'hidden': hidden.of_day(date),
                     'signals': mood.day_signals(date),
                     'generating': diary.writing(date),
                     # 写日记按钮要的：这天聊的字够不够（不够的天一般不写）、一篇多少钱、今天是哪天

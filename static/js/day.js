@@ -8,6 +8,18 @@ import { journalHtml, imageCount, mdBlocks, plainBlocks } from './md.js';
 
 const CLIP = 300, CLIP_LINES = 8;   // 长消息先折到这么多字 / 这么多行（空行多的消息按字数折了还有一屏高）
 let NAV = { prev: null, next: null }, POLL = null;
+// 屏蔽（hidden.py）：这天 / 这个窗口 / 这篇手写日记「问」一律查不到。日记页照常显示，只是标出来
+let HID = { day: false, convs: new Set(), journal: new Set() };
+
+async function setHidden(kind, ref, on) {
+  await fetch('/api/hidden', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind, ref, on }) }).catch(() => null);
+  openDay(S.sel);
+}
+function hideBtn(cls, kind, ref, on, what, label = what) {
+  return `<button type="button" class="${cls}${on ? ' on' : ''}" data-kind="${kind}" data-ref="${esc(ref)}" data-on="${on ? 0 : 1}"
+    title="${on ? `「问」现在查不到${what}（日记页照常显示）。点一下恢复` : `让「问」完全查不到${what}：原文、证据卡、小结、相关的日记和档案都不给它看`}">${on ? `「问」看不到${label} · 恢复` : `「问」不看${label}`}</button>`;
+}
 
 // 两个指标：过得怎么样（手写）、卡得多狠（聊天）。分开放，不合成一个数 —— 它们量的是一天里不同的部分
 function renderSignals(sg) {
@@ -33,12 +45,14 @@ function renderJournal(list, open, q) {
       <span class="dim tnum">${pages.reduce((a, j) => a + j.chars, 0).toLocaleString()} 字</span>
       <span class="sp"></span>${pages.map(j => j.gone_at
         ? `<span class="dim" title="Notion 里这页已经删了；Ephemeris 是备份，这里照样留着">Notion 里已删 · 这里留着</span>`
-        : `<a href="${j.url}" target="_blank" rel="noopener">在 Notion 打开</a>`).join(' · ')}</div>` +
+        : `<a href="${j.url}" target="_blank" rel="noopener">在 Notion 打开</a>`).join(' · ')}
+      ${pages.map(j => hideBtn('j-hide', 'journal', j.page_id, HID.journal.has(j.page_id), pages.length > 1 ? `「${esc(j.title || '这篇')}」` : '这篇')).join('')}</div>` +
     pages.map((j, i) => {
       const long = (j.chars > J_FOLD || imageCount(j.text) > 1) && !open;
       return `<div class="j-body${long ? ' folded' : ''}" data-i="${i}">${markHits(journalHtml(j.text), q)}</div>` +
              (long ? `<a class="j-more" data-i="${i}">展开全文</a>` : '');
     }).join('');
+  box.querySelectorAll('.j-hide').forEach(b => b.onclick = () => setHidden(b.dataset.kind, b.dataset.ref, b.dataset.on === '1'));
   box.querySelectorAll('.j-more').forEach(a => a.onclick = () => {
     box.querySelector(`.j-body[data-i="${a.dataset.i}"]`).classList.remove('folded'); a.remove();
   });
@@ -176,17 +190,20 @@ function renderThreads(threads, focus) {
         <span class="thread-time">${t.first}</span>
         <span class="src ${t.source}"></span>
         <span class="thread-title">${esc(t.title)}</span>
-        <span class="thread-right">${t.multi_day ? `<button type="button" class="thread-span" data-conv="${t.conv_id}" title="这个窗口横跨了 ${t.span_from} → ${t.span_to}，点开看是哪几天">跨 ${spanDays(t.span_from, t.span_to)} 天</button>` : ''}<span class="thread-count">${t.n_msgs} 条 · ${(t.chars || 0).toLocaleString()} 字</span></span>
+        <span class="thread-right">${HID.convs.has(t.conv_id) ? '<span class="thread-hid" title="「问」查不到这个窗口">问看不到</span>' : ''}${t.multi_day ? `<button type="button" class="thread-span" data-conv="${t.conv_id}" title="这个窗口横跨了 ${t.span_from} → ${t.span_to}，点开看是哪几天">跨 ${spanDays(t.span_from, t.span_to)} 天</button>` : ''}<span class="thread-count">${t.n_msgs} 条 · ${(t.chars || 0).toLocaleString()} 字</span></span>
       </div>
       <div class="thread-body ${open ? '' : 'hidden'}" id="tb${i}">
         <div class="thread-bar"><label><input type="checkbox" class="thread-aitog"> 显示 AI 回复</label>
           ${t.multi_day ? `<a class="thread-link" href="#/win/${t.conv_id}" title="这个窗口每天聊了什么（按窗口看）">按窗口看全程 →</a>` : ''}
+          ${hideBtn('thread-hide', 'conv', t.conv_id, HID.convs.has(t.conv_id), '这个窗口', '')}
           <a class="thread-link" href="/api/conversation/${t.conv_id}/export.md" download title="整个窗口（所有天、我和 AI 的）存成一个 Markdown 文件">导出整个窗口 .md</a></div>
         ${t.messages.map(m => msgHtml(m, focus?.msg, focus?.q)).join('')}
       </div></div>`;
   }).join('');
 
   $('#threads').onclick = e => {
+    const hb = e.target.closest('.thread-hide');
+    if (hb) { setHidden(hb.dataset.kind, hb.dataset.ref, hb.dataset.on === '1'); return; }
     const sp = e.target.closest('.thread-span');
     if (sp) { e.stopPropagation(); showSpan(sp.dataset.conv, sp); return; }
     const more = e.target.closest('.msg-more');
@@ -268,6 +285,10 @@ export async function openDay(date, focus) {
     : jChars ? `这天没有 AI 聊天，只有手写日记 · ${jChars.toLocaleString()} 字`
     : '这天还没有 AI 聊天和手写日记' + ((r.signals?.checkins || []).length ? `，只有 ${r.signals.checkins.length} 条打卡` : '');
 
+  const hid = r.hidden || {};
+  HID = { day: !!hid.day, convs: new Set(hid.convs || []), journal: new Set(hid.journal || []) };
+  $('#dayMeta').insertAdjacentHTML('beforeend', ' ' + hideBtn('day-hide', 'day', date, HID.day, '这天'));
+  $('#dayMeta').querySelector('.day-hide').onclick = e => setHidden('day', date, e.currentTarget.dataset.on === '1');
   renderSignals(r.signals || {});
   renderJournal(r.journal || [], focus && focus.journal, focus && focus.q);
   renderDiary(r);

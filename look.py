@@ -33,6 +33,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import hidden  # noqa: E402
 import localfiles  # noqa: E402
 import memory  # noqa: E402
 import qa      # noqa: E402
@@ -306,17 +307,15 @@ _SKIP = ('fts', 'dup', 'backup', 'sync', 'sqlite_', 'cc_files', 'imports', 'lab'
 
 
 def schema(a):
-    for t in [r['name'] for r in store.q("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]:
+    """只列「问」读得到的表（hidden.VIEWS，屏蔽的行已经滤掉）。"""
+    for t in sorted(hidden.VIEWS):
         if any(x in t for x in _SKIP):
             continue
-        cols = ', '.join(r['name'] for r in store.q(f"SELECT name FROM pragma_table_info('{t}')"))
+        cols = ', '.join(r['name'] for r in store.q(f"SELECT name FROM pragma_table_info('{t}', 'main')"))
+        if not cols:
+            continue
         n = store.one(f'SELECT COUNT(*) n FROM "{t}"')['n']
         print(f"{t}（{n} 行）：{cols}" + (f"\n    {_NOTES[t]}" if t in _NOTES else ''))
-
-
-def _readonly_auth(action, *_):
-    ok = (sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION, getattr(sqlite3, 'SQLITE_RECURSIVE', 33))
-    return sqlite3.SQLITE_OK if action in ok else sqlite3.SQLITE_DENY
 
 
 def sql(a):
@@ -324,8 +323,9 @@ def sql(a):
     cap = max(1, min(a.n, 500))
     db = sqlite3.connect(f'file:{store.DB_PATH}?mode=ro', uri=True)
     try:
+        hidden.shield(db)                                 # 屏蔽的日子 / 窗口 / 手写日记：读不到（主库的表只能经这些视图读）
         db.execute('PRAGMA query_only = ON')
-        db.set_authorizer(_readonly_auth)
+        db.set_authorizer(hidden.authorize)
         deadline = time.time() + 60
         db.set_progress_handler(lambda: 1 if time.time() > deadline else 0, 10000)
         try:
@@ -333,8 +333,8 @@ def sql(a):
             rows = cur.fetchmany(cap + 1)
         except (sqlite3.DatabaseError, sqlite3.Warning, sqlite3.ProgrammingError) as e:
             msg = str(e)
-            if 'not authorized' in msg or 'one statement' in msg or 'readonly' in msg.lower():
-                print(f'只能查（一条 SELECT / WITH），不能改库：{msg}')
+            if any(x in msg.lower() for x in ('not authorized', 'prohibited', 'one statement', 'readonly', 'cannot modify')):
+                print(f'只能查（一条 SELECT / WITH），不能改库，也只能读 schema 列出的表：{msg}')
             elif 'interrupted' in msg:
                 print('查了 60 秒没查完，换个更省的写法（少用 LIKE 扫全文、先按日期 / 窗口缩小范围）')
             else:
@@ -478,8 +478,16 @@ def main(argv=None):
     p.add_argument('--glob'); p.add_argument('--in', dest='into')
     p.add_argument('--from', dest='start', type=int, default=1); p.add_argument('--lines', type=int, default=200)
     a = p.parse_args(argv)
-    {'msgs': msgs, 'cards': cards_, 'read': read, 'conv': conv, 'convs': convs, 'day': day, 'stats': stats, 'sum': sum_, 'sql': sql, 'schema': schema,
-     'journal': journal_, 'diaries': diaries_, 'files': files_, 'grep': grep_, 'file': file_, 'moye': moye_, 'skill': skill_, 'memory': memory_}[a.cmd](a)
+    db = store.connect()
+    with store.LOCK:
+        hidden.shield(db)                                 # 这条命令里所有查询都只看得到没屏蔽的（hidden.py）
+    try:
+        {'msgs': msgs, 'cards': cards_, 'read': read, 'conv': conv, 'convs': convs, 'day': day, 'stats': stats, 'sum': sum_, 'sql': sql,
+         'schema': schema, 'journal': journal_, 'diaries': diaries_, 'files': files_, 'grep': grep_, 'file': file_, 'moye': moye_,
+         'skill': skill_, 'memory': memory_}[a.cmd](a)
+    finally:
+        with store.LOCK:
+            hidden.unshield(db)
 
 
 if __name__ == '__main__':

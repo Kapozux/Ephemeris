@@ -1,0 +1,24 @@
+{
+  "task": "idea-origin-demo",
+  "note": "Demo labeling task on the 5 fictional participants. Same windows and same question as the chat_ai_first_idea_ratio measure, so humans and the model judge the same thing.",
+  "study": "study.demo.json",
+  "unit": "window",
+  "max_chars": 600,
+  "seed": 20261029,
+  "rounds": [6, 14],
+  "annotators": ["A1", "A2"],
+  "codebook": {
+    "version": "v1",
+    "intro": "Each item is one chat window between a participant and an AI assistant, shown as the model saw it (each message cut at 600 characters). Judge only what is on the page. Work alone: do not discuss items until the round is closed.",
+    "questions": [
+      {
+        "key": "idea",
+        "text": "Does the window contain a decision or plan that the participant ends up going with? If yes, who first proposed that option?",
+        "help": "Count the AI as the proposer if it suggested the option first and the participant then agreed, even if the participant later restates it. Talking a topic through without settling on anything is \"No decision\".",
+        "options": [["user", "The participant"], ["ai", "The AI"], ["none", "No decision"], ["unsure", "Can't tell"]],
+        "abstain": ["unsure"],
+        "model": "chat_ai_first_idea_ratio:idea_from"
+      }
+    ]
+  }
+}

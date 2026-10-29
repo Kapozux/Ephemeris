@@ -226,3 +226,98 @@ class Coverage(unittest.TestCase):
         rows = {r['platform']: r for r in coverage.long_rows('P1', p)}
         self.assertEqual(rows['claude']['models'], 'claude-opus-5-5:1')
         self.assertEqual(rows['gemini']['replies_model_known'], 0)
+
+
+class Label(unittest.TestCase):
+    """多人盲标（10-29）：标注页拿不到模型的判断和别人的答案；分歧要大家标完才开；先报人和人，再报模型和人。"""
+
+    def setUp(self):
+        import sqlite3
+        import tempfile
+        from research import consent, label, participant
+        self.label, self.consent = label, consent
+        self.dir = tempfile.mkdtemp(prefix='ephemeris-label-')
+        self.old = research.DATA, consent.DATA, participant.DATA, participant.db_path
+        research.DATA = consent.DATA = participant.DATA = self.dir
+        participant.db_path = lambda pid: os.path.join(self.dir, f'{pid}.db')
+        db = sqlite3.connect(os.path.join(self.dir, 'P01.db'))
+        db.execute('CREATE TABLE messages (id, conv_id, source, ts, role, text)')
+        rows = []
+        for c in range(6):
+            rows += [(f'c{c}h', f'c{c}', 'claude', f'2026-03-0{c + 2}T10:00:00+00:00', 'human', f'question {c}'),
+                     (f'c{c}a', f'c{c}', 'claude', f'2026-03-0{c + 2}T10:01:00+00:00', 'assistant', f'answer {c}')]
+        db.executemany('INSERT INTO messages VALUES (?,?,?,?,?,?)', rows)
+        db.commit()
+        db.close()
+        with open(os.path.join(self.dir, 'cesd.csv'), 'w') as f:
+            f.write('pid,survey_number,survey_date,cesd_score\nP01,0,2026-03-01,10\nP01,1,2026-03-15,12\n')
+        with open(os.path.join(self.dir, 'P01.judge.json'), 'w') as f:
+            json.dump({f'c{c}': {'version': 'v1', 'idea_from': 'ai', 'verified': True} for c in range(6)}, f)
+        study = {'study': 's', 'privacy': 'A', 'participants': ['P01'], 'models': ['deepseek:x'], 'measures': []}
+        json.dump(study, open(os.path.join(self.dir, 'study.json'), 'w'))
+        self.t = {'task': 't', 'study': os.path.join(self.dir, 'study.json'), 'unit': 'window', 'seed': 1,
+                  'rounds': [2, 2], 'annotators': ['A1', 'A2'],
+                  'codebook': {'version': 'v1', 'questions': [
+                      {'key': 'idea', 'text': 'who?', 'options': [['user', 'P'], ['ai', 'AI'], ['none', 'No'], ['unsure', '?']],
+                       'abstain': ['unsure'], 'model': 'chat_ai_first_idea_ratio:idea_from'}]}}
+        self.path = os.path.join(self.dir, 'task.json')
+        json.dump(self.t, open(self.path, 'w'))
+
+    def tearDown(self):
+        from research import consent, participant
+        research.DATA, consent.DATA, participant.DATA, participant.db_path = self.old
+
+    def test_blind_and_human_human_first(self):
+        L = self.label
+        self.consent.hide('P01', 'c0h')                         # 参与者删掉的原话不进题目
+        items = L.make(self.path)
+        self.assertEqual(len(items), 4)
+        self.assertNotIn('c0', {it['conv'] for it in items})
+        st = L.state(self.t, items, 'A1')
+        page = json.dumps(st)
+        self.assertNotIn('model', json.dumps(st['codebook']))
+        for it in items:                                        # 页面上没有参与者编号、窗口 id、模型的判断
+            self.assertNotIn(it['conv'], page)
+            self.assertNotIn('P01', page)
+        self.assertNotIn('"ai"', json.dumps(st['next']))
+        r1 = L.round_items(self.t, items, 1)
+        for n, it in enumerate(r1):
+            L.save_label(self.t, items, 'A1', it['id'], {'idea': 'ai'}, 1000)
+        self.assertIsNone(L.disagreements(self.t, items, 1))     # A2 还没标完：不开讨论
+        with self.assertRaises(ValueError):
+            L.save_label(self.t, items, 'A2', L.round_items(self.t, items, 2)[0]['id'], {'idea': 'ai'}, 1)  # 不在这一轮
+        with self.assertRaises(ValueError):
+            L.save_label(self.t, items, 'A2', r1[0]['id'], {'idea': 'maybe'}, 1)
+        L.save_label(self.t, items, 'A2', r1[0]['id'], {'idea': 'ai'}, 3000)
+        L.save_label(self.t, items, 'A2', r1[1]['id'], {'idea': 'user'}, 5000)
+        dis = L.disagreements(self.t, items, 1)
+        self.assertEqual([d['answers'] for d in dis], [{'A1': 'ai', 'A2': 'user'}])
+        self.assertNotIn('P01', json.dumps(dis))
+        L.agree_on(self.t, r1[1]['id'], 'idea', 'ai')
+        s = L.score(self.path)['rounds'][0]
+        q = s['questions']['idea']
+        self.assertEqual(list(q)[:2], ['human_human', 'model_vs_human'])
+        self.assertEqual(q['human_human']['pairs']['A1~A2']['agree'], 0.5)
+        self.assertEqual(q['model_vs_human']['vs_gold']['n'], 2)       # 1 题两人对上 + 1 题讨论定的
+        self.assertEqual(q['model_vs_human']['gold_from'], {'discussed': 1, 'unanimous': 1})
+        self.assertEqual(s['time']['A2']['median_s'], 4.0)
+
+    def test_page_api_is_blind(self):
+        items = self.label.make(self.path)
+        c = self.label.create_app(self.path).test_client()
+        self.assertEqual(c.get('/api/state?a=nobody').status_code, 400)
+        st = c.get('/api/state?a=A1').get_json()
+        self.assertNotIn('chat_ai_first_idea_ratio', json.dumps(st))
+        self.assertEqual(c.get('/api/discuss?a=A1').status_code, 409)
+        bad = c.post('/api/label', json={'a': 'A1', 'id': st['next']['id'], 'answers': {}})
+        self.assertEqual(bad.status_code, 400)
+        for it in self.label.round_items(self.t, items, 1):
+            for a in ('A1', 'A2'):
+                c.post('/api/label', json={'a': a, 'id': it['id'], 'answers': {'idea': 'none'}, 'ms': 10})
+        self.assertEqual(c.get('/api/discuss?a=A1').get_json()['items'], [])
+
+    def test_privacy_b_cannot_be_labelled(self):
+        study = json.load(open(self.t['study']))
+        json.dump(dict(study, privacy='B'), open(self.t['study'], 'w'))
+        with self.assertRaises(SystemExit):
+            self.label.make(self.path)

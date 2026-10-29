@@ -28,6 +28,8 @@
 | `export.py` | 对齐、导出 `data_clean.csv` / `chat_features.csv` / `evidence.json` / `evidence.csv` / `manifest.json` |
 | `selfcheck.py` | 找回埋的故事线、对照组误报、「想法谁先提」的一致率、盲评、逐字核对三个数、按平台 / 语言分开报 |
 | `stability.py` | 「想法谁先提」同一提示再判几遍，算 Krippendorff α |
+| `label.py` + `label.html` | 多人盲标：编码手册、分轮、分歧讨论、先人和人再模型和人 |
+| `agree.py` | 一致率（κ、AC1、Krippendorff α），全研究版只此一份 |
 | `report.py` + `report_template.html` | 演示页 |
 
 只许引用 `research.CORE` 里的 Ephemeris 模块（`tests/test_research.py` 查）。「打的还是贴的、主动还是复述」用根目录的 `speech.py`。
@@ -49,6 +51,13 @@
   那是数据变了不是人变了；缺的是缺，不是 0。模型来自 Ephemeris 的 `msg_models`：Claude Code / Codex 每条有，claude.ai 同步按窗口
   （10-29 起），ChatGPT 每条有；Gemini、Cursor、claude.ai 官方导出不记，报「不知道」。参与者在提交前审阅页自报还用过哪些没导进来的
   账号 / App，进 manifest。
+- **多人盲标**（10-29，`research/label.py` + `label.html`，任务文件例 `label.demo.json`）：研究者在任务文件里写编码手册
+  （问法、说明、选项、哪个算弃权、跟哪个指标的模型判断比），`make` 按固定种子抽题，`serve` 开 127.0.0.1:5067，
+  每个标注员 `/?a=名字` 各标各的、顺序各不相同，看不到模型的判断和别人的答案，每题记前台停留的毫秒数。
+  分轮：一轮大家都标完才开分歧讨论（并排看各人答案、定下金标准，仍不给模型的），改编码手册（改 version）后 `next` 开下一轮；
+  一轮中途改手册 `serve` 不开。`score` 先报人和人（两两 κ / AC1、Krippendorff α、按平台），再报模型和每个人、和金标准
+  （讨论定的 + 全员一致的）；没有人和人的数时模型那行标「先别看」。做法 B 的研究不许拿去标；参与者删掉的原话、拿掉的窗口不进题目。
+  一致率只在 `research/agree.py`（annotate、stability 也用它）。
 - **说话人只看导出文件的结构**（role 字段），不交给模型；贴进来的内容按 `speech.typed` 判掉，只当上下文。
 - **ChatGPT / DeepSeek 导出是分支树**：取最后显示的那一支（ChatGPT 从 current_node 往上，DeepSeek 每层取最后一个孩子），写在 manifest 里。
 - **逐字核对报三个数**：模型给的原话对不上被丢掉的比例；丢掉的里模糊匹配找得到原文的（改了措辞，不是编的）；
@@ -92,7 +101,7 @@
 
 ## 还没做
 
-定性编码 / 多人标注、参与者端（做法 B）的安装程序、第三方信息打码、研究方案里 `sources` 以外的过滤、真实数据的导入路径
+定性编码、参与者端（做法 B）的安装程序、第三方信息打码、研究方案里 `sources` 以外的过滤、真实数据的导入路径
 （核心模块有，研究版还没接）。
-验证上还差（调研里研究者要的）：人工金标准和人与人一致性（AC1 / F1）——要人来标；换几种措辞再跑的稳定性；
+验证上还差（调研里研究者要的）：人工金标准和人与人一致性——工具有了（`label.py`），还没人标；换几种措辞再跑的稳定性；
 按会话汇总「命中」类指标时按会话长度校正（现在还没有这类指标）。

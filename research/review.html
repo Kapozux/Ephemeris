@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review Before Sharing</title>
+<style>
+  :root { --bg:#f6f5f2; --card:#fff; --ink:#1e1e1c; --mute:#6f6b63; --line:#e2dfd8; --acc:#2f5fb3; --on:#fff;
+          --you:#eef3fb; --ai:#f4f2ec; --warn:#a4561b; --ok:#2e7d4f; --off:#b9b4aa; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#17171a; --card:#212125; --ink:#e8e6e1; --mute:#9a968e; --line:#34343a; --acc:#7ea6ec; --on:#111;
+            --you:#1f2a3b; --ai:#26262b; --warn:#e0a060; --ok:#6cc08b; --off:#55524c; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 -apple-system, "Segoe UI", sans-serif; }
+  .rv-main { max-width:880px; margin:0 auto; padding:20px 16px 80px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  h2 { font-size:16px; margin:28px 0 8px; }
+  .rv-sub { color:var(--mute); margin:0 0 16px; }
+  .rv-card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .rv-note { font-size:14px; color:var(--mute); margin:6px 0 10px; }
+  .rv-pill { display:inline-block; font-size:12px; padding:1px 8px; border-radius:10px; border:1px solid var(--line); color:var(--mute); }
+  .rv-scroll { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:13px; font-variant-numeric:tabular-nums; }
+  th, td { text-align:right; padding:5px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align:left; }
+  th { color:var(--mute); font-weight:500; }
+  .rv-win, .rv-q { display:flex; gap:10px; align-items:flex-start; padding:8px 0; border-bottom:1px solid var(--line); }
+  .rv-win > div, .rv-q > div { flex:1; min-width:0; }
+  .rv-win.is-off .rv-title, .rv-win.is-off .rv-meta { color:var(--off); text-decoration:line-through; }
+  .rv-meta { font-size:12px; color:var(--mute); }
+  .rv-text { white-space:pre-wrap; overflow-wrap:anywhere; border-radius:8px; padding:6px 10px; margin-top:4px; background:var(--ai); }
+  .rv-text.is-human { background:var(--you); }
+  .rv-btn { font:inherit; font-size:13px; padding:4px 12px; border:1px solid var(--line); border-radius:7px; background:var(--card);
+            color:var(--ink); cursor:pointer; flex:none; }
+  .rv-btn.is-main { background:var(--acc); color:var(--on); border-color:var(--acc); font-size:15px; padding:8px 20px; }
+  .rv-btn.is-warn { color:var(--warn); }
+  .rv-bar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:28px; }
+  .rv-done { color:var(--ok); }
+  .rv-busy { opacity:.5; pointer-events:none; }
+</style>
+</head>
+<body>
+<div class="rv-main" id="app">Loading…</div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt = v => v === null || v === undefined ? '—' : typeof v === 'number' ? (Number.isInteger(v) ? v : v.toFixed(3)) : esc(v);
+let d, confirmWithdraw = false;
+
+async function post(url, body) {
+  $('#app').classList.add('rv-busy');
+  await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body || {})});
+  await load();
+}
+function render() {
+  const A = d.privacy === 'A';
+  if (d.withdrawn) {
+    $('#app').innerHTML = `<h1>You have withdrawn</h1><p class="rv-sub">Participant ${esc(d.pid)} · ${esc(d.study)}</p>
+      <div class="rv-card">Nothing will be shared from this computer. Any package made earlier was deleted on ${esc(d.withdrawn)}.
+      Your chats stay on your computer as they were.</div>`;
+    return;
+  }
+  const on = d.windows.filter(w => !w.excluded).length;
+  let h = `<h1>Review before sharing</h1>
+    <p class="rv-sub">Participant ${esc(d.pid)} · study ${esc(d.study)} · nothing leaves this computer until you confirm below.</p>
+    <div class="rv-card">
+      <b>What the researchers will receive</b>
+      <div class="rv-note">${A
+        ? 'The numbers below <b>and</b> the quoted messages in section 2 (this study uses option A: researchers see the quotes that back each number).'
+        : 'Only the numbers below (this study uses option B: your messages never leave this computer).'}
+      They will also see <b>how many</b> windows or quotes you removed, but never which ones or what they said.</div>
+      <div class="rv-note">To compute some numbers, parts of your chats were sent to: ${d.models.map(m => `<span class="rv-pill">${esc(m)}</span>`).join(' ') || 'no model'}.</div>
+    </div>
+    <h2>1. Numbers per survey period</h2>
+    <div class="rv-card rv-scroll"><table><tr><th>period</th><th>survey date</th><th>active days</th>${d.measures.map(m => `<th>${esc(m.replace('chat_', ''))}</th>`).join('')}</tr>` +
+    d.rows.map(r => `<tr><td>${r.period_number}</td><td>${esc((r.survey_date || '').slice(0, 10))}</td><td>${fmt(r.active_days)}</td>${d.measures.map(m => `<td>${fmt(r[m])}</td>`).join('')}</tr>`).join('') +
+    `</table></div>`;
+  if (A) {
+    h += `<h2>2. Quotes the researchers will see (${d.quotes.length})</h2>
+      <div class="rv-note">Remove any quote you do not want to share. The numbers stay the same; only the quote is withheld.
+      ${d.hidden ? `${d.hidden} removed so far. <button class="rv-btn" data-unhide>Put them all back</button>` : ''}</div><div class="rv-card">` +
+      (d.quotes.map(q => `<div class="rv-q"><div><div class="rv-meta">period ${q.period} · ${esc(q.measure.replace('chat_', ''))} · ${esc(q.at)} · ${esc(q.why)}</div>
+        <div class="rv-text ${q.role === 'human' ? 'is-human' : ''}">${esc(q.text)}</div></div>
+        <button class="rv-btn" data-hide="${esc(q.msg)}">Remove</button></div>`).join('') || '<div class="rv-note">No quotes.</div>') + `</div>`;
+  }
+  h += `<h2>${A ? 3 : 2}. Your chat windows (${on} of ${d.windows.length} included)</h2>
+    <div class="rv-note">Leave out a whole window and it is removed from <b>every</b> number above, not just hidden.</div><div class="rv-card">` +
+    d.windows.map(w => `<div class="rv-win ${w.excluded ? 'is-off' : ''}"><div><div class="rv-title">${esc(w.title || 'Untitled')}</div>
+      <div class="rv-meta">${esc(w.source)} · ${esc(w.first)}${w.last !== w.first ? ' – ' + esc(w.last) : ''} · ${w.n} messages</div></div>
+      <button class="rv-btn" data-win="${esc(w.id)}" data-on="${w.excluded ? 0 : 1}">${w.excluded ? 'Include again' : 'Leave out'}</button></div>`).join('') + `</div>`;
+  h += `<div class="rv-bar">
+      <button class="rv-btn is-main" data-submit>${d.submitted ? 'Make the package again' : 'Confirm and make the package'}</button>
+      ${confirmWithdraw ? `<span>Withdraw from the study? Nothing will be shared.</span><button class="rv-btn is-warn" data-withdraw>Yes, withdraw</button><button class="rv-btn" data-cancel>Cancel</button>`
+                        : `<button class="rv-btn is-warn" data-ask-withdraw>Withdraw from the study</button>`}
+    </div>` +
+    (d.submitted ? `<p class="rv-done">Package ready (${esc(d.submitted.made_at)}): ${esc(d.folder)}<br>
+      <span class="rv-note">Hand this folder to the research team. If you change anything above, confirm again.</span></p>`
+                 : `<p class="rv-note">Not confirmed yet.</p>`);
+  $('#app').innerHTML = h;
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.win) post('/api/decide', {what:'window', id:b.dataset.win, on: b.dataset.on === '1'});
+  else if (b.dataset.hide) post('/api/decide', {what:'quote', id:b.dataset.hide, on:true});
+  else if ('unhide' in b.dataset) post('/api/decide', {what:'unhide_all'});
+  else if ('submit' in b.dataset) post('/api/submit');
+  else if ('askWithdraw' in b.dataset) { confirmWithdraw = true; render(); }
+  else if ('cancel' in b.dataset) { confirmWithdraw = false; render(); }
+  else if ('withdraw' in b.dataset) { confirmWithdraw = false; post('/api/withdraw'); }
+});
+async function load() {
+  d = await (await fetch('/api/review')).json();
+  $('#app').classList.remove('rv-busy');
+  render();
+}
+load();
+</script>
+</body>
+</html>

@@ -39,6 +39,11 @@
   OpenRouter / Gemini 之间自动换，研究里这等于违反写给 IRB 的数据流，所以研究版不许用（`tests/test_research.py` 会扫）。
   每次尝试记进 `data/flow.jsonl`（不记内容），导出时汇总成 manifest 的 `data_flow`：数据经过哪些厂商、多少字、多少参与者。
   没写 models 的方案不调模型；`local:` 留给本机模型，还没接。
+- **参与者先看再交**（10-29，`research/submit.py`，`research/consent.py`）：`python -m research.submit P01` 在参与者电脑上开
+  127.0.0.1:5066，原样摆出要交出去的东西（每期的数；做法 A 还有原话证据）。能拿掉整个窗口（从所有指标里拿掉，不只是不给看）、
+  删掉单条原话、退出（已生成的包删掉，全体导出跳过他）；确认后才在 `data/submit/<pid>/` 生成提交包和回执（各文件 sha256）。
+  决定只存在参与者这边（`data/<pid>.consent.json`），研究者从 manifest 的 `participant_review` 只看得到计数。
+  改了决定，之前的确认作废。交出去这一步（上传 / 邮件）不在这里。
 - **说话人只看导出文件的结构**（role 字段），不交给模型；贴进来的内容按 `speech.typed` 判掉，只当上下文。
 - **ChatGPT / DeepSeek 导出是分支树**：取最后显示的那一支（ChatGPT 从 current_node 往上，DeepSeek 每层取最后一个孩子），写在 manifest 里。
 - **逐字核对报三个数**：模型给的原话对不上被丢掉的比例；丢掉的里模糊匹配找得到原文的（改了措辞，不是编的）；

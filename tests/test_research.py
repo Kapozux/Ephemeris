@@ -1,6 +1,7 @@
 """研究版（research/）：只许引用 research.CORE 里的 Ephemeris 模块；共用的 speech 判断对；指标算得对。"""
 import _env  # noqa: F401
 import ast
+import json
 import os
 import unittest
 
@@ -158,3 +159,50 @@ class Route(unittest.TestCase):
                         if f'llm.{name}(' in src:
                             bad.append(f'{f}: llm.{name}')
         self.assertEqual(bad, [])
+
+
+class Consent(unittest.TestCase):
+    """参与者先看再交（10-29）：拿掉的窗口不进任何指标；删掉的证据不交；退出了整个人不导出；给研究者的只有计数。"""
+
+    def setUp(self):
+        import sqlite3
+        import tempfile
+        from research import consent, participant
+        self.consent, self.participant = consent, participant
+        self.dir = tempfile.mkdtemp(prefix='ephemeris-consent-')
+        self.old = consent.DATA, participant.DATA, participant.db_path
+        consent.DATA = participant.DATA = self.dir
+        participant.db_path = lambda pid: os.path.join(self.dir, f'{pid}.db')
+        db = sqlite3.connect(os.path.join(self.dir, 'P9.db'))
+        db.execute('CREATE TABLE messages (id, conv_id, source, ts, role, text)')
+        db.executemany('INSERT INTO messages VALUES (?,?,?,?,?,?)', [
+            ('m1', 'keep', 'claude', '2026-03-03T10:00:00+00:00', 'human', 'hi'),
+            ('m2', 'drop', 'claude', '2026-03-04T10:00:00+00:00', 'human', 'secret')])
+        db.commit()
+        db.close()
+        with open(os.path.join(self.dir, 'cesd.csv'), 'w') as f:
+            f.write('pid,survey_number,survey_date,cesd_score\nP9,0,2026-03-01,10\nP9,1,2026-03-15,12\n')
+
+    def tearDown(self):
+        self.consent.DATA, self.participant.DATA, self.participant.db_path = self.old
+
+    def test_excluded_window_leaves_every_measure(self):
+        self.consent.exclude('P9', 'drop')
+        person = self.participant.load('P9', 'UTC')
+        self.assertEqual(list(person.convs), ['keep'])
+        self.assertEqual([m.id for m in person.periods[0].msgs], ['m1'])
+        self.consent.exclude('P9', 'drop', on=False)
+        self.assertEqual(len(self.participant.load('P9', 'UTC').periods[0].msgs), 2)
+
+    def test_changing_a_decision_needs_confirming_again(self):
+        self.consent.submitted('P9', {'made_at': 'x'})
+        self.consent.hide('P9', 'm1')
+        self.assertIsNone(self.consent.get('P9')['submitted'])
+
+    def test_researchers_get_counts_only(self):
+        self.consent.exclude('P9', 'drop')
+        self.consent.hide('P9', 'm1')
+        self.consent.withdraw('P9')
+        c = self.consent.counts('P9')
+        self.assertEqual(c, {'excluded_windows': 1, 'hidden_evidence': 1, 'withdrawn': True})
+        self.assertNotIn('drop', json.dumps(c))

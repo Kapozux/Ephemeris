@@ -11,7 +11,7 @@ from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import speech
-from research import DATA, db_path
+from research import DATA, consent, db_path
 
 
 @dataclass
@@ -70,6 +70,8 @@ def load(pid, tz, sources=None):
     msgs = [Msg(i, c, s, datetime.fromisoformat(ts).astimezone(zone), r, t, speech.typed(t))
             for i, c, s, ts, r, t in db.execute(sql + ' ORDER BY ts, rowid', args)]
     db.close()
+    skip = set(consent.get(pid)['excluded_convs'])          # 参与者说不交的窗口：从所有指标里拿掉
+    msgs = [m for m in msgs if m.conv not in skip]
     convs = {}
     for m in msgs:
         convs.setdefault(m.conv, []).append(m)

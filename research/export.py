@@ -23,7 +23,7 @@ import sys
 from datetime import datetime, timezone
 
 import research
-from research import measures, participant, route
+from research import consent, measures, participant, route
 from research import personas as P
 
 OUT = os.path.join(research.DATA, 'out')
@@ -37,9 +37,14 @@ def tz_of(pid):
     return P.by_pid(pid)['tz']
 
 
-def build(study):
+def build(study, pids=None):
+    """pids 默认是研究方案里所有人；退出了的人跳过。删掉的证据不进 evidence（指标照算）。"""
     rows, evidence = [], {}
-    for pid in study['participants']:
+    for pid in pids or study['participants']:
+        mine = consent.get(pid)
+        if mine['withdrawn']:
+            continue
+        hidden = set(mine['hidden_evidence'])
         person = participant.load(pid, tz_of(pid), study.get('sources'))
         results = measures.run(person, study)
         msgs = {m.id: m for ms in person.convs.values() for m in ms}
@@ -54,7 +59,7 @@ def build(study):
             for name, by_period in results.items():
                 value, ev = by_period.get(p.number, (None, []))
                 row[name] = value
-                evidence[pid][p.number][name] = [_quote(e, msgs) for e in ev]
+                evidence[pid][p.number][name] = [_quote(e, msgs) for e in ev if e.get('msg') not in hidden]
             rows.append(row)
     return rows, evidence
 
@@ -107,26 +112,27 @@ def _git():
         return ''
 
 
-def write(study, study_path, rows, evidence):
-    os.makedirs(OUT, exist_ok=True)
+def write(study, study_path, rows, evidence, out=OUT, pids=None):
+    """out：写到哪（参与者的提交包写到 data/submit/<pid>/）；pids：manifest 里报哪些人的审阅计数，默认全体。"""
+    os.makedirs(out, exist_ok=True)
     cols = BASE + study['measures']
-    with open(os.path.join(OUT, 'data_clean.csv'), 'w', newline='') as f:
+    with open(os.path.join(out, 'data_clean.csv'), 'w', newline='') as f:
         w = csv.DictWriter(f, cols)
         w.writeheader()
         for r in rows:
             w.writerow({c: _cell(r[c]) for c in cols})
     keys = ['pid', 'period_number', 'survey_date', 'tz']
     merge = keys + ['chat_active_days', 'chat_active_day_ratio'] + study['measures']
-    with open(os.path.join(OUT, 'chat_features.csv'), 'w', newline='') as f:
+    with open(os.path.join(out, 'chat_features.csv'), 'w', newline='') as f:
         w = csv.DictWriter(f, merge)
         w.writeheader()
         for r in rows:
             r = dict(r, chat_active_days=r['active_days'], chat_active_day_ratio=r['active_day_ratio'])
             w.writerow({c: _cell(r[c]) for c in merge})
     if study.get('privacy') == 'A':
-        with open(os.path.join(OUT, 'evidence.json'), 'w', encoding='utf-8') as f:
+        with open(os.path.join(out, 'evidence.json'), 'w', encoding='utf-8') as f:
             json.dump(evidence, f, ensure_ascii=False, indent=1)
-        with open(os.path.join(OUT, 'evidence.csv'), 'w', newline='', encoding='utf-8') as f:
+        with open(os.path.join(out, 'evidence.csv'), 'w', newline='', encoding='utf-8') as f:
             w = csv.DictWriter(f, EVIDENCE_COLS)
             w.writeheader()
             w.writerows(_evidence_rows(evidence, _gold()))
@@ -134,7 +140,7 @@ def write(study, study_path, rows, evidence):
     manifest = {
         'study': study['study'], 'study_sha256': hashlib.sha256(raw).hexdigest(), 'study_file': study,
         'code_version': _git(), 'generated_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
-        'rows': len(rows), 'participants': len(study['participants']),
+        'rows': len(rows), 'participants': len(pids or study['participants']),
         'measures': {n: {'kind': measures.get(n).KIND, 'description': measures.get(n).DESCRIPTION}
                      for n in study['measures']},
         'period_definition': 'Period t runs from survey t-1 (inclusive) to survey t (exclusive). Dates are participant '
@@ -152,8 +158,12 @@ def write(study, study_path, rows, evidence):
                              'automatic switching to other vendors. Every attempt is logged (no content).',
                    'chat_ai_first_idea_ratio': 'prompt in research/measures/chat_ai_first_idea_ratio.py (VERSION)'},
         'data_flow': route.flow(study['study']),
+        'participant_review': {'note': 'Each participant reviewed the package before it left their computer and could '
+                                       'drop whole chat windows (removed from every measure), hide single evidence '
+                                       'quotes, or withdraw. Only counts are reported here, never what was removed.',
+                               'by_participant': {pid: consent.counts(pid) for pid in pids or study['participants']}},
     }
-    with open(os.path.join(OUT, 'manifest.json'), 'w', encoding='utf-8') as f:
+    with open(os.path.join(out, 'manifest.json'), 'w', encoding='utf-8') as f:
         json.dump(manifest, f, ensure_ascii=False, indent=1)
     return manifest
 

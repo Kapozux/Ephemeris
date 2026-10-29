@@ -9,35 +9,15 @@ import json
 import os
 import sys
 from collections import Counter
-from itertools import permutations
 
 import research
 from research import participant
+from research.agree import alpha
 from research.export import OUT, tz_of
 from research.measures import chat_ai_first_idea_ratio as idea
 
 RUNS = os.path.join(research.DATA, 'judge_runs')
 LABELS = ('user', 'ai', 'none')
-
-
-def alpha(units):
-    """Krippendorff α（名义）。units：每个窗口一组标签（缺的不放），少于 2 个标签的窗口不计。"""
-    pairs = Counter()
-    for labels in units:
-        m = len(labels)
-        if m < 2:
-            continue
-        for a, b in permutations(range(m), 2):
-            pairs[labels[a], labels[b]] += 1 / (m - 1)
-    n = sum(pairs.values())
-    if not n:
-        return None
-    marg = Counter()
-    for (a, _), w in pairs.items():
-        marg[a] += w
-    d_obs = sum(w for (a, b), w in pairs.items() if a != b) / n
-    d_exp = sum(marg[a] * marg[b] for a in marg for b in marg if a != b) / (n * (n - 1))
-    return 1 - d_obs / d_exp if d_exp else 1.0
 
 
 def run(extra=2):

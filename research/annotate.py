@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 
 import research
 import speech
-from research import realval
+from research import agree, realval
 from research.participant import Msg
 
 DIR = os.path.join(realval.REAL, 'annotate')
@@ -260,29 +260,6 @@ def serve():
 
 # ---------- 算数 ----------
 
-def kappa(pairs):
-    """Cohen's κ 和 Gwet's AC1（两个评分者、名义）。pairs：[(a, b)]。"""
-    n = len(pairs)
-    if not n:
-        return None, None, None
-    cats = sorted({x for p in pairs for x in p})
-    po = sum(a == b for a, b in pairs) / n
-    pa = Counter(a for a, _ in pairs)
-    pb = Counter(b for _, b in pairs)
-    pe = sum(pa[c] * pb[c] for c in cats) / n / n
-    k = (po - pe) / (1 - pe) if pe < 1 else 1.0
-    q = len(cats)
-    pi = {c: (pa[c] + pb[c]) / (2 * n) for c in cats}
-    pe_g = sum(p * (1 - p) for p in pi.values()) / (q - 1) if q > 1 else 0
-    ac1 = (po - pe_g) / (1 - pe_g) if pe_g < 1 else 1.0
-    return po, k, ac1
-
-
-def _stat(pairs):
-    po, k, ac1 = kappa(pairs)
-    return {'n': len(pairs), 'agree': po, 'kappa': k, 'ac1': ac1}
-
-
 def score():
     items, labels, got = _load(ITEMS, None), _load(LABELS, {'msg': {}, 'seg': {}, 'retest': {}}), _load(JUDGE, {})
     out = {'seed': SEED}
@@ -306,18 +283,18 @@ def score():
     firm = [c for c in human if human[c] != 'unsure' and c in r1]
     out['idea'] = {'labelled': len(human), 'unsure': sum(v == 'unsure' for v in human.values()),
                    'human_dist': dict(Counter(human.values())), 'model_dist': dict(Counter(r1[c]['idea_from'] for c in r1)),
-                   'model_vs_human': _stat([(human[c], r1[c]['idea_from']) for c in firm]),
-                   'model_vs_human_r2': _stat([(human[c], r2[c]['idea_from']) for c in firm if c in r2]),
-                   'model_r1_vs_r2': _stat([(r1[c]['idea_from'], r2[c]['idea_from']) for c in segs if c in r1 and c in r2]),
+                   'model_vs_human': agree.pair([(human[c], r1[c]['idea_from']) for c in firm]),
+                   'model_vs_human_r2': agree.pair([(human[c], r2[c]['idea_from']) for c in firm if c in r2]),
+                   'model_r1_vs_r2': agree.pair([(r1[c]['idea_from'], r2[c]['idea_from']) for c in segs if c in r1 and c in r2]),
                    'quote_verified': sum(r1[c]['verified'] for c in r1), 'confusion': dict(Counter(
                        f"人={human[c]} 模型={r1[c]['idea_from']}" for c in firm if human[c] != r1[c]['idea_from']))}
     hid = [c for c in firm if labels['seg'][c].get('hidden')]
     out['idea']['hidden_files'] = {'n': len(hid),
-                                   'with': _stat([(human[c], r1[c]['idea_from']) for c in hid]),
-                                   'without': _stat([(human[c], r1[c]['idea_from']) for c in firm if c not in hid])}
+                                   'with': agree.pair([(human[c], r1[c]['idea_from']) for c in hid]),
+                                   'without': agree.pair([(human[c], r1[c]['idea_from']) for c in firm if c not in hid])}
     re = [(labels['seg'][c]['idea'], labels['retest'][c]['idea']) for c in items['retest']
           if c in labels['seg'] and c in labels['retest']]
-    out['idea']['human_retest'] = _stat(re)
+    out['idea']['human_retest'] = agree.pair(re)
     _save(os.path.join(DIR, 'score.json'), out)
     print(json.dumps(out, ensure_ascii=False, indent=1))
     return out

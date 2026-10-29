@@ -101,5 +101,63 @@ class Extra(unittest.TestCase):
         self.assertTrue(claude_sync.last_run()['ok'])
 
 
+class CloudflareWait(unittest.TestCase):
+    """被 Cloudflare 拦下（10-29 用户：弹通知等我点）：开着窗口时等人点验证，过了接着拉；没人点照旧算失败；不开窗口不等。"""
+
+    def setUp(self):
+        from unittest import mock
+        with store.tx() as db:
+            for t in ('messages', 'conversations', 'claude_sync', 'claude_extra', 'sync_runs'):
+                db.execute(f'DELETE FROM {t}')
+        self.tmp = tempfile.mkdtemp(prefix='ephemeris-cf-')
+        self.notes = []
+        self.patches = [mock.patch.object(claude_sync, 'wait_network', lambda *a, **kw: True),
+                        mock.patch.object(claude_sync, '_notify', self.notes.append),
+                        mock.patch.object(claude_sync.time, 'sleep', lambda s: None),
+                        mock.patch.object(claude_sync, 'CF_WAIT', 0.2),
+                        mock.patch.object(idx, 'IMPORT_DIR', self.tmp)]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def run_with(self, window, human_clicks):
+        from unittest import mock
+
+        class Blocked(FakeChrome):
+            passed = False
+
+            def evaluate(self, js, timeout=0):
+                if 'api/organizations\'' in js:                 # 等人点：点了以后才 200
+                    Blocked.passed = human_clicks
+                    return 200 if human_clicks else 403
+                if 'chat_conversations?limit' in js and not Blocked.passed:
+                    return {'error': 'list HTTP 403', 'status': 403, 'body': '<html>Just a moment...</html>'}
+                return super().evaluate(js, timeout)
+
+        env = {'CLAUDE_SESSION_KEY': 'sk', 'CLAUDE_ORG_ID': 'org', 'CLAUDE_SYNC_WINDOW': '1' if window else ''}
+        with mock.patch.object(claude_sync, 'Chrome', Blocked), mock.patch.object(claude_sync, 'env', env.get):
+            return claude_sync.sync()
+
+    def test_click_then_continue(self):
+        r = self.run_with(window=True, human_clicks=True)
+        self.assertEqual(r['fetched'], 1)
+        self.assertEqual(len(self.notes), 1)
+
+    def test_nobody_clicks(self):
+        with self.assertRaises(claude_sync.SyncError):
+            self.run_with(window=True, human_clicks=False)
+        self.assertEqual(len(self.notes), 1)
+        self.assertFalse(claude_sync.last_run()['ok'])
+
+    def test_headless_does_not_wait(self):
+        with self.assertRaises(claude_sync.SyncError):
+            self.run_with(window=False, human_clicks=True)
+        self.assertEqual(self.notes, [])
+
+
 if __name__ == '__main__':
     unittest.main()

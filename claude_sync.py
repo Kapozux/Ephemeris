@@ -21,6 +21,7 @@ import os
 import re
 import shutil
 import socket
+import subprocess
 import tempfile
 import time
 from datetime import datetime
@@ -33,6 +34,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_SINCE = '2026-01-01'        # 头一次拉多久以前的；之后靠 updated_at 增量
 BATCH = 15                          # 一次 evaluate 拉几个对话，太多 CDP 回包会很大
 FLUSH = 120                         # 攒到这么多就落一次盘（兼顾内存和崩溃止损）
+CF_WAIT = 180                       # 被 Cloudflare 拦下、开着窗口时，等他在窗口里点验证的秒数
 
 
 # ------------------------------------------------------------------ 配置
@@ -66,7 +68,8 @@ def _explain(res):
         return ('claude.ai 的登录已失效（account_session_invalid）。浏览器里登录 claude.ai，'
                 '把新的 sessionKey 填进 ephemeris/.env 的 CLAUDE_SESSION_KEY，再点「立刻同步」')
     if 'Just a moment' in body or '<html' in body.lower():
-        return f'被 Cloudflare 拦下了（HTTP {st}，返回的是验证页不是数据）。隔一会儿再同步试试'
+        return (f'被 Cloudflare 拦下了（HTTP {st}，返回的是验证页不是数据）。开着窗口同步时会弹通知等你点验证，'
+                f'这次 {CF_WAIT // 60} 分钟里没过；隔一会儿再同步试试')
     if st == 404:
         return 'claude.ai 找不到这个组织（HTTP 404）：.env 里的 CLAUDE_ORG_ID 可能不对，删掉那行让它自己去取'
     if st == 429:
@@ -76,6 +79,46 @@ def _explain(res):
 
 class SyncError(RuntimeError):
     pass
+
+
+# ---------------------------------------------- 被 Cloudflare 拦下：叫他来点（10-29 用户）
+# 验证框只让人点，不让程序 / 模型代点：开着窗口时弹通知、窗口提到前面，等他点完接着拉；没人点就照旧算失败
+
+_PING_JS = "(async()=>{try{const r=await fetch('/api/organizations',{credentials:'include'});return r.status}catch(e){return 0}})()"
+
+
+def _blocked(res):
+    body = (res or {}).get('body') or ''
+    return 'Just a moment' in body or '<html' in body.lower()
+
+
+def _notify(text):
+    """macOS 通知；别的系统没有 osascript，就算了。"""
+    try:
+        subprocess.run(['osascript', '-e', f'display notification {json.dumps(text)} with title "Ephemeris"'],
+                       timeout=10, capture_output=True)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def _wait_human(c, say):
+    """等他在弹出的 Chrome 窗口里点验证（最多 CF_WAIT 秒）。过了返回 True。"""
+    wait = CF_WAIT
+    try:
+        c.call('Page.bringToFront')
+    except Exception:                                        # noqa: BLE001
+        pass
+    _notify('claude.ai 同步被 Cloudflare 拦了：在弹出的 Chrome 窗口里点一下验证')
+    deadline = time.time() + wait
+    while time.time() < deadline:
+        say('等你在弹出的窗口里点验证', int(wait - (deadline - time.time())), wait)
+        time.sleep(5)
+        try:
+            if c.evaluate(_PING_JS, timeout=20) == 200:
+                return True
+        except Exception:                                    # noqa: BLE001  点完验证页面会跳一下
+            continue
+    return False
 
 
 # ------------------------------------------------------------------ 记账
@@ -292,6 +335,8 @@ def sync(since=None, force=False, progress=None, headless=None):
                     say('网络抖了，重试', attempt + 1, 3)
                     time.sleep(20)
                     c.goto(home, wait=8)
+            if res and res.get('error') and _blocked(res) and not headless and _wait_human(c, say):
+                res = c.evaluate(_LIST_JS % json.dumps(org), timeout=180)
             if not res or res.get('error'):
                 raise SyncError(_explain(res))
             listed = [x for x in res['conversations'] if (x.get('updated_at') or '') >= since]
@@ -374,7 +419,7 @@ if __name__ == '__main__':
         raise SystemExit
 
     t0 = time.time()
-    r = sync(since=args.since, force=args.force, headless=not args.show,
+    r = sync(since=args.since, force=args.force, headless=False if args.show else None,   # 不加 --show 照 .env（CLAUDE_SYNC_WINDOW）
              progress=lambda st, a, b: print(f'  {st} {a}/{b}' if b else f'  {st}…', flush=True))
     print()
     print(f"列出 {r['listed']} 个，拉了 {r['fetched']} 个，"

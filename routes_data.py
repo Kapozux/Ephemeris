@@ -7,6 +7,7 @@ from flask import Blueprint, jsonify, request, send_from_directory
 from werkzeug.utils import secure_filename
 
 import backup
+import claude_sync
 import daily
 import export
 import hidden
@@ -99,6 +100,26 @@ def api_csync_status():
 def api_csync_start():
     """立刻跑一遍早上那一串：拉 claude.ai → 写缺的日记 → 整理。"""
     return jsonify(daily.start(force=request.args.get('force') == '1'))
+
+
+@bp.route('/api/claude/extra')
+def api_cextra():
+    """列表里看不到、按 id 拉的 claude.ai 窗口（无痕窗口）。"""
+    return jsonify({'items': claude_sync.extras()})
+
+
+@bp.route('/api/claude/extra', methods=['POST'])
+def api_cextra_set():
+    """body：{text: 贴进来的链接（可以几个）} 加；{remove: id} 不再拉。"""
+    body = request.get_json(silent=True) or {}
+    try:
+        if body.get('remove'):
+            claude_sync.remove_extra(body['remove'])
+        else:
+            claude_sync.add_extra(body.get('text'))
+    except ValueError as e:
+        return jsonify({'error': str(e), 'items': claude_sync.extras()}), 400
+    return jsonify({'items': claude_sync.extras()})
 
 
 # ------------------------------------------------------------------ 备份

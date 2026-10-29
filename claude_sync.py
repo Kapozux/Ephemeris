@@ -18,6 +18,7 @@
 import gzip
 import json
 import os
+import re
 import shutil
 import socket
 import tempfile
@@ -95,6 +96,40 @@ def _remember(rows):
         c.commit()
 
 
+# ------------------------------------------------------ 列表里没有的窗口（无痕窗口等）
+
+UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', re.I)
+
+
+def extras():
+    return store.q('SELECT uuid, added_at, title, last_ok, last_error FROM claude_extra ORDER BY added_at DESC')
+
+
+def add_extra(text):
+    """贴进来的 claude.ai/chat/<id> 链接（或光一个 id）→ 记下，下次同步也拉它。可以一次贴好几个。返回记下的 id。"""
+    ids = list(dict.fromkeys(m.lower() for m in UUID.findall(text or '')))
+    if not ids:
+        raise ValueError('没找到窗口 id：贴 claude.ai/chat/ 后面那串（像 1a2b3c4d-…）')
+    now = datetime.now().isoformat(timespec='seconds')
+    for u in ids:
+        store.run('INSERT OR IGNORE INTO claude_extra (uuid, added_at) VALUES (?, ?)', u, now)
+    return ids
+
+
+def remove_extra(uuid):
+    """不再拉它（已经拉进来的消息照样留着，规矩 6）。"""
+    store.run('DELETE FROM claude_extra WHERE uuid=?', uuid)
+
+
+def _note_extras(got, failed):
+    now = datetime.now().isoformat(timespec='seconds')
+    with store.tx() as db:
+        for x in got:
+            db.execute('UPDATE claude_extra SET title=?, last_ok=?, last_error=NULL WHERE uuid=?', (x['name'], now, x['uuid']))
+        for f in failed:
+            db.execute('UPDATE claude_extra SET last_error=? WHERE uuid=?', (f'{now[:16]} {f["error"]}'[:200], f['uuid']))
+
+
 def last_run():
     with store.LOCK:
         r = store.connect().execute(
@@ -162,8 +197,10 @@ _FETCH_JS = """(async () => {
                              ...(m.files || []).concat(m.files_v2 || []).map(f => f.file_name)].filter(Boolean);
         if (text || attachments.length) messages.push({role, created_at: m.created_at, text, attachments});
       }
-      if (messages.length) out.push({uuid: it.uuid, name: it.name || 'Untitled', model: d.model || null,
-                                     created_at: it.created_at, updated_at: it.updated_at, messages});
+      // 手动加的窗口（无痕等）不在列表里：标题、时间用对话自己带的
+      if (messages.length) out.push({uuid: it.uuid, name: it.name || d.name || 'Untitled', model: d.model || null,
+                                     created_at: it.created_at || d.created_at, updated_at: it.updated_at || d.updated_at, messages});
+      else if (it.extra) fail.push({uuid: it.uuid, error: '是空的'});
     } catch (e) { fail.push({uuid: it.uuid, error: String(e)}); }
     await new Promise(r => setTimeout(r, 350));
   }
@@ -261,7 +298,13 @@ def sync(since=None, force=False, progress=None, headless=None):
 
             seen = {} if force else known()
             todo = [x for x in listed if seen.get(x['uuid']) != x['updated_at']]
-            say('对比', len(listed) - len(todo), len(listed))
+            # 手动加的窗口（无痕窗口不进列表）：每次都按 id 拉一遍，没变的入库时按消息去重，不会多
+            on_list = {x['uuid'] for x in res['conversations']}
+            extra = [{'uuid': e['uuid'], 'name': '', 'created_at': None, 'updated_at': None, 'extra': True}
+                     for e in extras() if e['uuid'] not in on_list]
+            todo += extra
+            extra_ids = {x['uuid'] for x in extra}
+            say('对比', len(listed) - len(todo) + len(extra), len(listed))
             if not todo:
                 _log_run(started_at=started, ok=True, n_listed=len(listed), note='没有变化')
                 return {'listed': len(listed), 'fetched': 0, 'new_msgs': 0,
@@ -290,16 +333,20 @@ def sync(since=None, force=False, progress=None, headless=None):
                     raise SyncError('页面反复失效，重连 3 次都不行')
                 buf += r.get('conversations', [])
                 failed += r.get('failed', [])
+                _note_extras([x for x in r.get('conversations', []) if x['uuid'] in extra_ids],
+                             [f for f in r.get('failed', []) if f['uuid'] in extra_ids])
                 done = min(i + BATCH, len(todo))
                 say('拉取', done, len(todo))
                 if len(buf) >= FLUSH or done >= len(todo):
                     _flush(buf, since, totals, say)
                     buf = []
 
-        if not totals['convs']:
+        if not totals['convs'] and [f for f in failed if f['uuid'] not in extra_ids]:
             raise SyncError(f'一个都没拉到（失败 {len(failed)}）')
 
-        note = f'失败 {len(failed)} 个' if failed else None
+        lost = [f for f in failed if f['uuid'] in extra_ids]    # 手动加的拉不到（无痕窗口过期了）：记在它那行，不算同步失败
+        note = '；'.join(filter(None, [f'失败 {len(failed) - len(lost)} 个' if len(failed) > len(lost) else '',
+                                        f'手动加的 {len(lost)} 个没拉到' if lost else ''])) or None
         _log_run(started_at=started, ok=True, n_listed=len(listed), n_fetched=totals['convs'],
                  n_msgs_new=totals['msgs'], days_touched=len(totals['days']), note=note)
         return {'listed': len(listed), 'fetched': totals['convs'], 'failed': failed,

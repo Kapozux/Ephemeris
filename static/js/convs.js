@@ -192,6 +192,42 @@ export async function pollCSync() {
   const s = await fetch('/api/claude/sync').then(r => r.json()).catch(() => null);
   if (s) renderCSync(s);
   pollBackup();
+  pollExtra();
+}
+
+// 列表里看不到的 claude.ai 窗口（无痕窗口）：贴链接进来，每天同步时按 id 一起拉（claude_sync.extras）
+let EX_OPEN = false;
+function renderExtra(items, err) {
+  const box = $('#extraBox'); if (!box) return;
+  const lost = items.filter(x => x.last_error).length;      // 拉成了会把 last_error 清掉：有就是最近一次没拉到
+  box.innerHTML = `<div class="cv-sync-row"><span class="cv-sync-dot ${lost ? 'bad' : items.length ? 'ok' : 'off'}"></span>
+      <span><b>无痕窗口</b>　${items.length ? `${items.length} 个，每天同步时按链接一起拉${lost ? `，${lost} 个上次没拉到` : ''}`
+        : '列表里看不到的窗口（比如无痕），贴链接进来，每天同步时一起拉'}</span>
+      <a class="cv-ex-tog">${EX_OPEN ? '收起' : items.length ? '管理' : '添加'}</a></div>` +
+    (EX_OPEN ? `<div class="cv-ex">
+      <div class="cv-ex-add"><input class="cv-ex-in" placeholder="贴 claude.ai/chat/… 链接，几个一起贴也行" aria-label="claude.ai 窗口链接">
+        <button type="button" class="btn-secondary btn-small cv-ex-go">加上</button></div>
+      ${err ? `<div class="cv-ex-err">${esc(err)}</div>` : ''}
+      ${items.map(x => `<div class="cv-ex-row"><span class="cv-ex-t">${esc(x.title || x.uuid)}</span>
+        <span class="cv-ex-s">${x.last_error ? `没拉到：${esc(x.last_error.slice(17))}`
+          : x.last_ok ? `${rel(x.last_ok)}拉过` : '下次同步拉'}</span>
+        <a class="cv-ex-rm" data-id="${esc(x.uuid)}" title="以后不拉了（拉进来的照样留着）">不拉了</a></div>`).join('')}
+      <div class="cv-ex-note">「立刻同步」或每天自动同步时拉。无痕窗口在 claude.ai 上留不久，拉不到会标出来；拉进来的不会删。</div></div>` : '');
+  box.querySelector('.cv-ex-tog').onclick = () => { EX_OPEN = !EX_OPEN; renderExtra(items); };
+  if (!EX_OPEN) return;
+  const go = () => exPost({ text: box.querySelector('.cv-ex-in').value });
+  box.querySelector('.cv-ex-go').onclick = go;
+  box.querySelector('.cv-ex-in').onkeydown = e => { if (e.key === 'Enter') go(); };
+  box.querySelectorAll('.cv-ex-rm').forEach(a => a.onclick = () => exPost({ remove: a.dataset.id }));
+}
+async function exPost(body) {
+  const r = await fetch('/api/claude/extra', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(r => r.json()).catch(() => null);
+  if (r) renderExtra(r.items || [], r.error);
+}
+async function pollExtra() {
+  const r = await fetch('/api/claude/extra').then(r => r.json()).catch(() => null);
+  if (r) renderExtra(r.items || []);
 }
 
 // 每周备份到 Google Drive：状态放在同步那行下面，坏了看得见

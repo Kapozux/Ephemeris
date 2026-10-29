@@ -68,6 +68,9 @@ CREATE TABLE IF NOT EXISTS imports (
 CREATE TABLE IF NOT EXISTS claude_sync (
   uuid TEXT PRIMARY KEY, updated_at TEXT NOT NULL, synced_at TEXT NOT NULL
 );
+-- 列表里看不到、要按 id 去拉的 claude.ai 窗口（10-29 用户：无痕窗口）：贴 claude.ai/chat/<id> 进来，每天同步时也拉。
+-- title：拉到时的标题；last_ok / last_error：最近一次拉成了 / 没拉成（无痕窗口过一阵可能就拉不到了）
+CREATE TABLE IF NOT EXISTS claude_extra (uuid TEXT PRIMARY KEY, added_at TEXT, title TEXT, last_ok TEXT, last_error TEXT);
 -- ChatGPT 同步（chatgpt_sync.py，2026-10-14）：每个对话上次拉到的 update_time（id 不带 chatgpt- 前缀）
 CREATE TABLE IF NOT EXISTS chatgpt_sync (
   id TEXT PRIMARY KEY, updated_at TEXT NOT NULL, synced_at TEXT NOT NULL

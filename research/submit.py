@@ -28,7 +28,7 @@ def folder(pid):
 
 def preview(pid, study):
     """要交出去的东西（按现在的决定算）：每期的数 + 会交出去的原话证据。"""
-    rows, evidence = export.build(study, [pid])
+    rows, evidence, _ = export.build(study, [pid])
     quotes = []
     for k, by_measure in (evidence.get(pid) or {}).items():
         for name, items in by_measure.items():
@@ -58,8 +58,8 @@ def package(pid, study_path=STUDY):
     if consent.get(pid)['withdrawn']:
         return None
     study = research.study(study_path)
-    rows, evidence = export.build(study, [pid])
-    export.write(study, study_path, rows, evidence, out=out, pids=[pid])
+    rows, evidence, cov = export.build(study, [pid])
+    export.write(study, study_path, rows, evidence, cov, out=out, pids=[pid])
     files = {f: hashlib.sha256(open(os.path.join(out, f), 'rb').read()).hexdigest() for f in sorted(os.listdir(out))}
     receipt = {'pid': pid, 'study': study['study'], 'made_at': datetime.now().isoformat(timespec='seconds'),
                'privacy': study.get('privacy'), 'files': files, **consent.counts(pid)}
@@ -98,7 +98,8 @@ def serve(pid, study_path=STUDY):
         return jsonify(pid=pid, study=study['study'], privacy=study.get('privacy'), measures=study['measures'],
                        models=study.get('models', []), rows=rows, quotes=quotes, hidden=len(hidden),
                        windows=[dict(w, excluded=w['id'] in excluded) for w in ws],
-                       withdrawn=mine['withdrawn'], submitted=mine['submitted'], folder=folder(pid))
+                       other=mine['other_sources'], withdrawn=mine['withdrawn'], submitted=mine['submitted'],
+                       folder=folder(pid))
 
     @app.post('/api/decide')
     def decide():
@@ -110,6 +111,8 @@ def serve(pid, study_path=STUDY):
             consent.exclude(pid, item, on)
         elif what == 'quote':
             consent.hide(pid, item, on)
+        elif what == 'other':
+            consent.other_sources(pid, d.get('names') or [])
         elif what == 'unhide_all':
             for m in consent.get(pid)['hidden_evidence']:
                 consent.hide(pid, m, False)

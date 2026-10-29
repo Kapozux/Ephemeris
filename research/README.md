@@ -44,6 +44,11 @@
   删掉单条原话、退出（已生成的包删掉，全体导出跳过他）；确认后才在 `data/submit/<pid>/` 生成提交包和回执（各文件 sha256）。
   决定只存在参与者这边（`data/<pid>.consent.json`），研究者从 manifest 的 `participant_review` 只看得到计数。
   改了决定，之前的确认作废。交出去这一步（上传 / 邮件）不在这里。
+- **覆盖报告**（10-29，`research/coverage.py`）：每期报有数据的天数、最长空白、主平台和占比、回复里知道是哪个模型写的占比
+  （`chat_cov_*` 列），`coverage.csv` 一期 × 一个平台一行列出各模型几条。指标变了先看这几列：换平台、换模型、一段没数据都会让指标变，
+  那是数据变了不是人变了；缺的是缺，不是 0。模型来自 Ephemeris 的 `msg_models`：Claude Code / Codex 每条有，claude.ai 同步按窗口
+  （10-29 起），ChatGPT 每条有；Gemini、Cursor、claude.ai 官方导出不记，报「不知道」。参与者在提交前审阅页自报还用过哪些没导进来的
+  账号 / App，进 manifest。
 - **说话人只看导出文件的结构**（role 字段），不交给模型；贴进来的内容按 `speech.typed` 判掉，只当上下文。
 - **ChatGPT / DeepSeek 导出是分支树**：取最后显示的那一支（ChatGPT 从 current_node 往上，DeepSeek 每层取最后一个孩子），写在 manifest 里。
 - **逐字核对报三个数**：模型给的原话对不上被丢掉的比例；丢掉的里模糊匹配找得到原文的（改了措辞，不是编的）；

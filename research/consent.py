@@ -9,7 +9,7 @@ from datetime import datetime
 
 from research import DATA
 
-EMPTY = {'excluded_convs': [], 'hidden_evidence': [], 'withdrawn': None, 'submitted': None}
+EMPTY = {'excluded_convs': [], 'hidden_evidence': [], 'withdrawn': None, 'submitted': None, 'other_sources': []}
 
 
 def _path(pid):
@@ -49,6 +49,15 @@ def hide(pid, msg, on=True):
     return _toggle(pid, 'hidden_evidence', msg, on)
 
 
+def other_sources(pid, names):
+    """参与者自报：还用过哪些没导进来的 AI 聊天（别的账号、手机 App……）。只记名字，给覆盖报告用。"""
+    d = get(pid)
+    d['other_sources'] = [n.strip()[:80] for n in names if n and n.strip()][:20]
+    d['submitted'] = None
+    _save(pid, d)
+    return d
+
+
 def withdraw(pid):
     d = dict(get(pid), withdrawn=datetime.now().isoformat(timespec='seconds'), submitted=None)
     _save(pid, d)
@@ -65,4 +74,4 @@ def counts(pid):
     """给研究者的：只有数，没有内容。"""
     d = get(pid)
     return {'excluded_windows': len(d['excluded_convs']), 'hidden_evidence': len(d['hidden_evidence']),
-            'withdrawn': bool(d['withdrawn'])}
+            'withdrawn': bool(d['withdrawn']), 'other_sources_reported': d['other_sources']}

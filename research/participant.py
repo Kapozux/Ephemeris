@@ -23,6 +23,7 @@ class Msg:
     role: str             # 'human' / 'assistant'
     text: str
     typed: bool           # 自己打的（不是贴进来的）；只对 human 有意义
+    model: str = None     # 写这条回复的模型（来源记了才有，见 store 的 msg_models）
 
 
 @dataclass
@@ -62,13 +63,16 @@ def surveys(pid, path=None):
 def load(pid, tz, sources=None):
     zone = ZoneInfo(tz)
     db = sqlite3.connect(f'file:{db_path(pid)}?mode=ro', uri=True)
-    sql = 'SELECT id, conv_id, source, ts, role, text FROM messages WHERE text IS NOT NULL'
+    has_models = db.execute("SELECT 1 FROM sqlite_master WHERE name='msg_models'").fetchone()
+    sql = ('SELECT m.id, m.conv_id, m.source, m.ts, m.role, m.text, ' + ('x.model' if has_models else 'NULL') +
+           ' FROM messages m' + (' LEFT JOIN msg_models x ON x.msg_id = m.id' if has_models else '') +
+           ' WHERE m.text IS NOT NULL')
     args = ()
     if sources:
-        sql += f" AND source IN ({','.join('?' * len(sources))})"
+        sql += f" AND m.source IN ({','.join('?' * len(sources))})"
         args = tuple(sources)
-    msgs = [Msg(i, c, s, datetime.fromisoformat(ts).astimezone(zone), r, t, speech.typed(t))
-            for i, c, s, ts, r, t in db.execute(sql + ' ORDER BY ts, rowid', args)]
+    msgs = [Msg(i, c, s, datetime.fromisoformat(ts).astimezone(zone), r, t, speech.typed(t), model)
+            for i, c, s, ts, r, t, model in db.execute(sql + ' ORDER BY m.ts, m.rowid', args)]
     db.close()
     skip = set(consent.get(pid)['excluded_convs'])          # 参与者说不交的窗口：从所有指标里拿掉
     msgs = [m for m in msgs if m.conv not in skip]

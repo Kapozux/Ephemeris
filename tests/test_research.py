@@ -204,5 +204,25 @@ class Consent(unittest.TestCase):
         self.consent.hide('P9', 'm1')
         self.consent.withdraw('P9')
         c = self.consent.counts('P9')
-        self.assertEqual(c, {'excluded_windows': 1, 'hidden_evidence': 1, 'withdrawn': True})
+        self.assertEqual(c, {'excluded_windows': 1, 'hidden_evidence': 1, 'withdrawn': True, 'other_sources_reported': []})
         self.assertNotIn('drop', json.dumps(c))
+
+
+class Coverage(unittest.TestCase):
+    """覆盖报告（10-29）：平台占比、有数据的天、最长空白、知道模型的占比；不知道的照实报。"""
+
+    def test_period_summary(self):
+        from research import coverage
+        z = ZoneInfo('UTC')
+        p = Period(1, datetime(2026, 3, 1, tzinfo=z), datetime(2026, 3, 15, tzinfo=z), 10)
+        mk = lambda i, day, src, role, model=None: Msg(str(i), 'c', src, datetime(2026, 3, day, 9, tzinfo=z), role, 'x', True, model)  # noqa: E731
+        p.msgs = [mk(1, 2, 'claude', 'human'), mk(2, 2, 'claude', 'assistant', 'claude-opus-5-5'),
+                  mk(3, 3, 'gemini', 'human'), mk(4, 3, 'gemini', 'assistant'), mk(5, 12, 'claude', 'human')]
+        s = coverage.period(p)
+        self.assertEqual(s['chat_cov_days_with_data'], 3)
+        self.assertEqual(s['chat_cov_max_gap_days'], 8)            # 3 号到 12 号之间
+        self.assertEqual((s['chat_cov_main_platform'], s['chat_cov_main_platform_share']), ('claude', 0.6))
+        self.assertEqual(s['chat_cov_model_known_share'], 0.5)      # Gemini 那条回复不知道模型
+        rows = {r['platform']: r for r in coverage.long_rows('P1', p)}
+        self.assertEqual(rows['claude']['models'], 'claude-opus-5-5:1')
+        self.assertEqual(rows['gemini']['replies_model_known'], 0)

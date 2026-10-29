@@ -12,6 +12,8 @@
                      （chat_active_days 等），不会跟她截图算的 active_days 撞名
     evidence.json    每个数背后的原话（做法 A 才写：做法 B 原话不出本机）
     evidence.csv     同样的证据摊成长表，逐字原话 / 规则写的挑选理由 / 模型生成的判断分列，gold_sample 标出盲评样本
+    coverage.csv     覆盖报告长表：一期 × 一个平台一行（消息数、占比、回复里知道模型的、各模型几条），见 research/coverage.py；
+                     每期的摘要（有数据的天数、最长空白、主平台和占比、知道模型的占比）以 chat_cov_* 列并进上面两张表
     manifest.json    研究方案的指纹、代码版本、指标说明——拿结果的人能复现
 """
 import csv
@@ -23,7 +25,7 @@ import sys
 from datetime import datetime, timezone
 
 import research
-from research import consent, measures, participant, route
+from research import consent, coverage, measures, participant, route
 from research import personas as P
 
 OUT = os.path.join(research.DATA, 'out')
@@ -38,8 +40,9 @@ def tz_of(pid):
 
 
 def build(study, pids=None):
-    """pids 默认是研究方案里所有人；退出了的人跳过。删掉的证据不进 evidence（指标照算）。"""
-    rows, evidence = [], {}
+    """pids 默认是研究方案里所有人；退出了的人跳过。删掉的证据不进 evidence（指标照算）。
+    返回 (每期一行, 证据, 覆盖报告长表)。"""
+    rows, evidence, cov = [], {}, []
     for pid in pids or study['participants']:
         mine = consent.get(pid)
         if mine['withdrawn']:
@@ -54,14 +57,16 @@ def build(study, pids=None):
             row = {'pid': pid, 'period_number': p.number, 'survey_date': p.end.strftime(LOCAL),
                    'period_start': p.start.strftime(LOCAL), 'period_end': p.end.strftime(LOCAL), 'tz': person.tz,
                    'cesd_score': p.score,
-                   'days_in_period': p.days, 'active_days': active, 'active_day_ratio': active / p.days}
+                   'days_in_period': p.days, 'active_days': active, 'active_day_ratio': active / p.days,
+                   **coverage.period(p)}
+            cov += coverage.long_rows(pid, p)
             evidence[pid][p.number] = {}
             for name, by_period in results.items():
                 value, ev = by_period.get(p.number, (None, []))
                 row[name] = value
                 evidence[pid][p.number][name] = [_quote(e, msgs) for e in ev if e.get('msg') not in hidden]
             rows.append(row)
-    return rows, evidence
+    return rows, evidence, cov
 
 
 def _quote(e, msgs):
@@ -112,23 +117,27 @@ def _git():
         return ''
 
 
-def write(study, study_path, rows, evidence, out=OUT, pids=None):
+def write(study, study_path, rows, evidence, cov, out=OUT, pids=None):
     """out：写到哪（参与者的提交包写到 data/submit/<pid>/）；pids：manifest 里报哪些人的审阅计数，默认全体。"""
     os.makedirs(out, exist_ok=True)
-    cols = BASE + study['measures']
+    cols = BASE + study['measures'] + coverage.COLS
     with open(os.path.join(out, 'data_clean.csv'), 'w', newline='') as f:
         w = csv.DictWriter(f, cols)
         w.writeheader()
         for r in rows:
             w.writerow({c: _cell(r[c]) for c in cols})
     keys = ['pid', 'period_number', 'survey_date', 'tz']
-    merge = keys + ['chat_active_days', 'chat_active_day_ratio'] + study['measures']
+    merge = keys + ['chat_active_days', 'chat_active_day_ratio'] + study['measures'] + coverage.COLS
     with open(os.path.join(out, 'chat_features.csv'), 'w', newline='') as f:
         w = csv.DictWriter(f, merge)
         w.writeheader()
         for r in rows:
             r = dict(r, chat_active_days=r['active_days'], chat_active_day_ratio=r['active_day_ratio'])
             w.writerow({c: _cell(r[c]) for c in merge})
+    with open(os.path.join(out, 'coverage.csv'), 'w', newline='') as f:
+        w = csv.DictWriter(f, coverage.LONG_COLS)
+        w.writeheader()
+        w.writerows({c: _cell(r[c]) for c in coverage.LONG_COLS} for r in cov)
     if study.get('privacy') == 'A':
         with open(os.path.join(out, 'evidence.json'), 'w', encoding='utf-8') as f:
             json.dump(evidence, f, ensure_ascii=False, indent=1)
@@ -158,6 +167,11 @@ def write(study, study_path, rows, evidence, out=OUT, pids=None):
                              'automatic switching to other vendors. Every attempt is logged (no content).',
                    'chat_ai_first_idea_ratio': 'prompt in research/measures/chat_ai_first_idea_ratio.py (VERSION)'},
         'data_flow': route.flow(study['study']),
+        'coverage': 'chat_cov_* columns and coverage.csv describe what the data covers, not the participant: share of '
+                    'messages per platform, days with any data, longest run of days without data, and the share of AI '
+                    'replies whose model is known. A change in a measure that coincides with a platform or model switch, '
+                    'or with a gap, may reflect the data rather than the person. Missing data is missing, never zero. '
+                    'Model is unknown for Gemini, Cursor and claude.ai official exports (they do not record it).',
         'participant_review': {'note': 'Each participant reviewed the package before it left their computer and could '
                                        'drop whole chat windows (removed from every measure), hide single evidence '
                                        'quotes, or withdraw. Only counts are reported here, never what was removed.',
@@ -171,8 +185,8 @@ def write(study, study_path, rows, evidence, out=OUT, pids=None):
 def main():
     path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(research.HERE, 'study.demo.json')
     study = research.study(path)
-    rows, evidence = build(study)
-    m = write(study, path, rows, evidence)
+    rows, evidence, cov = build(study)
+    m = write(study, path, rows, evidence, cov)
     print(f"{m['rows']} rows, {m['participants']} participants -> {OUT}")
 
 

@@ -580,6 +580,14 @@ AGENT_TIMEOUT = 3600
 CLAUDE_CWD = os.path.expanduser('~/.ephemeris-claude')     # 会话存在这个目录名下，不混进用户自己的 Claude Code 项目
 CLAUDE_SYSTEM = '你是 Ephemeris（一个人的私人日记应用）里的文本处理程序。只按用户消息里的要求输出，不寒暄，不加额外说明。'
 _claude_sem = threading.BoundedSemaphore(CLAUDE_PARALLEL)
+# 「问」另算（10-30 用户：同时开 5 个问，后两个一直不动——排在做卡那 3 个位子后面）：问是人在等着的，单独给 QA_PARALLEL 个位子；
+# 三个应用合计的并发和留给问的位子还是 claude_gate 管
+QA_PARALLEL = int(idx.env('EPHEMERIS_QA_PARALLEL') or 8)
+_qa_sem = threading.BoundedSemaphore(QA_PARALLEL)
+
+
+def _local_slot(purpose):
+    return _qa_sem if _prio(purpose) == 'live' else _claude_sem
 _claude_runner = None            # 测试用：use_claude(fn)，fn(args, stdin) -> claude -p 的 JSON（dict）
 _LIMIT = re.compile(r'usage limit|limit reached|rate limit|resets?|Not logged in|/login|credit balance', re.I)
 
@@ -654,7 +662,7 @@ def claude(prompt, effort='medium', session=None, keep=False, purpose=''):
     elif not keep:
         args += ['--no-session-persistence']
     t = time.time()
-    with _claude_sem, claude_gate.slot(GATE_APP, purpose, _prio(purpose)):
+    with _local_slot(purpose), claude_gate.slot(GATE_APP, purpose, _prio(purpose)):
         d = _claude_exec(args, prompt)
     text = (d.get('result') or '').strip()
     _claude_record(d, effort, purpose, time.time() - t)
@@ -797,7 +805,7 @@ def _base_args(effort):
 def claude_stream(prompt, on_text, effort='medium', purpose=''):
     """跟 claude() 一样，但边写边把字交给 on_text(一小段)。返回 (全文, 会话 id)。失败抛异常。"""
     t = time.time()
-    with _claude_sem, claude_gate.slot(GATE_APP, purpose, _prio(purpose)):
+    with _local_slot(purpose), claude_gate.slot(GATE_APP, purpose, _prio(purpose)):
         d = _claude_events(_base_args(effort) + ['--tools', '', '--no-session-persistence'], prompt,
                            lambda kind, text: kind == 'delta' and on_text(text), CLAUDE_TIMEOUT)
     return _claude_finish(d, effort, purpose, t)
@@ -811,7 +819,7 @@ def claude_agent(prompt, allow, effort='high', session=None, on_event=None, purp
     if session:
         args += ['--resume', session]
     t = time.time()
-    with _claude_sem, claude_gate.slot(GATE_APP, purpose, _prio(purpose)):
+    with _local_slot(purpose), claude_gate.slot(GATE_APP, purpose, _prio(purpose)):
         d = _claude_events(args, prompt, on_event, timeout)
     return _claude_finish(d, effort, purpose, t)
 

@@ -63,6 +63,8 @@
             {% if efforts %}<hr>
             <button type="button" class="ch-mi" data-sub="effort" role="menuitem" aria-haspopup="menu"><span class="ch-mi-t">Effort</span><span class="ch-mi-v" id="chMenuEffort"></span><svg class="ch-gt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 6l6 6-6 6"/></svg></button>
             {% endif %}            <hr>
+            <button type="button" class="ch-mi on" data-act="memory" role="menuitemcheckbox" aria-checked="true" title="关掉以后「问」不看记忆（档案），只查原文和证据卡"><span class="ch-mi-t">用记忆</span><svg class="ch-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>
+            <hr>
             <button type="button" class="ch-mi" data-sub="models" role="menuitem" aria-haspopup="menu"><span class="ch-mi-t">更多模型</span><svg class="ch-gt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 6l6 6-6 6"/></svg></button>
             <div class="ch-sub" id="chSubEffort" data-sub="effort" role="menu" hidden>
               {% for e in efforts %}<button type="button" class="ch-mi" data-effort="{{ e }}" role="menuitemradio"><span class="ch-mi-t">{{ {'low': 'Low', 'medium': 'Medium', 'high': 'High', 'xhigh': 'Extra high', 'max': 'Max'}[e] }}</span><svg class="ch-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>{% endfor %}

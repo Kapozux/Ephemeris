@@ -69,10 +69,18 @@ class Memory(unittest.TestCase):
         self.assertIn('· 大学申请（截至', memory.directory())
         self.assertIn('ED 交 MIT（截至', run('memory', '大学申请'))
         self.assertIn('[[c:k1]]', memory.page('大学申请'))
-        p = qa.DEEP_PROMPT.format(name='他', today='2026-10-25', roots='~', skills='', memory=memory.directory(), look='look.py',
-                                  history='', question='我 ED 交哪')
+        fmt = lambda use: qa.DEEP_PROMPT.format(name='他', today='2026-10-25', roots='~', skills='', **qa._memory_parts('look.py', use),
+                                                look='look.py', history='', question='我 ED 交哪')
+        p = fmt(True)
         self.assertIn('look.py memory <名字>', p)
         self.assertIn('· 大学申请', p)
+        p = fmt(False)                                              # 不用记忆（10-30）：提示词里没有档案，look 也读不到
+        self.assertNotIn('memory', p)
+        self.assertNotIn('大学申请', p)
+        self.assertIn('不用档案', run('--no-memory', 'memory', '大学申请'))
+        self.assertNotIn('ED 交 MIT', run('--no-memory', 'sql', 'SELECT text FROM memory_facts'))
+        self.assertNotIn('memory_facts', run('--no-memory', 'schema'))
+        self.assertIn('ED 交 MIT', run('sql', 'SELECT text FROM memory_facts'))
         memory.switch('大学申请', False)
         self.assertNotIn('大学申请', memory.directory())
         self.assertIsNone(memory.page('大学申请'))

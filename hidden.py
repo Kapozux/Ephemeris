@@ -95,13 +95,18 @@ def card_hidden():
 
 # ---------------------------------------------------------------- 给「问」的连接套上
 
-def shield(db):
+MEMORY = ('memory_topics', 'memory_facts')       # 「问」不用记忆的时候（qa.LOOK_NO_MEMORY）：这两张读出来是空的
+
+
+def shield(db, no_memory=False):
     """在这个连接的 temp 里建同名视图，之后没写前缀的 messages / cards / … 读到的都是滤过的。返回建了视图的表名。"""
     have = {r[0] for r in db.execute("SELECT name FROM main.sqlite_master WHERE type='table'")}
     made = []
     for name, keep in VIEWS.items():
         if name not in have:
             continue
+        if no_memory and name in MEMORY:
+            keep = '0'
         db.execute(f'DROP VIEW IF EXISTS temp."{name}"')
         db.execute(f'CREATE TEMP VIEW "{name}" AS SELECT t.rowid AS rowid, t.* FROM main."{name}" t'
                    + (f' WHERE {keep}' if keep else ''))

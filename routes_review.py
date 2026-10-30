@@ -128,7 +128,8 @@ def api_qa_ask():
         return jsonify({'error': f'不认识的 effort：{effort}'}), 400
     # 后台问、边写边看：进度在 /api/qa/live
     thread = body.get('thread') or qa.current()
-    return jsonify({'started': qa.start_ask(q, thread, model, effort, again, fresh=bool(redo)), 'live': qa.live(thread)})
+    use_memory = body.get('memory') is not False                            # 聊天页菜单里「用记忆」关掉了：不看档案
+    return jsonify({'started': qa.start_ask(q, thread, model, effort, again, fresh=bool(redo), use_memory=use_memory), 'live': qa.live(thread)})
 
 
 @bp.route('/api/qa/stop', methods=['POST'])

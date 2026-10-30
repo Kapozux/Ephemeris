@@ -4,6 +4,7 @@
 // 每段对话各答各的（10-22）：别的对话在写不挡这里问，左边列表上在答的那几段带小圆点。
 // 左下角「N 张卡」点开是做卡的小弹层（进度、做上、停下）；老的浮层「问」栏 10-13 删了，做卡只在这里。
 // 右下角「Opus 5.5 High」点开是模型菜单（10-14）：选的模型和 effort 记在本机浏览器，每次问都带上（/api/qa/ask 的 model / effort）。
+// 菜单里「用记忆」（10-30）：关掉以后不看档案（/api/qa/ask 的 memory: false），按钮上标「不用记忆」，也记在本机浏览器。
 import { ask, usd } from './js/util.js';
 import { pull, place, mount } from './viz.js';
 const $ = s => document.querySelector(s);
@@ -14,9 +15,10 @@ let THREAD = +B.dataset.thread || null, BUSY = false, POLL = null, BUSY_THREADS 
 // 有 Claude 列 Claude 的，只有 DeepSeek 列 DeepSeek 的（那时没有 Effort 这一项，EFFORTS 是空的）
 const MODELS = [...document.querySelectorAll('#chSubModels [data-model]')].map(b => [b.dataset.model, b.textContent.trim()]);
 const EFFORTS = [...document.querySelectorAll('#chSubEffort [data-effort]')].map(b => [b.dataset.effort, b.textContent.trim()]);
-let MODEL = MODELS[0]?.[0], EFFORT = 'max';          // 默认 Max（10-17：思考不要限制）
+let MODEL = MODELS[0]?.[0], EFFORT = 'max', MEMORY = true;          // 默认 Max（10-17：思考不要限制）
 try {
   const m = localStorage.getItem('qaModel'), e = localStorage.getItem('qaEffort');
+  MEMORY = localStorage.getItem('qaMemory') !== '0';
   if (MODELS.some(x => x[0] === m)) MODEL = m;
   if (EFFORTS.some(x => x[0] === e)) EFFORT = e;
 } catch { /* 隐私模式：不记 */ }
@@ -102,9 +104,9 @@ function traceHtml(trace) {
   const steps = (trace && trace.steps) || [], n = nSteps(steps);
   if (!trace) return '';
   if (!n) return trace.secs ? `<div class="ch-trace"><span class="ch-trace-plain"><span class="ch-trace-i">${icon('search')}</span>`
-    + `<span>这次没查资料 · 用时 ${took(trace.secs)}</span></span></div>` : '';
+    + `<span>这次没查资料 · 用时 ${took(trace.secs)}${trace.no_memory ? ' · 没用记忆' : ''}</span></span></div>` : '';
   return `<details class="ch-trace"><summary><span class="ch-trace-i">${icon('search')}</span>`
-    + `<span>查了 ${n} 步${trace.secs ? ` · 用时 ${took(trace.secs)}` : ''}</span>`
+    + `<span>查了 ${n} 步${trace.secs ? ` · 用时 ${took(trace.secs)}` : ''}${trace.no_memory ? ' · 没用记忆' : ''}</span>`
     + `<svg class="ch-trace-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 6l6 6-6 6"/></svg></summary>`
     + trailHtml(steps, false) + '</details>';
 }
@@ -285,7 +287,10 @@ function syncSend() { $('#chSend').disabled = !BUSY && !$('#chInput').value.trim
 function label(list, id) { return (list.find(x => x[0] === id) || [id, id])[1]; }
 
 function renderModel() {
-  $('#chModel').innerHTML = esc(label(MODELS, MODEL)) + (EFFORTS.length ? ` <i>${esc(label(EFFORTS, EFFORT))}</i>` : '');
+  $('#chModel').innerHTML = esc(label(MODELS, MODEL)) + (EFFORTS.length ? ` <i>${esc(label(EFFORTS, EFFORT))}</i>` : '') + (MEMORY ? '' : ' <i>· 不用记忆</i>');
+  const mem = $('#chMenu [data-act="memory"]');
+  mem.classList.toggle('on', MEMORY);
+  mem.setAttribute('aria-checked', MEMORY);
   $('#chMenuCur').textContent = label(MODELS, MODEL);
   if ($('#chMenuEffort')) $('#chMenuEffort').textContent = label(EFFORTS, EFFORT);
   document.querySelectorAll('#chSubModels [data-model]').forEach(b => { b.classList.toggle('on', b.dataset.model === MODEL); b.setAttribute('aria-checked', b.dataset.model === MODEL); });
@@ -541,7 +546,7 @@ async function launch(body, failed) {
   setBusy(true);
   scrollEnd(true);
   const r = await fetch('/api/qa/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...body, thread: THREAD, model: MODEL, effort: EFFORTS.length ? EFFORT : null }) }).then(r => r.json()).catch(() => ({ error: '连不上 Ephemeris' }));
+    body: JSON.stringify({ ...body, thread: THREAD, model: MODEL, effort: EFFORTS.length ? EFFORT : null, memory: MEMORY }) }).then(r => r.json()).catch(() => ({ error: '连不上 Ephemeris' }));
   if (!r.error && !r.started) r.error = '上一个问题还没答完';
   if (!r.error) {
     if (!BUSY_THREADS.includes(THREAD)) { BUSY_THREADS = [...BUSY_THREADS, THREAD]; renderThreads(THREADS); }
@@ -609,6 +614,11 @@ $('#chMenu').addEventListener('click', e => {
   const b = e.target.closest('.ch-mi');
   if (!b) return;
   if (b.dataset.act === 'cur') toggleMenu(false);
+  else if (b.dataset.act === 'memory') {
+    MEMORY = !MEMORY;
+    try { localStorage.setItem('qaMemory', MEMORY ? '1' : '0'); } catch { /* 同上 */ }
+    renderModel();
+  }
   else if (b.dataset.sub) openSub(b.classList.contains('open') ? null : b.dataset.sub);
   else if (b.dataset.model) pick('model', b.dataset.model);
   else if (b.dataset.effort) pick('effort', b.dataset.effort);

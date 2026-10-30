@@ -309,7 +309,7 @@ _SKIP = ('fts', 'dup', 'backup', 'sync', 'sqlite_', 'cc_files', 'imports', 'lab'
 def schema(a):
     """只列「问」读得到的表（hidden.VIEWS，屏蔽的行已经滤掉）。"""
     for t in sorted(hidden.VIEWS):
-        if any(x in t for x in _SKIP):
+        if any(x in t for x in _SKIP) or (a.no_memory and t in hidden.MEMORY):
             continue
         cols = ', '.join(r['name'] for r in store.q(f"SELECT name FROM pragma_table_info('{t}', 'main')"))
         if not cols:
@@ -323,7 +323,7 @@ def sql(a):
     cap = max(1, min(a.n, 500))
     db = sqlite3.connect(f'file:{store.DB_PATH}?mode=ro', uri=True)
     try:
-        hidden.shield(db)                                 # 屏蔽的日子 / 窗口 / 手写日记：读不到（主库的表只能经这些视图读）
+        hidden.shield(db, a.no_memory)                    # 屏蔽的日子 / 窗口 / 手写日记：读不到（主库的表只能经这些视图读）
         db.execute('PRAGMA query_only = ON')
         db.set_authorizer(hidden.authorize)
         deadline = time.time() + 60
@@ -455,6 +455,9 @@ def skill_(a):
 
 
 def memory_(a):
+    if a.no_memory:
+        print('这次问答不用档案（他在聊天页把「用记忆」关了），直接查原文和证据卡。')
+        return
     name = ' '.join(a.words)
     text = memory.page(name) if name else None
     if text:
@@ -477,10 +480,11 @@ def main(argv=None):
     p.add_argument('--full', action='store_true'); p.add_argument('--at')
     p.add_argument('--glob'); p.add_argument('--in', dest='into')
     p.add_argument('--from', dest='start', type=int, default=1); p.add_argument('--lines', type=int, default=200)
+    p.add_argument('--no-memory', action='store_true')      # 「问」不用记忆（qa.LOOK_NO_MEMORY）：档案读不到
     a = p.parse_args(argv)
     db = store.connect()
     with store.LOCK:
-        hidden.shield(db)                                 # 这条命令里所有查询都只看得到没屏蔽的（hidden.py）
+        hidden.shield(db, a.no_memory)                    # 这条命令里所有查询都只看得到没屏蔽的（hidden.py）
     try:
         {'msgs': msgs, 'cards': cards_, 'read': read, 'conv': conv, 'convs': convs, 'day': day, 'stats': stats, 'sum': sum_, 'sql': sql,
          'schema': schema, 'journal': journal_, 'diaries': diaries_, 'files': files_, 'grep': grep_, 'file': file_, 'moye': moye_,

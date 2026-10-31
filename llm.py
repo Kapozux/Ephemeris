@@ -595,8 +595,10 @@ _LIMIT = re.compile(r'usage limit|limit reached|rate limit|resets?|Not logged in
 # 三个应用（Verbatim / Ephemeris / 墨页）共用一份额度时的分配器：claude_gate（CLAUDE_GATE 没设就不起作用）。
 # 问 = live（留着位子，批量跑满了也不排队），做卡 = batch，其余 normal；撞上限写进共用的 pause，别的应用也停。
 GATE_APP = 'ephemeris'
-if idx.env('CLAUDE_GATE'):
-    os.environ.setdefault('CLAUDE_GATE', idx.env('CLAUDE_GATE'))
+for _k in ('CLAUDE_GATE', 'CLAUDE_GATE_CAP', 'CLAUDE_GATE_RESERVE', 'CLAUDE_GATE_WEEK_KEEP', 'CLAUDE_GATE_WEEK_KEEP_LIVE',
+           'CLAUDE_GATE_LIMIT_5H', 'CLAUDE_GATE_KEEP'):                # claude_gate 只看 os.environ，.env 里的要搬过去
+    if idx.env(_k):
+        os.environ.setdefault(_k, idx.env(_k))
 
 
 def _prio(purpose):

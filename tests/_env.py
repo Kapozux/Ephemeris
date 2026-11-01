@@ -13,6 +13,7 @@ os.environ['EPHEMERIS_NO_USAGE'] = '1'          # 别往旁边 Verbatim 的真�
 os.environ['CLAUDE_GATE'] = ''                 # 三个应用共用的 Claude 分配器：测试里不碰真的 ~/.claude-gate
 for _k in ('CLAUDE_GATE_WEEK_KEEP', 'CLAUDE_GATE_WEEK_KEEP_LIVE', 'CLAUDE_GATE_LIMIT_5H', 'CLAUDE_GATE_CAP', 'CLAUDE_GATE_RESERVE'):
     os.environ[_k] = ''                        # .env 里的额度设置也不带进测试（周额度那条会真去问一次 Claude）
+os.environ['EPHEMERIS_QA_FILES'] = tempfile.mkdtemp(prefix='ephemeris-qafiles-')   # 「问」里附的文件
 os.environ['CLAUDE_GATE_CC_DIR'] = tempfile.mkdtemp(prefix='ephemeris-ccgate-')   # 也不读真的 ~/.claude 算用量
 os.environ['EPHEMERIS_CC_DIR'] = tempfile.mkdtemp(prefix='ephemeris-cc-')   # Claude Code 的对话：测试里是空目录，不读真的 ~/.claude
 os.environ['EPHEMERIS_CURSOR_DB'] = os.path.join(tempfile.mkdtemp(prefix='ephemeris-cursor-'), 'state.vscdb')   # Cursor：测试里没有，不读真的

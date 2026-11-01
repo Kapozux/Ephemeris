@@ -6,6 +6,7 @@
   数据/_schema.sql                    表结构，还原时用。
   每周/YYYY-Www.md                    每周一份能直接读的：日记、手写日记、打卡。
   导入原件/                           imports/ 里导入过的原始文件。
+  问的附件/                           「问」里他自己附的文件（qa_files/）。
 **内容没变的文件一律不写** —— 不写就不会被 Drive 重传。按表自动导出，以后新加的表不用记得来这里登记。
 **只增不删**：备份目录里的东西从不删除（包括以前那份整库快照）。
 **也不减**（2026-10-07）：核心数据（聊天、窗口、手写、打卡、日记、导入记录、手动打分）按行合并 ——
@@ -32,6 +33,7 @@ import jobs
 import store
 import index as idx
 import journal
+import localfiles
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 EVERY_DAYS = 1
@@ -295,9 +297,10 @@ def copy_new(src, out):
 
 
 def _imports(root):
-    """导入原件和手写日记里的图片。"""
+    """导入原件、手写日记里的图片、「问」里附的文件。"""
     return (copy_new(os.path.join(HERE, 'imports'), os.path.join(root, '导入原件'))
-            + copy_new(journal.FILES_DIR, os.path.join(root, '日记图片')))
+            + copy_new(journal.FILES_DIR, os.path.join(root, '日记图片'))
+            + copy_new(localfiles.uploads(), os.path.join(root, '问的附件')))
 
 
 # ------------------------------------------------------------------ 跑
@@ -399,6 +402,7 @@ def restore(src, out):
     db.close()
     # 日记里的图片放回新库旁边的 journal_files/
     counts['日记图片'] = copy_new(os.path.join(src, '日记图片'), os.path.join(os.path.dirname(os.path.abspath(out)), 'journal_files'))
+    counts['问的附件'] = copy_new(os.path.join(src, '问的附件'), os.path.join(os.path.dirname(os.path.abspath(out)), 'qa_files'))
     return counts
 
 

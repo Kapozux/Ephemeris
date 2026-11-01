@@ -10,6 +10,7 @@ import { pull, place, mount } from './viz.js';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const B = document.body;
+let FILES = [];                                             // 这次要附上的文件（见「附文件」）
 let THREAD = +B.dataset.thread || null, BUSY = false, POLL = null, BUSY_THREADS = [], THREADS = [], CARDS = null, CARD_POLL = null;
 // 模型和 effort（右下角的菜单，照 claude.ai；10-14：自己选，Fable 太贵不放）。列表来自后端 llm.choices()，第一个是默认：
 // 有 Claude 列 Claude 的，只有 DeepSeek 列 DeepSeek 的（那时没有 Effort 这一项，EFFORTS 是空的）
@@ -111,7 +112,11 @@ function traceHtml(trace) {
     + trailHtml(steps, false) + '</details>';
 }
 
-const qHtml = t => `<div class="ch-q"><div>${esc(t)}</div></div>`;
+const qHtml = (t, files) => `<div class="ch-q"><div>${esc(t)}</div></div>` + (files?.length ? `<div class="ch-qfiles">${files.map(f => fchip(f)).join('')}</div>` : '');
+// 附的文件（11-01）：输入框上面、问题气泡下面那种小卡片
+const fchip = (f, i) => `<span class="ch-fchip${f.error ? ' bad' : ''}" title="${esc(f.path || f.name)}"><span class="ch-fchip-t"><span class="ch-fchip-n">${esc(f.name)}</span>`
+  + `<span class="ch-fchip-m">${f.error ? esc(f.error) : f.up ? '上传中…' : f.lines != null ? `${f.lines} 行` : '文件'}</span></span>`
+  + (i != null ? `<button type="button" class="ch-fchip-x" data-i="${i}" aria-label="去掉">×</button>` : '') + '</span>';
 const lostHtml = last => `<div class="ch-lost"><span>这个问题没答完（出错了，或者那时服务重启了）</span>`
   + (last ? '<button type="button" class="ch-lost-go">重新问</button>' : '') + '</div>';
 const aHtml = (t, cites, stopped, trace) => `<div class="ch-a${stopped ? ' stopped' : ''}">${traceHtml(trace)}${body(t, cites || [])}${sources(cites || [])}</div>`;
@@ -171,7 +176,7 @@ function turnBlock(t, i) {
   const pending = latest && lastTurn && LIVE_LAST;
   const ans = v.a ? aHtml(v.a.text, v.a.cites, false, v.a.trace) + `<div class="ch-acts ch-a-acts">${btn('ch-copy', '复制', I_COPY)}</div>`
     : v.q && !pending && latest ? lostHtml(lastTurn) : '';
-  return `<div class="ch-turn" data-k="${key}" data-i="${i}">${v.q ? qHtml(v.q.text) + qActs : ''}<div class="ch-ans">${ans}</div></div>`;
+  return `<div class="ch-turn" data-k="${key}" data-i="${i}">${v.q ? qHtml(v.q.text, v.q.trace?.files) + qActs : ''}<div class="ch-ans">${ans}</div></div>`;
 }
 
 function renderLog() { $('#chLog').innerHTML = TURNS.map(turnBlock).join(''); }
@@ -227,7 +232,7 @@ function editTurn(turn, t) {
     if (!v || BUSY) return;
     VIEW.delete(t.q.id);
     LIVE_LAST = true;
-    turn.innerHTML = qHtml(v) + `<div class="ch-ans"><div class="ch-a ch-wait">${waitHtml({ deep: true })}</div></div>`;
+    turn.innerHTML = qHtml(v, t.q.trace?.files) + `<div class="ch-ans"><div class="ch-a ch-wait">${waitHtml({ deep: true })}</div></div>`;
     launch({ redo: 'edit', question: v });
   };
   turn.querySelector('.ch-edit-no').onclick = cancel;
@@ -282,7 +287,27 @@ function setBusy(on) {
   $('#chSend').title = on ? '停止' : '发送（回车）';
   syncSend();
 }
-function syncSend() { $('#chSend').disabled = !BUSY && !$('#chInput').value.trim(); }
+function syncSend() { $('#chSend').disabled = !BUSY && (!$('#chInput').value.trim() || FILES.some(f => f.up)); }
+
+// ---------- 附文件（11-01 用户：「我可以主动添加文件一起问」）：回形针 / 拖进来 / 粘贴 → 先存到本机 qa_files/，问的时候带路径 ----------
+function renderFiles() {
+  const box = $('#chFiles');
+  box.hidden = !FILES.length;
+  box.innerHTML = FILES.map(fchip).join('');
+  syncSend();
+}
+async function addFiles(list) {
+  const picked = [...list].filter(f => f.size || f.name);
+  if (!picked.length) return;
+  const mine = picked.map(f => ({ name: f.name || '粘贴的文件', up: true }));
+  FILES.push(...mine);
+  renderFiles();
+  const fd = new FormData();
+  picked.forEach(f => fd.append('file', f, f.name || 'pasted.txt'));
+  const r = await fetch('/api/qa/upload', { method: 'POST', body: fd }).then(r => r.json()).catch(() => ({ error: '连不上 Ephemeris' }));
+  mine.forEach((m, i) => Object.assign(m, r.files?.[i] || { error: r.error || '没传上' }, { up: false }));
+  renderFiles();
+}
 
 function label(list, id) { return (list.find(x => x[0] === id) || [id, id])[1]; }
 
@@ -526,7 +551,8 @@ async function send(e) {
     return;
   }
   const q = $('#chInput').value.trim();
-  if (!q) return;
+  if (!q || FILES.some(f => f.up)) return;
+  const files = FILES.filter(f => f.path && !f.error);
   if (!THREAD) {                                            // 新对话：问第一句时才建
     const r = await fetch('/api/qa/new', { method: 'POST' }).then(r => r.json()).catch(() => null);
     if (!r) return;
@@ -535,10 +561,12 @@ async function send(e) {
   }
   B.classList.remove('ch-empty');
   LIVE_LAST = true;
-  $('#chLog').insertAdjacentHTML('beforeend', `<div class="ch-turn">${qHtml(q)}<div class="ch-ans"><div class="ch-a ch-wait">${waitHtml({ deep: true })}</div></div></div>`);
+  $('#chLog').insertAdjacentHTML('beforeend', `<div class="ch-turn">${qHtml(q, files)}<div class="ch-ans"><div class="ch-a ch-wait">${waitHtml({ deep: true })}</div></div></div>`);
   $('#chInput').value = '';
+  FILES = [];
+  renderFiles();
   grow();
-  launch({ question: q }, () => { $('#chInput').value = q; });   // 没发出去：问题还给你，改一下再问
+  launch({ question: q, files: files.map(f => f.path) }, () => { $('#chInput').value = q; FILES = files; renderFiles(); });   // 没发出去：问题和附件还给你
 }
 
 // 发出去、等着写完：新问题（send）和「重新问」（again：服务器拿这段对话里没答完的最后那句）共用
@@ -566,6 +594,21 @@ function grow() {
 
 // ---------- 事件 ----------
 $('#chForm').addEventListener('submit', send);
+$('#chAttach').addEventListener('click', () => $('#chFile').click());
+$('#chFile').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
+$('#chFiles').addEventListener('click', e => {
+  const x = e.target.closest('.ch-fchip-x');
+  if (x) { FILES.splice(+x.dataset.i, 1); renderFiles(); $('#chInput').focus(); }   // 只是这次不带，存下的文件留着
+});
+$('#chInput').addEventListener('paste', e => {
+  const fs = e.clipboardData?.files;
+  if (fs && fs.length) { e.preventDefault(); addFiles(fs); }
+});
+for (const t of ['dragenter', 'dragover']) {
+  $('#chBox').addEventListener(t, e => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); $('#chBox').classList.add('ch-drop'); } });
+}
+$('#chBox').addEventListener('dragleave', e => { if (!$('#chBox').contains(e.relatedTarget)) $('#chBox').classList.remove('ch-drop'); });
+$('#chBox').addEventListener('drop', e => { e.preventDefault(); $('#chBox').classList.remove('ch-drop'); addFiles(e.dataTransfer.files); });
 $('#chInput').addEventListener('input', grow);
 $('#chInput').addEventListener('keydown', e => {            // 回车发送，Shift+回车换行（输入法选字时不算）
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!BUSY) $('#chForm').requestSubmit(); }

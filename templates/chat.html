@@ -53,9 +53,14 @@
   </section>
 
   <form class="ch-composer" id="chForm">
-    <div class="ch-box">
+    <div class="ch-box" id="chBox">
+      <div class="ch-files" id="chFiles" hidden></div>
       <textarea id="chInput" rows="1" placeholder="问问你自己的聊天记录…" autocomplete="off"></textarea>
       <div class="ch-tools">
+        <button type="button" class="ch-icon ch-attach" id="chAttach" title="附上文件（也可以拖进来、粘贴）：文字、Markdown、代码、.docx、.pptx、有文字层的 PDF" aria-label="附上文件">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.4 3.4 0 0 1 4.8 4.8l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"/></svg>
+        </button>
+        <input type="file" id="chFile" multiple hidden>
         <div class="ch-mm">
           <button type="button" class="ch-model" id="chModel" aria-haspopup="menu" aria-expanded="false" title="选模型{{ '和 effort' if efforts else '' }}">{{ models[0][1] if models else '' }}{% if efforts %} <i>Max</i>{% endif %}</button>
           <div class="ch-menu" id="chMenu" role="menu" hidden>

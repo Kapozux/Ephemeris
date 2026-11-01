@@ -107,6 +107,8 @@ def _history_text(turns):
     lines = []
     for t in turns:
         one = re.sub(r'\s+', ' ', re.sub(r'\[\[[^\]]+\]\]', '', no_viz(t['text'])))[:600]   # 出处记号不给模型看，不然它照抄卡 id
+        if files_of(t):
+            one += '（附了文件：' + '、'.join(f"{f['name']}（{f['path']}）" for f in files_of(t)) + '）'
         lines.append(('问：' if t['role'] == 'user' else '答：') + one)
     return '\n'.join(lines) or '（无）'
 
@@ -330,7 +332,7 @@ def _say(thread, role, text, cites=(), sid=None, trace=None, when=None):
     if role == 'user':
         store.run("UPDATE qa_threads SET title = CASE WHEN title = '' THEN ? ELSE title END, updated=? WHERE id=?",
                   ' '.join(text.split())[:40], now.strftime('%Y-%m-%dT%H:%M:%S'), thread)   # 跟 new_thread 同一个格式（不带时区），才比得了先后
-    _mirror(qid, thread, role, text, now)
+    _mirror(qid, thread, role, text + ''.join(f"\n[附件：{f['name']}]" for f in (trace or {}).get('files') or []), now)   # 跟 claude.ai 附件同一个写法
     return qid
 
 
@@ -591,6 +593,33 @@ FOLLOW_PROMPT = """追问：{question}
 RESUME_PROMPT = """刚才你查到一半（或者写回答写到一半）断了：网断了或者服务重启了，回答没送到。
 
 前面查到的都还在，接着用；还缺的再查，别从头查一遍。规矩跟刚才一样：只根据查到的回答，标 [[m:…]] / [[c:…]]；最后只输出回答正文（完整的一份，不是只写剩下的）；还是像聊天那样说，别列流水账；画图也照刚才的规矩。"""
+ATTACH = """
+
+（他这次附了 {n} 个文件，问题多半跟它们有关。答之前先用 `{look} file <路径>` 把它们读完（长的分几次读），需要的话再去查聊天记录；引用文件照文件的记号 [[f:路径:行号]]：
+{files}）"""
+
+
+def attachments(paths):
+    """问的时候带上来的附件路径 → [{path, name, lines}]（11-01）。不是 qa_files 里的抛 localfiles.Denied。"""
+    return [localfiles.upload_info(p) for p in dict.fromkeys(paths or [])]
+
+
+def files_of(row):
+    """qa_chat 里一句问题当时附的文件（trace 里的 files）。"""
+    t = (row or {}).get('trace')
+    try:
+        t = json.loads(t) if isinstance(t, str) else t
+    except ValueError:
+        return []
+    return list((t or {}).get('files') or [])
+
+
+def _with_files(question, files, look):
+    if not files:
+        return question
+    return question + ATTACH.format(n=len(files), look=look, files='\n'.join(f"- {f['path']}（{f['name']}，{f.get('lines', '?')} 行）" for f in files))
+
+
 CITE_ANY = re.compile(r'\[\[\s*(?:([mc]):([^\]\s]+)|(f):([^\]]+?))\s*\]\]')     # 文件路径里可能有空格
 
 
@@ -726,11 +755,11 @@ def _step(kind, text):
             'd': ' · '.join([w for w in [words[:80]] if w] + notes)}
 
 
-def answer_deep(question, progress=None, on_text=None, thread=None, model=None, effort='max', again=False, fresh=False, use_memory=True):
+def answer_deep(question, progress=None, on_text=None, thread=None, model=None, effort='max', again=False, fresh=False, use_memory=True, files=()):
     """fresh：不接上一轮的 Claude 会话（重新跑 / 改问题时：上一轮会话里有被换掉的那版回答）。
-    use_memory=False：不看「记忆」（档案），见 LOOK_NO_MEMORY。"""
+    use_memory=False：不看「记忆」（档案），见 LOOK_NO_MEMORY。files：他附的文件（attachments() 给的），重问时用问题那行存着的。"""
     with llm.using(model):
-        return _answer_deep(question, progress, on_text, thread, effort, again, fresh, use_memory)
+        return _answer_deep(question, progress, on_text, thread, effort, again, fresh, use_memory, files)
 
 
 def _used_memory(row):
@@ -741,7 +770,7 @@ def _used_memory(row):
         return True
 
 
-def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh=False, use_memory=True):
+def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh=False, use_memory=True, files=()):
     """让 Claude 自己查着回答。progress(一行文字) 报进度；on_text(一小段字) 是正在写的回答，on_text(None) = 这段作废、重新开始
     （它查一步说一句再查，每段话开头都会重置，最后留下的就是回答）。追问（DEEP_TTL 以内）接着上一轮的会话。"""
     question = (question or '').strip()
@@ -759,8 +788,10 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
     if again:
         q = store.one("SELECT id, sid, trace FROM qa_chat WHERE thread_id=? AND role='user' AND replaced IS NULL ORDER BY id DESC LIMIT 1", thread) or {}
         qid, lost = q.get('id'), q.get('sid') if _used_memory(q) == use_memory else None
+        files = files or files_of(q)
     else:
-        qid, lost = _say(thread, 'user', question, trace=None if use_memory else {'no_memory': True}), None
+        qtrace = {**({} if use_memory else {'no_memory': True}), **({'files': [{'path': f['path'], 'name': f['name'], 'lines': f.get('lines')} for f in files]} if files else {})}
+        qid, lost = _say(thread, 'user', question, trace=qtrace or None), None
     buf, steps, held, t0 = [], [], [], time.time()
 
     def add(step):
@@ -800,15 +831,16 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
         return {'answer': body, 'cites': cites, 'deep': True, 'thread': thread, 'trace': trace, **({'stopped': True} if stopped else {})}
 
     if not llm.claude_on():                                         # 只有 DeepSeek：它自己调 look 工具查，没有会话可接（追问靠前面的对话记录）
-        prompt = deep_prompt_deepseek(name=idx.who(), today=days.today(), roots=_roots(), skills=_skills_text(), **_memory_parts('look', use_memory), history=_history_text(turns), question=question)
+        prompt = deep_prompt_deepseek(name=idx.who(), today=days.today(), roots=_roots(), skills=_skills_text(), **_memory_parts('look', use_memory), history=_history_text(turns), question=_with_files(question, files, 'look'))
         try:
             text = llm.deepseek_agent(prompt, LOOK_TOOL, run_look if use_memory else (lambda a: run_look(a, False)), on_event=say, purpose='qa-deep')
         except llm.Cancelled:
             return done(*_deep_cites(''.join(buf).strip()), stopped=True)
         return done(*_deep_cites(text))
     look = LOOK if use_memory else LOOK_NO_MEMORY
-    fresh = DEEP_PROMPT.format(name=idx.who(), today=days.today(), roots=_roots(), skills=_skills_text(), **_memory_parts(look, use_memory), look=look, history=_history_text(turns), question=question)
-    first = RESUME_PROMPT if lost else FOLLOW_PROMPT.format(question=question) if sid else fresh
+    asked = _with_files(question, files, look)
+    fresh = DEEP_PROMPT.format(name=idx.who(), today=days.today(), roots=_roots(), skills=_skills_text(), **_memory_parts(look, use_memory), look=look, history=_history_text(turns), question=asked)
+    first = RESUME_PROMPT if lost else FOLLOW_PROMPT.format(question=asked) if sid else fresh
     try:
         try:
             text, new_sid = llm.claude_agent(first, look, session=lost or sid, on_event=say, purpose='qa-deep', effort=effort)
@@ -833,7 +865,7 @@ def can_dig():
     return llm.claude_on() or llm.cheap_on()
 
 
-def start_ask(question, thread=None, model=None, effort=None, again=False, fresh=False, use_memory=True):
+def start_ask(question, thread=None, model=None, effort=None, again=False, fresh=False, use_memory=True, files=()):
     """后台问（一两分钟；只有 Gemini 时凭卡答，十来秒）。前端 / ask.py 轮询 live()：steps 是查找进度，partial 是正在写的回答，
     result 是写完、出处认好的最终版；问答照样记进 history()。每段对话同一时间只问一个，不同对话可以同时问。"""
     thread = thread or current()
@@ -847,7 +879,7 @@ def start_ask(question, thread=None, model=None, effort=None, again=False, fresh
             job['raw'] = '' if piece is None else job['raw'] + piece
             job['partial'] = no_thinking(job['raw'])
         pick = {'model': model, 'effort': effort or 'max', 'again': again}          # 问默认 Max（10-17：思考不要限制）
-        job['result'] = answer_deep(q, progress=job['steps'].append, on_text=text, thread=thread, fresh=fresh, use_memory=use_memory, **pick) if deep \
+        job['result'] = answer_deep(q, progress=job['steps'].append, on_text=text, thread=thread, fresh=fresh, use_memory=use_memory, files=files, **pick) if deep \
             else answer(q, on_text=text, thread=thread, **pick)
         # 第一轮答完起标题：另开一条线，不拖着这次问答收尾
         threading.Thread(target=autotitle, args=(thread,), daemon=True).start()

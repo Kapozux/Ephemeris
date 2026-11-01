@@ -8,12 +8,16 @@ look.py 的 files / grep / file 三个命令用这里；回答里引文件是 [[
 不是纯文字的（10-21）：.docx / .pptx 直接从里面的 XML 取字，有文字层的 PDF 用 pdftotext 取字，都是一下就出。
 扫描件不现转（墨页转一份要排队、几分钟）：墨页（旁边的 PDF→Markdown 应用，MOYE_URL）已经转好的，用 moye_search 搜、
 路径写 moye:<id> 按行读，跟文件一样；没转过的就让他先在墨页里转。墨页没开着也不影响别的。
+
+他在「问」里自己附的文件（11-01 用户：「我可以主动添加文件一起问」）：save_upload 存进 qa_files/<日期>/（只加不删，规矩 6），
+这个目录一直算白名单，所以 look.py file、[[f:路径:行号]] 出处、快照都照普通文件走。读得出文字才收。
 """
 import fnmatch
 import html
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import time
@@ -40,9 +44,18 @@ class Denied(ValueError):
     pass
 
 
+UPLOAD_MAX = 50 * 1024 * 1024
+
+
+def uploads():
+    """「问」里附的文件放哪（测试指到临时目录）。"""
+    return os.path.realpath(os.environ.get('EPHEMERIS_QA_FILES') or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'qa_files'))
+
+
 def roots():
     raw = os.environ.get('EPHEMERIS_FILE_ROOTS')
-    return [os.path.realpath(os.path.expanduser(r)) for r in (raw.split(os.pathsep) if raw else DEFAULT_ROOTS) if r.strip()]
+    out = [os.path.realpath(os.path.expanduser(r)) for r in (raw.split(os.pathsep) if raw else DEFAULT_ROOTS) if r.strip()]
+    return out + [uploads()] if not any(uploads() == r or uploads().startswith(r + os.sep) for r in out) else out
 
 
 def _blocked_name(name, is_dir):
@@ -278,3 +291,39 @@ def moye_text(job_id):
     if not re.fullmatch(r'[\w-]+', job_id or ''):
         raise Denied(f'不是墨页的 id：{job_id}')
     return (_moye(f'/api/library/{job_id}').get('result') or {}).get('markdown') or ''
+
+
+# ---------- 「问」里他自己附的文件 ----------
+def save_upload(name, data):
+    """存一份他附的文件，→ {path（给模型、出处用）, name, lines, chars}。读不出文字（图片、扫描件、空的）、太大、
+    像密钥 / 数据库的 → Denied，不留。"""
+    base = re.sub(r'[\x00-\x1f/\\:]', '_', os.path.basename(str(name or '').replace('\\', '/')).strip()).lstrip('.')[:120] or 'file.txt'
+    if len(data) > UPLOAD_MAX:
+        raise Denied(f'文件太大（最多 {UPLOAD_MAX // 1024 // 1024} MB）：{base}')
+    if _blocked_name(base, False):
+        raise Denied(f'这类文件不收（密钥、数据库之类）：{base}')
+    d = os.path.join(uploads(), datetime.now().strftime('%Y-%m-%d'))
+    os.makedirs(d, exist_ok=True)
+    real = os.path.join(d, f'{secrets.token_hex(3)}-{base}')
+    with open(real, 'wb') as f:
+        f.write(data)
+    try:
+        rows = _read(real)
+        if not ''.join(rows).strip():
+            raise Denied(f'文件是空的：{base}')
+    except Denied as e:
+        os.remove(real)                         # 没收下的不留；话说给人听，不带存放路径
+        msg = str(e)
+        raise Denied('扫描件 PDF 读不出字：先在墨页里转好再附' if '扫描件' in msg else
+                     '图片这类还看不了：只收文字、Markdown、代码、.docx、.pptx、有文字层的 PDF' if '不是文字' in msg else
+                     msg.replace(show(real), base))
+    return {'path': show(real), 'name': base, 'lines': len(rows), 'chars': sum(len(r) for r in rows)}
+
+
+def upload_info(path):
+    """问的时候带上来的路径 → {path, name, lines}；只认 qa_files 里的（别的路径不能借这个口子塞进提示词）。"""
+    real = resolve(path)
+    if not real.startswith(uploads() + os.sep) or not os.path.isfile(real):
+        raise Denied(f'不是附上来的文件：{path}')
+    name = os.path.basename(real)
+    return {'path': show(real), 'name': name.split('-', 1)[1] if re.match(r'[0-9a-f]{6}-', name) else name, 'lines': len(_read(real))}

@@ -6,6 +6,7 @@ import conv_review
 import index as idx
 import ledger
 import llm
+import localfiles
 import qa
 import reflect_chat
 import river
@@ -112,9 +113,15 @@ def api_qa_ask():
     again = bool(body.get('again'))                    # 重问这段对话里没答完的最后那句（问到一半服务重启了 / 出错了）
     q = ((qa.unanswered(body.get('thread')) if again and body.get('thread') else body.get('question')) or '').strip()
     redo = body.get('redo')                            # 'retry' 重新跑最后一问 / 'edit' 改了最后一问再跑（问题在 question 里）
+    try:                                               # 附的文件（11-01）：先 /api/qa/upload 存好，这里只带路径
+        files = qa.attachments(body.get('files'))
+    except localfiles.Denied as e:
+        return jsonify({'error': str(e)}), 400
     if redo in ('retry', 'edit') and body.get('thread'):
         if qa.live(body['thread']).get('running'):
             return jsonify({'error': '上一个问题还没答完'}), 409
+        if redo == 'edit' and not body.get('files'):   # 改问题：附件跟着原来那句走（照 claude.ai）
+            files = qa.files_of(store.one("SELECT trace FROM qa_chat WHERE thread_id=? AND role='user' AND replaced IS NULL ORDER BY id DESC LIMIT 1", body['thread']))
         got = qa.rewind(body['thread'], q if redo == 'edit' else None) if redo == 'retry' or q else None
         if not got:
             return jsonify({'error': '问题是空的' if redo == 'edit' else '没有能重新跑的问题'}), 400
@@ -129,7 +136,19 @@ def api_qa_ask():
     # 后台问、边写边看：进度在 /api/qa/live
     thread = body.get('thread') or qa.current()
     use_memory = body.get('memory') is not False                            # 聊天页菜单里「用记忆」关掉了：不看档案
-    return jsonify({'started': qa.start_ask(q, thread, model, effort, again, fresh=bool(redo), use_memory=use_memory), 'live': qa.live(thread)})
+    return jsonify({'started': qa.start_ask(q, thread, model, effort, again, fresh=bool(redo), use_memory=use_memory, files=files), 'live': qa.live(thread)})
+
+
+@bp.route('/api/qa/upload', methods=['POST'])
+def api_qa_upload():
+    """聊天页附文件（回形针 / 拖进来 / 粘贴）：一个一个存进 qa_files/，→ 每个的 {path, name, lines}；读不出文字的给 error。"""
+    out = []
+    for f in request.files.getlist('file'):
+        try:
+            out.append(localfiles.save_upload(f.filename, f.read()))
+        except localfiles.Denied as e:
+            out.append({'name': f.filename, 'error': str(e)})
+    return jsonify({'files': out}) if out else (jsonify({'error': '没有文件'}), 400)
 
 
 @bp.route('/api/qa/stop', methods=['POST'])

@@ -231,7 +231,9 @@ sup .ch-cite:hover { color: var(--text); }
 .ch-tools { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
 /* 附的文件（11-01）：输入框上面一排小卡片，问题气泡下面也一排；拖文件进来时框描一圈 */
 .ch-box.ch-drop { border-color: var(--accent); }
-.ch-attach { margin-left: -6px; }
+.ch-am { position: relative; margin-left: -6px; }
+.ch-menu.ch-amenu { left: 0; right: auto; width: 168px; }   /* 回形针的小菜单：从左边往上弹（.ch-menu 默认靠右，是模型菜单的） */
+.ch-amenu .ch-mi svg { color: var(--muted); }
 .ch-attach svg { width: 19px; height: 19px; }
 .ch-files { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
 .ch-fchip { display: inline-flex; align-items: flex-start; gap: 8px; max-width: 260px; padding: 6px 8px 6px 10px; border-radius: 10px;

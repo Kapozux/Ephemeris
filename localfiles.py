@@ -45,6 +45,8 @@ class Denied(ValueError):
 
 
 UPLOAD_MAX = 50 * 1024 * 1024
+FOLDER_MAX = 500 * 1024 * 1024    # 附一整个文件夹：合计最多这么大、这么多个
+FOLDER_FILES = 5000
 
 
 def uploads():
@@ -320,10 +322,42 @@ def save_upload(name, data):
     return {'path': show(real), 'name': base, 'lines': len(rows), 'chars': sum(len(r) for r in rows)}
 
 
+def _clean(name):
+    return re.sub(r'[\x00-\x1f/\\:]', '_', str(name or '').strip()).lstrip('.')[:120]
+
+
+def save_folder(name, items):
+    """附一整个文件夹（11-01 用户：「最好能支持添加整个文件夹」）：items = [(文件夹里的相对路径, 内容)]，照原样的层次存一份。
+    不挑能不能读（图片之类照存，look 读到时自己会说读不了），只跳过挡着的（隐藏的、密钥、数据库、node_modules 这类）。
+    → {path（文件夹）, name, kind: 'folder', files, skipped}；一个都没留下 → Denied。"""
+    folder = _clean(os.path.basename(str(name or '').rstrip('/\\'))) or 'folder'
+    root = os.path.join(uploads(), datetime.now().strftime('%Y-%m-%d'), f'{secrets.token_hex(3)}-{folder}')
+    kept, skipped, total = 0, 0, 0
+    for rel, data in items:
+        parts = [p for p in str(rel).replace('\\', '/').split('/') if p not in ('', '.')]
+        if parts and parts[0] == folder:                 # 浏览器给的是「文件夹名/…」
+            parts = parts[1:]
+        if not parts or '..' in parts or any(_blocked_name(p, i < len(parts) - 1) for i, p in enumerate(parts)) \
+                or kept >= FOLDER_FILES or total + len(data) > FOLDER_MAX:
+            skipped += 1
+            continue
+        real = os.path.join(root, *[_clean(p) or '_' for p in parts])
+        os.makedirs(os.path.dirname(real), exist_ok=True)
+        with open(real, 'wb') as f:
+            f.write(data)
+        kept, total = kept + 1, total + len(data)
+    if not kept:
+        raise Denied(f'这个文件夹里没有能收的文件（隐藏的、密钥、数据库之类都跳过）：{folder}')
+    return {'path': show(root), 'name': folder, 'kind': 'folder', 'files': kept, 'skipped': skipped}
+
+
 def upload_info(path):
-    """问的时候带上来的路径 → {path, name, lines}；只认 qa_files 里的（别的路径不能借这个口子塞进提示词）。"""
+    """问的时候带上来的路径 → {path, name, lines} / 文件夹 {path, name, kind, files}；只认 qa_files 里的（别的路径不能借这个口子塞进提示词）。"""
     real = resolve(path)
-    if not real.startswith(uploads() + os.sep) or not os.path.isfile(real):
+    if not real.startswith(uploads() + os.sep) or not os.path.exists(real):
         raise Denied(f'不是附上来的文件：{path}')
     name = os.path.basename(real)
-    return {'path': show(real), 'name': name.split('-', 1)[1] if re.match(r'[0-9a-f]{6}-', name) else name, 'lines': len(_read(real))}
+    name = name.split('-', 1)[1] if re.match(r'[0-9a-f]{6}-', name) else name
+    if os.path.isdir(real):
+        return {'path': show(real), 'name': name, 'kind': 'folder', 'files': sum(len(fs) for _, _, fs in os.walk(real))}
+    return {'path': show(real), 'name': name, 'lines': len(_read(real))}

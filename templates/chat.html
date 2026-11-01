@@ -57,10 +57,17 @@
       <div class="ch-files" id="chFiles" hidden></div>
       <textarea id="chInput" rows="1" placeholder="问问你自己的聊天记录…" autocomplete="off"></textarea>
       <div class="ch-tools">
-        <button type="button" class="ch-icon ch-attach" id="chAttach" title="附上文件（也可以拖进来、粘贴）：文字、Markdown、代码、.docx、.pptx、有文字层的 PDF" aria-label="附上文件">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.4 3.4 0 0 1 4.8 4.8l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"/></svg>
-        </button>
+        <div class="ch-am">
+          <button type="button" class="ch-icon ch-attach" id="chAttach" title="附上文件或文件夹（也可以拖进来、粘贴）" aria-label="附上文件或文件夹" aria-haspopup="menu" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.4 3.4 0 0 1 4.8 4.8l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"/></svg>
+          </button>
+          <div class="ch-menu ch-amenu" id="chAMenu" role="menu" hidden>
+            <button type="button" class="ch-mi" data-pick="file" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M6.5 3.5h7l4 4v13h-11z"/><path d="M13.5 3.5v4h4"/></svg><span class="ch-mi-t">添加文件</span></button>
+            <button type="button" class="ch-mi" data-pick="folder" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M3.5 6.5h6l2 2h9v10h-17z"/></svg><span class="ch-mi-t">添加文件夹</span></button>
+          </div>
+        </div>
         <input type="file" id="chFile" multiple hidden>
+        <input type="file" id="chFolder" webkitdirectory hidden>
         <div class="ch-mm">
           <button type="button" class="ch-model" id="chModel" aria-haspopup="menu" aria-expanded="false" title="选模型{{ '和 effort' if efforts else '' }}">{{ models[0][1] if models else '' }}{% if efforts %} <i>Max</i>{% endif %}</button>
           <div class="ch-menu" id="chMenu" role="menu" hidden>

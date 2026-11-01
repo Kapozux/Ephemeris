@@ -141,7 +141,13 @@ def api_qa_ask():
 
 @bp.route('/api/qa/upload', methods=['POST'])
 def api_qa_upload():
-    """聊天页附文件（回形针 / 拖进来 / 粘贴）：一个一个存进 qa_files/，→ 每个的 {path, name, lines}；读不出文字的给 error。"""
+    """聊天页附文件（回形针 / 拖进来 / 粘贴）：一个一个存进 qa_files/，→ 每个的 {path, name, lines}；读不出文字的给 error。
+    带 folder 字段的是一整个文件夹（save_folder）。"""
+    if request.form.get('folder'):                     # 整个文件夹：一次传上来，文件名带着文件夹里的相对路径
+        try:
+            return jsonify({'files': [localfiles.save_folder(request.form['folder'], [(f.filename, f.read()) for f in request.files.getlist('file')])]})
+        except localfiles.Denied as e:
+            return jsonify({'files': [{'name': request.form['folder'], 'kind': 'folder', 'error': str(e)}]})
     out = []
     for f in request.files.getlist('file'):
         try:

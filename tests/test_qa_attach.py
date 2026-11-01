@@ -41,6 +41,26 @@ class Upload(unittest.TestCase):
                 localfiles.save_upload(name, data)
         self.assertEqual(sum(len(fs) for _, _, fs in os.walk(localfiles.uploads())), before)
 
+    def test_folder(self):
+        items = [('论文/README.md', b'# hi\n'), ('论文/src/a.py', b'print(1)\n'), ('论文/图.png', b'\x89PNG\0'),
+                 ('论文/.git/config', b'x'), ('论文/id_rsa', b'k'), ('论文/../../逃出去.txt', b'x')]
+        f = localfiles.save_folder('论文', items)
+        self.assertEqual((f['kind'], f['files'], f['skipped']), ('folder', 3, 3))        # 图片照存，挡着的跳过
+        real = localfiles.resolve(f['path'])
+        self.assertTrue(os.path.isfile(os.path.join(real, 'src', 'a.py')))
+        info = qa.attachments([f['path']])[0]
+        self.assertEqual((info['name'], info['files']), ('论文', 3))
+        self.assertIn('文件夹 论文，3 个文件', qa._with_files('看看', [info], 'look'))
+        with self.assertRaises(localfiles.Denied):
+            localfiles.save_folder('空', [('空/.DS_Store', b'x')])
+
+    def test_folder_route(self):
+        store.run('DELETE FROM app_lock')
+        c = appmod.app.test_client()
+        r = c.post('/api/qa/upload', data={'folder': 'notes', 'file': [(io.BytesIO(b'a'), 'notes/a.txt'), (io.BytesIO(b'b'), 'notes/sub/b.txt')]},
+                   headers=H, content_type='multipart/form-data').get_json()
+        self.assertEqual((r['files'][0]['kind'], r['files'][0]['files']), ('folder', 2))
+
     def test_only_uploads_can_be_attached(self):
         with self.assertRaises(localfiles.Denied):
             qa.attachments(['/etc/passwd'])

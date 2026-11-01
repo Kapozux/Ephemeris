@@ -332,7 +332,7 @@ def _say(thread, role, text, cites=(), sid=None, trace=None, when=None):
     if role == 'user':
         store.run("UPDATE qa_threads SET title = CASE WHEN title = '' THEN ? ELSE title END, updated=? WHERE id=?",
                   ' '.join(text.split())[:40], now.strftime('%Y-%m-%dT%H:%M:%S'), thread)   # 跟 new_thread 同一个格式（不带时区），才比得了先后
-    _mirror(qid, thread, role, text + ''.join(f"\n[附件：{f['name']}]" for f in (trace or {}).get('files') or []), now)   # 跟 claude.ai 附件同一个写法
+    _mirror(qid, thread, role, text + ''.join(f"\n[附件：{f['name']}{'/' if f.get('kind') == 'folder' else ''}]" for f in (trace or {}).get('files') or []), now)   # 跟 claude.ai 附件同一个写法
     return qid
 
 
@@ -595,7 +595,8 @@ RESUME_PROMPT = """刚才你查到一半（或者写回答写到一半）断了�
 前面查到的都还在，接着用；还缺的再查，别从头查一遍。规矩跟刚才一样：只根据查到的回答，标 [[m:…]] / [[c:…]]；最后只输出回答正文（完整的一份，不是只写剩下的）；还是像聊天那样说，别列流水账；画图也照刚才的规矩。"""
 ATTACH = """
 
-（他这次附了 {n} 个文件，问题多半跟它们有关。答之前先用 `{look} file <路径>` 把它们读完（长的分几次读），需要的话再去查聊天记录；引用文件照文件的记号 [[f:路径:行号]]：
+（他这次附了下面这些，问题多半跟它们有关。只给了路径，内容你自己去看、看需要的部分：文件用 `{look} file <路径>`（长的用 --at 跳到要的地方）；
+文件夹先 `{look} files <文件夹>` 看里面有什么（子文件夹接着往下看，或者 --glob 按文件名找），再 grep / file 挑相关的读，不用每个都读完。需要的话再去查聊天记录对照；引用照文件的记号 [[f:路径:行号]]：
 {files}）"""
 
 
@@ -617,7 +618,9 @@ def files_of(row):
 def _with_files(question, files, look):
     if not files:
         return question
-    return question + ATTACH.format(n=len(files), look=look, files='\n'.join(f"- {f['path']}（{f['name']}，{f.get('lines', '?')} 行）" for f in files))
+    return question + ATTACH.format(look=look, files='\n'.join(
+        f"- {f['path']}/（文件夹 {f['name']}，{f.get('files', '?')} 个文件）" if f.get('kind') == 'folder' else
+        f"- {f['path']}（{f['name']}，{f.get('lines', '?')} 行）" for f in files))
 
 
 CITE_ANY = re.compile(r'\[\[\s*(?:([mc]):([^\]\s]+)|(f):([^\]]+?))\s*\]\]')     # 文件路径里可能有空格
@@ -790,7 +793,7 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
         qid, lost = q.get('id'), q.get('sid') if _used_memory(q) == use_memory else None
         files = files or files_of(q)
     else:
-        qtrace = {**({} if use_memory else {'no_memory': True}), **({'files': [{'path': f['path'], 'name': f['name'], 'lines': f.get('lines')} for f in files]} if files else {})}
+        qtrace = {**({} if use_memory else {'no_memory': True}), **({'files': [{k: f[k] for k in ('path', 'name', 'lines', 'kind', 'files') if k in f} for f in files]} if files else {})}
         qid, lost = _say(thread, 'user', question, trace=qtrace or None), None
     buf, steps, held, t0 = [], [], [], time.time()
 

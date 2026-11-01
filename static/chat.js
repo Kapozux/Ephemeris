@@ -115,7 +115,7 @@ function traceHtml(trace) {
 const qHtml = (t, files) => `<div class="ch-q"><div>${esc(t)}</div></div>` + (files?.length ? `<div class="ch-qfiles">${files.map(f => fchip(f)).join('')}</div>` : '');
 // 附的文件（11-01）：输入框上面、问题气泡下面那种小卡片
 const fchip = (f, i) => `<span class="ch-fchip${f.error ? ' bad' : ''}" title="${esc(f.path || f.name)}"><span class="ch-fchip-t"><span class="ch-fchip-n">${esc(f.name)}</span>`
-  + `<span class="ch-fchip-m">${f.error ? esc(f.error) : f.up ? '上传中…' : f.lines != null ? `${f.lines} 行` : '文件'}</span></span>`
+  + `<span class="ch-fchip-m">${f.error ? esc(f.error) : f.up ? '上传中…' : f.kind === 'folder' ? `文件夹 · ${f.files} 个文件` : f.lines != null ? `${f.lines} 行` : '文件'}</span></span>`
   + (i != null ? `<button type="button" class="ch-fchip-x" data-i="${i}" aria-label="去掉">×</button>` : '') + '</span>';
 const lostHtml = last => `<div class="ch-lost"><span>这个问题没答完（出错了，或者那时服务重启了）</span>`
   + (last ? '<button type="button" class="ch-lost-go">重新问</button>' : '') + '</div>';
@@ -307,6 +307,37 @@ async function addFiles(list) {
   const r = await fetch('/api/qa/upload', { method: 'POST', body: fd }).then(r => r.json()).catch(() => ({ error: '连不上 Ephemeris' }));
   mine.forEach((m, i) => Object.assign(m, r.files?.[i] || { error: r.error || '没传上' }, { up: false }));
   renderFiles();
+}
+// 整个文件夹（11-01）：一次传上去，每个文件带着它在文件夹里的相对路径；隐藏的、依赖目录这边先跳过（服务器也会挡）
+const SKIP_DIR = /(^|\/)(\.[^/]*|node_modules|venv|\.venv|__pycache__|site-packages)(\/|$)/;
+async function addFolder(name, items) {
+  const keep = items.filter(x => !SKIP_DIR.test(x.rel));
+  const me = { name, kind: 'folder', up: true };
+  FILES.push(me);
+  renderFiles();
+  const fd = new FormData();
+  fd.append('folder', name);
+  keep.forEach(x => fd.append('file', x.file, x.rel));
+  const r = keep.length ? await fetch('/api/qa/upload', { method: 'POST', body: fd }).then(r => r.json()).catch(() => ({ error: '连不上 Ephemeris' }))
+    : { error: '文件夹是空的' };
+  Object.assign(me, r.files?.[0] || { error: r.error || '没传上' }, { up: false });
+  renderFiles();
+}
+// 拖进来的文件夹：浏览器只给入口，要自己一层层读出来（readEntries 一次最多给一百个，读到空为止）
+async function walk(entry, out = []) {
+  if (entry.isFile) {
+    out.push({ rel: entry.fullPath.replace(/^\//, ''), file: await new Promise((ok, bad) => entry.file(ok, bad)) });
+  } else if (entry.isDirectory && !SKIP_DIR.test(entry.fullPath.replace(/^\//, '') + '/')) {
+    const rd = entry.createReader();
+    for (let got; (got = await new Promise((ok, bad) => rd.readEntries(ok, bad))).length;) for (const e of got) await walk(e, out);
+  }
+  return out;
+}
+function dropped(dt) {
+  const entries = [...dt.items].map(i => i.webkitGetAsEntry?.()).filter(Boolean);   // 要在 drop 当下拿，等一下就没了
+  const loose = [...dt.files].filter((f, i) => !entries[i]?.isDirectory);
+  if (loose.length) addFiles(loose);
+  for (const d of entries.filter(e => e.isDirectory)) walk(d).then(items => addFolder(d.name, items));
 }
 
 function label(list, id) { return (list.find(x => x[0] === id) || [id, id])[1]; }
@@ -594,8 +625,24 @@ function grow() {
 
 // ---------- 事件 ----------
 $('#chForm').addEventListener('submit', send);
-$('#chAttach').addEventListener('click', () => $('#chFile').click());
+function toggleAMenu(open = $('#chAMenu').hidden) {
+  $('#chAMenu').hidden = !open;
+  $('#chAttach').setAttribute('aria-expanded', open);
+}
+$('#chAttach').addEventListener('click', () => toggleAMenu());
+$('#chAMenu').addEventListener('click', e => {
+  const b = e.target.closest('[data-pick]');
+  if (!b) return;
+  toggleAMenu(false);
+  $(b.dataset.pick === 'folder' ? '#chFolder' : '#chFile').click();
+});
+document.addEventListener('click', e => { if (!$('#chAMenu').hidden && !e.target.closest('.ch-am')) toggleAMenu(false); });
 $('#chFile').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
+$('#chFolder').addEventListener('change', e => {
+  const fs = [...e.target.files];
+  if (fs.length) addFolder(fs[0].webkitRelativePath.split('/')[0], fs.map(f => ({ rel: f.webkitRelativePath, file: f })));
+  e.target.value = '';
+});
 $('#chFiles').addEventListener('click', e => {
   const x = e.target.closest('.ch-fchip-x');
   if (x) { FILES.splice(+x.dataset.i, 1); renderFiles(); $('#chInput').focus(); }   // 只是这次不带，存下的文件留着
@@ -608,7 +655,7 @@ for (const t of ['dragenter', 'dragover']) {
   $('#chBox').addEventListener(t, e => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); $('#chBox').classList.add('ch-drop'); } });
 }
 $('#chBox').addEventListener('dragleave', e => { if (!$('#chBox').contains(e.relatedTarget)) $('#chBox').classList.remove('ch-drop'); });
-$('#chBox').addEventListener('drop', e => { e.preventDefault(); $('#chBox').classList.remove('ch-drop'); addFiles(e.dataTransfer.files); });
+$('#chBox').addEventListener('drop', e => { e.preventDefault(); $('#chBox').classList.remove('ch-drop'); dropped(e.dataTransfer); });
 $('#chInput').addEventListener('input', grow);
 $('#chInput').addEventListener('keydown', e => {            // 回车发送，Shift+回车换行（输入法选字时不算）
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!BUSY) $('#chForm').requestSubmit(); }

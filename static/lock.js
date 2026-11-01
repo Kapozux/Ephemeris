@@ -231,6 +231,11 @@
         setTimeout(() => { hold = false; }, 300);
       }
     },
+    // 别的会抢焦点的事（「问」里弹访达选文件，11-01）：fn 跑着的时候切走不算离开
+    async during(fn) {
+      hold = true;
+      try { return await fn(); } finally { setTimeout(() => { hold = false; }, 300); }
+    },
     async removeTouch() {
       const r = await post('/api/lock/touch/remove');
       if (r?.ok) touchOn = false;

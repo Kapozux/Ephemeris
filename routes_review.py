@@ -1,4 +1,6 @@
 """回顾：一段时间在聊什么（回顾面板、话题河流、主题账本），和按窗口回顾。"""
+import os
+
 from flask import Blueprint, jsonify, render_template, request
 
 import cards
@@ -137,6 +139,23 @@ def api_qa_ask():
     thread = body.get('thread') or qa.current()
     use_memory = body.get('memory') is not False                            # 聊天页菜单里「用记忆」关掉了：不看档案
     return jsonify({'started': qa.start_ask(q, thread, model, effort, again, fresh=bool(redo), use_memory=use_memory, files=files), 'live': qa.live(thread)})
+
+
+@bp.route('/api/qa/pick', methods=['POST'])
+def api_qa_pick():
+    """回形针菜单「添加文件 / 文件夹」：在本机弹访达的选择框，选完只给路径（不上传、不复制）。点取消 → files 是空的。"""
+    kind = (request.get_json(silent=True) or {}).get('kind')
+    try:
+        paths = localfiles.pick('folder' if kind == 'folder' else 'file')
+    except localfiles.Denied as e:
+        return jsonify({'error': str(e), 'fallback': True})
+    out = []
+    for p in paths:
+        try:
+            out.append(localfiles.attach_info(p))
+        except localfiles.Denied as e:
+            out.append({'name': os.path.basename(p) or p, 'error': str(e)})
+    return jsonify({'files': out})
 
 
 @bp.route('/api/qa/upload', methods=['POST'])

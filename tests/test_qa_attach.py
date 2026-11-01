@@ -30,7 +30,7 @@ class Upload(unittest.TestCase):
         self.assertEqual((f['name'], f['lines']), ('笔记.md', 2))
         real = localfiles.resolve(f['path'])
         self.assertTrue(real.startswith(localfiles.uploads()))
-        self.assertEqual(localfiles.upload_info(f['path'])['name'], '笔记.md')
+        self.assertEqual(localfiles.attach_info(f['path'])['name'], '笔记.md')
         d = localfiles.save_upload('文书.docx', docx('Why Purdue'))
         self.assertEqual(d['lines'], 1)
 
@@ -61,9 +61,23 @@ class Upload(unittest.TestCase):
                    headers=H, content_type='multipart/form-data').get_json()
         self.assertEqual((r['files'][0]['kind'], r['files'][0]['files']), ('folder', 2))
 
-    def test_only_uploads_can_be_attached(self):
+    def test_only_allowed_paths_can_be_attached(self):
         with self.assertRaises(localfiles.Denied):
             qa.attachments(['/etc/passwd'])
+
+    def test_pick_gives_paths_without_copying(self):
+        store.run('DELETE FROM app_lock')
+        mine = localfiles.save_folder('选的', [('选的/a.md', b'x\n'), ('选的/b.md', b'y\n')])['path']
+        before = sorted(os.listdir(localfiles.uploads()))
+        saved = localfiles.pick
+        localfiles.pick = lambda kind='file': [mine, '/etc']
+        try:
+            r = appmod.app.test_client().post('/api/qa/pick', json={'kind': 'folder'}, headers=H).get_json()
+        finally:
+            localfiles.pick = saved
+        self.assertEqual((r['files'][0]['path'], r['files'][0]['files']), (mine, 2))
+        self.assertIn('error', r['files'][1])                          # 白名单外面的不收
+        self.assertEqual(sorted(os.listdir(localfiles.uploads())), before)
 
     def test_route(self):
         store.run('DELETE FROM app_lock')

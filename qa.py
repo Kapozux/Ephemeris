@@ -601,8 +601,8 @@ ATTACH = """
 
 
 def attachments(paths):
-    """问的时候带上来的附件路径 → [{path, name, lines}]（11-01）。不是 qa_files 里的抛 localfiles.Denied。"""
-    return [localfiles.upload_info(p) for p in dict.fromkeys(paths or [])]
+    """问的时候带上来的附件路径 → [{path, name, lines}]（11-01）。不在白名单里的抛 localfiles.Denied。"""
+    return [localfiles.attach_info(p) for p in dict.fromkeys(paths or [])]
 
 
 def files_of(row):

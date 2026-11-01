@@ -115,7 +115,9 @@ function traceHtml(trace) {
 const qHtml = (t, files) => `<div class="ch-q"><div>${esc(t)}</div></div>` + (files?.length ? `<div class="ch-qfiles">${files.map(f => fchip(f)).join('')}</div>` : '');
 // 附的文件（11-01）：输入框上面、问题气泡下面那种小卡片
 const fchip = (f, i) => `<span class="ch-fchip${f.error ? ' bad' : ''}" title="${esc(f.path || f.name)}"><span class="ch-fchip-t"><span class="ch-fchip-n">${esc(f.name)}</span>`
-  + `<span class="ch-fchip-m">${f.error ? esc(f.error) : f.up ? '上传中…' : f.kind === 'folder' ? `文件夹 · ${f.files} 个文件` : f.lines != null ? `${f.lines} 行` : '文件'}</span></span>`
+  + `<span class="ch-fchip-m">${f.error ? esc(f.error) : f.up ? (f.picking ? '在访达里选…' : '上传中…')
+    : (f.kind === 'folder' ? `文件夹 · ${f.files} 个文件` : f.lines != null ? `${f.lines} 行` : '文件')
+      + (f.path && !f.path.includes('/qa_files/') ? ` · ${esc(f.path)}` : '')}</span></span>`
   + (i != null ? `<button type="button" class="ch-fchip-x" data-i="${i}" aria-label="去掉">×</button>` : '') + '</span>';
 const lostHtml = last => `<div class="ch-lost"><span>这个问题没答完（出错了，或者那时服务重启了）</span>`
   + (last ? '<button type="button" class="ch-lost-go">重新问</button>' : '') + '</div>';
@@ -307,6 +309,20 @@ async function addFiles(list) {
   const r = await fetch('/api/qa/upload', { method: 'POST', body: fd }).then(r => r.json()).catch(() => ({ error: '连不上 Ephemeris' }));
   mine.forEach((m, i) => Object.assign(m, r.files?.[i] || { error: r.error || '没传上' }, { up: false }));
   renderFiles();
+}
+// 回形针菜单（11-01 用户：浏览器传文件夹会弹「要上传吗」，一点就锁了；「你就只给我路径」）：服务器弹访达的选择框，选完只拿路径、不复制。
+// 弹框期间焦点在访达那边，隐私锁不算离开（ephLock.during）。弹不了（不是 Mac）才退回浏览器上传。
+async function pickLocal(kind) {
+  const me = { name: kind === 'folder' ? '文件夹' : '文件', up: true, picking: true };
+  FILES.push(me);
+  renderFiles();
+  const go = () => fetch('/api/qa/pick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind }) })
+    .then(r => r.json()).catch(() => ({ error: '连不上 Ephemeris' }));
+  const r = window.ephLock?.during ? await window.ephLock.during(go) : await go();
+  FILES.splice(FILES.indexOf(me), 1, ...(r.files || (r.fallback ? [] : [{ name: me.name, error: r.error || '没选上' }])));
+  renderFiles();
+  if (r.fallback) $(kind === 'folder' ? '#chFolder' : '#chFile').click();
+  $('#chInput').focus();
 }
 // 整个文件夹（11-01）：一次传上去，每个文件带着它在文件夹里的相对路径；隐藏的、依赖目录这边先跳过（服务器也会挡）
 const SKIP_DIR = /(^|\/)(\.[^/]*|node_modules|venv|\.venv|__pycache__|site-packages)(\/|$)/;
@@ -634,7 +650,7 @@ $('#chAMenu').addEventListener('click', e => {
   const b = e.target.closest('[data-pick]');
   if (!b) return;
   toggleAMenu(false);
-  $(b.dataset.pick === 'folder' ? '#chFolder' : '#chFile').click();
+  pickLocal(b.dataset.pick);
 });
 document.addEventListener('click', e => { if (!$('#chAMenu').hidden && !e.target.closest('.ch-am')) toggleAMenu(false); });
 $('#chFile').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });

@@ -351,13 +351,50 @@ def save_folder(name, items):
     return {'path': show(root), 'name': folder, 'kind': 'folder', 'files': kept, 'skipped': skipped}
 
 
-def upload_info(path):
-    """问的时候带上来的路径 → {path, name, lines} / 文件夹 {path, name, kind, files}；只认 qa_files 里的（别的路径不能借这个口子塞进提示词）。"""
+def attach_info(path):
+    """问的时候带上来的附件 → {path, name, lines} / 文件夹 {path, name, kind, files}。上传进 qa_files 的、
+    或者用访达选的本机路径都行，照样只认白名单里的（resolve 把关）。"""
     real = resolve(path)
-    if not real.startswith(uploads() + os.sep) or not os.path.exists(real):
-        raise Denied(f'不是附上来的文件：{path}')
+    if not os.path.exists(real):
+        raise Denied(f'找不到：{path}')
     name = os.path.basename(real)
-    name = name.split('-', 1)[1] if re.match(r'[0-9a-f]{6}-', name) else name
+    if real.startswith(uploads() + os.sep) and re.match(r'[0-9a-f]{6}-', name):
+        name = name.split('-', 1)[1]
     if os.path.isdir(real):
-        return {'path': show(real), 'name': name, 'kind': 'folder', 'files': sum(len(fs) for _, _, fs in os.walk(real))}
+        n, t0 = 0, time.time()
+        for d, dirs, files in os.walk(real):
+            dirs[:] = [x for x in dirs if not _blocked_name(x, True)]
+            n += sum(1 for f in files if not _blocked_name(f, False))
+            if time.time() - t0 > 5:                    # 特别大的文件夹不数完
+                break
+        return {'path': show(real), 'name': name, 'kind': 'folder', 'files': n}
     return {'path': show(real), 'name': name, 'lines': len(_read(real))}
+
+
+# 访达选（11-01 用户：选文件夹时浏览器弹「要上传吗」的框，一点 Ephemeris 就锁了，而且上传没必要——「你就只给我路径」）：
+# 服务器在本机弹 macOS 自己的选择框，选完只拿路径，不复制。别的系统没有 osascript，前端退回上传。
+_PICK = """activate
+set fs to choose {what} with prompt "选要附上的{label}（只能选{roots}里的）" default location (path to documents folder) with multiple selections allowed
+set out to ""
+repeat with f in fs
+  set out to out & POSIX path of f & linefeed
+end repeat
+return out"""
+
+
+def pick(kind='file'):
+    """→ 选中的路径列表；点了取消 → []；这台电脑弹不了 → Denied。"""
+    exe = shutil.which('osascript')
+    if not exe:
+        raise Denied('这台电脑弹不了访达的选择框')
+    script = _PICK.format(what='folder' if kind == 'folder' else 'file', label='文件夹' if kind == 'folder' else '文件',
+                          roots='、'.join(show(r) for r in roots() if r != uploads()))
+    try:
+        r = subprocess.run([exe, '-e', script], capture_output=True, text=True, timeout=900)
+    except subprocess.TimeoutExpired:
+        return []
+    if r.returncode:
+        if '-128' in r.stderr:                          # 用户点了取消
+            return []
+        raise Denied(f'选择框没弹出来：{r.stderr.strip()[:200]}')
+    return [p.rstrip('/') or '/' for p in r.stdout.splitlines() if p.strip()]

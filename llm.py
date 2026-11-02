@@ -596,7 +596,7 @@ _LIMIT = re.compile(r'usage limit|limit reached|rate limit|resets?|Not logged in
 # 问 = live（留着位子，批量跑满了也不排队），做卡 = batch，其余 normal；撞上限写进共用的 pause，别的应用也停。
 GATE_APP = 'ephemeris'
 for _k in ('CLAUDE_GATE', 'CLAUDE_GATE_CAP', 'CLAUDE_GATE_RESERVE', 'CLAUDE_GATE_WEEK_KEEP', 'CLAUDE_GATE_WEEK_KEEP_LIVE',
-           'CLAUDE_GATE_LIMIT_5H', 'CLAUDE_GATE_KEEP'):                # claude_gate 只看 os.environ，.env 里的要搬过去
+           'CLAUDE_GATE_LIMIT_5H', 'CLAUDE_GATE_KEEP', 'CLAUDE_GATE_CAP_CODEX', 'CLAUDE_GATE_RESERVE_CODEX'):  # claude_gate 只看 os.environ，.env 里的要搬过去
     if idx.env(_k):
         os.environ.setdefault(_k, idx.env(_k))
 
@@ -891,7 +891,128 @@ class Session:
             except Exception as e:                           # noqa: BLE001
                 with _lock:
                     _state['last_error'] = f'{type(e).__name__}: {e}'[:300]
+        text = _codex_try(self.material + '\n\n' + task, self.effort, self.purpose)
+        if text:
+            return text
         return ask(self.material + '\n\n' + task, effort=self.effort, route='cheap', purpose=self.purpose)
+
+
+# ------------------------------------------------------------------ GPT（Codex CLI，用户的 ChatGPT 订阅）
+# 2026-11-03 用户：GPT 也有订阅，像 claude -p 那样接进来，跟 Verbatim / 墨页一起归 claude_gate 管（provider='codex'）。
+#   · 只在 Claude 用不了的时候顶上（_call、Session 的后备），排在 DeepSeek / Gemini 前面；route='cheap' 的大批量活不走它（Plus 额度小）。
+#   · 要自己打开：.env 里 EPHEMERIS_CODEX=on（别人装了 Codex 也不会悄悄用他的 ChatGPT 额度、把日记发给 OpenAI）。
+#   · 只做纯文字的活。「问」不交给它：codex 自带 shell 关不掉，只读沙盒照样能读整个硬盘，绕过屏蔽和文件白名单。
+#   · codex exec --ephemeral：不留会话记录（不然会被 codex.sync 当成用户自己的 Codex 对话收进日记）；
+#     --ignore-user-config：不带用户自己配的插件 / MCP / 记忆；模型照用户 config.toml 里那个（EPHEMERIS_CODEX_MODEL 可以换）。
+CODEX_CWD = os.path.expanduser('~/.ephemeris-codex')
+CODEX_TIMEOUT = 900
+CODEX_EFFORT = {'low': 'low', 'medium': 'medium', 'high': 'high', 'xhigh': 'xhigh', 'max': 'xhigh'}
+_codex_runner = None             # 测试用：use_codex(fn)，fn(args, stdin) -> (事件列表, stderr)
+_codex_sem = threading.BoundedSemaphore(int(idx.env('EPHEMERIS_CODEX_PARALLEL') or 2))
+
+
+def _codex_bin():
+    return shutil.which('codex')
+
+
+def codex_model():
+    m = (idx.env('EPHEMERIS_CODEX_MODEL') or '').strip()
+    if m:
+        return m
+    try:
+        with open(os.path.expanduser('~/.codex/config.toml'), encoding='utf-8') as f:
+            for line in f:
+                hit = re.match(r'\s*model\s*=\s*"([^"]+)"', line)
+                if hit:
+                    return hit.group(1)
+                if line.lstrip().startswith('['):
+                    break
+    except OSError:
+        pass
+    return ''
+
+
+def codex_on():
+    if (idx.env('EPHEMERIS_CODEX') or 'off').strip().lower() not in ('on', '1', 'true', 'yes'):
+        return False
+    if claude_gate.paused_until('codex') or _paused.get('codex', 0) > time.time():
+        return False
+    if _codex_runner:
+        return True
+    if os.environ.get('EPHEMERIS_NO_USAGE'):
+        return False
+    return bool(_codex_bin())
+
+
+def _codex_exec(args, stdin):
+    if _codex_runner:
+        return _codex_runner(args, stdin)
+    os.makedirs(CODEX_CWD, exist_ok=True)
+    r = subprocess.run([_codex_bin() or 'codex'] + args, input=stdin, capture_output=True, text=True, encoding='utf-8',
+                       errors='replace', cwd=CODEX_CWD, timeout=CODEX_TIMEOUT)
+    events = []
+    for line in r.stdout.splitlines():
+        try:
+            events.append(json.loads(line))
+        except ValueError:
+            pass
+    return events, r.stderr
+
+
+def codex(prompt, effort='medium', purpose=''):
+    """调一次 GPT（codex exec），返回文本。失败抛异常；撞上限就停这一家（写进共用的 pauses，三边都停）。"""
+    model = codex_model()
+    args = ['exec', '--json', '--ephemeral', '--skip-git-repo-check', '--ignore-user-config', '--ignore-rules',
+            '-s', 'read-only', '-C', CODEX_CWD, '-c', f'model_reasoning_effort="{CODEX_EFFORT.get(effort, "medium")}"',
+            '--disable', 'apps', '--disable', 'browser_use', '--disable', 'computer_use']
+    if model:
+        args += ['-m', model]
+    args.append('-')
+    stdin = CLAUDE_SYSTEM + '不要运行任何命令、不要读写文件，材料都在下面。\n\n' + prompt
+    t = time.time()
+    with _codex_sem, claude_gate.slot(GATE_APP, purpose, _prio(purpose), provider='codex'):
+        events, err = _codex_exec(args, stdin)
+    texts, usage, errors = [], None, []
+    for e in events:
+        item = e.get('item') or {}
+        if e.get('type') == 'item.completed' and item.get('type') == 'agent_message':
+            texts.append(item.get('text') or '')
+        elif e.get('type') == 'turn.completed':
+            usage = e.get('usage')
+        elif e.get('type') in ('error', 'turn.failed'):
+            errors.append(str(e.get('message') or (e.get('error') or {}).get('message') or e))
+    text = (texts[-1] if texts else '').strip()
+    bad = bool(errors) or not text
+    claude_gate.record(GATE_APP, purpose, 'codex:' + (model or 'default'), {'usage': usage or {}, 'is_error': bad},
+                       time.time() - t, _prio(purpose), provider='codex')
+    if bad:
+        why = ' '.join(errors) or (err or '').strip()[-300:] or '返回空'
+        if _LIMIT.search(why):
+            m = re.search(r'resets?[^0-9]*(\d{10})', why)
+            until = max(int(m.group(1)) if m else time.time() + PAUSE_S, time.time() + 60)
+            _paused['codex'] = until
+            claude_gate.pause(until, why, GATE_APP, provider='codex')
+        raise RuntimeError(f'GPT（Codex）：{why[:200]}')
+    return text
+
+
+def _codex_try(prompt, effort, purpose):
+    """Claude 用不了时先让 GPT 顶上；没开 / 失败返回 None，调用方接着走 DeepSeek / Gemini。"""
+    if not codex_on():
+        return None
+    try:
+        return codex(prompt, effort, purpose)
+    except Exception as e:                                   # noqa: BLE001
+        with _lock:
+            _state['last_error'] = f'{type(e).__name__}: {e}'[:300]
+        return None
+
+
+def use_codex(fn):
+    """测试用：fn(args, stdin) -> (codex exec --json 的事件列表, stderr)。use_codex(None) 换回来。"""
+    global _codex_runner
+    _codex_runner = fn
+    _paused.pop('codex', None)
 
 
 def _call(prompt, model=None, fallback=True, effort='medium', route='auto', purpose='', json_mode=False):
@@ -908,6 +1029,10 @@ def _call(prompt, model=None, fallback=True, effort='medium', route='auto', purp
         except Exception as e:                               # noqa: BLE001  接着走原来的路线
             with _lock:
                 _state['last_error'] = f'{type(e).__name__}: {e}'[:300]
+    if route == 'auto':
+        text = _codex_try(prompt, effort, purpose)
+        if text:
+            return text
     b = backend()
     if b == 'verbatim':
         return _verbatim(prompt, model)
@@ -1111,6 +1236,7 @@ def choices():
 def status():
     return {'backend': backend(), **_state, 'chat': chat_backend(), 'gemini_ready': gemini_ready(), 'api_week': api_week(),
             'claude': {'on': claude_on(), 'model': CLAUDE_MODEL, 'paused_until': _paused.get('claude'), 'week': claude_week()},
+            'codex': {'on': codex_on(), 'model': codex_model(), 'paused_until': _paused.get('codex')},
             'cheap': {'on': cheap_on(), **_cheap_state,
             'routes': [r[0] for r in _cheap_routes()], 'paused': [n for n, t in _paused.items() if t > time.time()],
         'usable': bool(_cheap_routes())}}

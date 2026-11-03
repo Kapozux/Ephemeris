@@ -7,7 +7,7 @@ from flask import Blueprint, jsonify, request, send_from_directory
 from werkzeug.utils import secure_filename
 
 import backup
-import claude_sync
+from sources import claude_sync
 import daily
 import export
 import hidden
@@ -17,7 +17,7 @@ import memory
 import search
 import setup
 import store
-import to_notion
+from sources import to_notion
 
 bp = Blueprint('data', __name__)
 

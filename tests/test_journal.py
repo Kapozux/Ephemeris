@@ -11,7 +11,7 @@ import unittest
 import journal
 import search
 import store
-import to_notion as tn
+from sources import to_notion as tn
 
 
 def rt(text, bold=False, strike=False, code=False, href=None):

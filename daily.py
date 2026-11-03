@@ -22,13 +22,13 @@ import time
 from datetime import datetime, timedelta
 
 import backup
-import browsing
+from sources import browsing
 import cards
-import claude_code
-import chatgpt_sync
-import claude_sync
-import codex
-import cursor
+from sources import claude_code
+from sources import chatgpt_sync
+from sources import claude_sync
+from sources import codex
+from sources import cursor
 import days
 import diary
 import jobs

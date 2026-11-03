@@ -73,7 +73,8 @@ class Codex(unittest.TestCase):
         self.calls, self.held = [], []
 
     def tearDown(self):
-        os.environ['CLAUDE_GATE'] = os.environ['EPHEMERIS_CODEX'] = ''
+        os.environ['CLAUDE_GATE'] = ''
+        os.environ['EPHEMERIS_CODEX'] = 'off'
         llm.use_claude(None)
         llm.use_codex(None)
         llm._cheap, llm.cheap_on = self._cheap, self._cheap_on
@@ -104,7 +105,7 @@ class Codex(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
 
     def test_off_by_default(self):
-        os.environ['EPHEMERIS_CODEX'] = ''
+        os.environ['EPHEMERIS_CODEX'] = 'off'
         self.gpt(self.OK)
         self.assertFalse(llm.codex_on())
         self.assertEqual(llm.ask('写日记'), 'deepseek 回的')

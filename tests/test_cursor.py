@@ -8,7 +8,7 @@ import sqlite3
 import unittest
 
 import cards
-import cursor
+from sources import cursor
 import slice as sl
 import store
 

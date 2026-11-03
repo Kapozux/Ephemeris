@@ -70,7 +70,7 @@ Manual import ───────────┘   split by day FTS5       │
                                                          Ask       hidden items are filtered out here
                                           │
                                           ├─> web UI (localhost:5055)
-                                          └─> to_notion.py ─> Notion
+                                          └─> sources/to_notion.py ─> Notion
 ```
 
 - **What counts as a day**: UTC+8, and a day doesn't end until 4 a.m., so late-night chats belong to the day they started.

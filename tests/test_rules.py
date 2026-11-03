@@ -1,7 +1,7 @@
 import _env  # noqa: F401
 import unittest
 
-import claude_sync
+from sources import claude_sync
 import reflect_chat
 import slice as sl
 

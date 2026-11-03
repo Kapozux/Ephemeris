@@ -6,7 +6,7 @@ import unittest
 from datetime import datetime
 
 import backup
-import browsing
+from sources import browsing
 import store
 
 

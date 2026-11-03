@@ -4,7 +4,7 @@ import _env  # noqa: F401
 import unittest
 from datetime import datetime, timedelta
 
-import claude_sync
+from sources import claude_sync
 import daily
 import days
 import diary

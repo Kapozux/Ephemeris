@@ -31,7 +31,7 @@ class Windows(unittest.TestCase):
         self.assertIn(r"--user-data-dir=C:\eph\.chrome", seen[0][-1])
 
     def test_cursor_db_on_windows(self):
-        import cursor
+        from sources import cursor
         with mock.patch.object(os, 'name', 'nt'), mock.patch.dict(os.environ, {'APPDATA': 'APPDATA'}):
             p = cursor._default_db()
         self.assertEqual(p.split(os.sep)[:2], ['APPDATA', 'Cursor'])

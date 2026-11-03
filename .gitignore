@@ -52,3 +52,11 @@
 /docs/*
 !/docs/*.svg
 !/docs/*.gif
+
+# 按用途分的代码目录（11-03）：页面接口、往里拉数据的同步
+!/routes/
+/routes/*
+!/routes/*.py
+!/sources/
+/sources/*
+!/sources/*.py

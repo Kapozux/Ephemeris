@@ -6,11 +6,11 @@
 索引落 SQLite，读路径全是确定性查询。
 
 路由按页面分开，每个文件只管收参数、调一下、jsonify；做事的在各自的模块里：
-    routes_day.py      主页：日历、某一天、搜索、闪回、写日记         → diary / mood / journal / ledger
-    routes_review.py   回顾面板、话题河流、按窗口回顾                 → reflect_chat / river / conv_review
-    routes_checkin.py  打卡页、星座图                                 → checkin / days
-    routes_data.py     窗口与导入、claude.ai 同步、备份、Notion       → index / daily / backup / to_notion
-    routes_lock.py     隐私锁：解锁、上锁、报到、设密码                → lock
+    routes/day.py      主页：日历、某一天、搜索、闪回、写日记         → diary / mood / journal / ledger
+    routes/review.py   回顾面板、话题河流、按窗口回顾                 → reflect_chat / river / conv_review
+    routes/checkin.py  打卡页、星座图                                 → checkin / days
+    routes/data.py     窗口与导入、claude.ai 同步、备份、Notion       → index / daily / backup / to_notion
+    routes/lock.py     隐私锁：解锁、上锁、报到、设密码                → lock
 后台常驻的只有两样：启动时把回顾面板算好（reflect_chat.warm），和每分钟看一眼的调度（daily.scheduler）。
 """
 import os
@@ -25,11 +25,11 @@ import daily
 import llm
 import lock
 import reflect_chat
-import routes_checkin
-import routes_data
-import routes_day
-import routes_lock
-import routes_review
+from routes import checkin as routes_checkin
+from routes import data as routes_data
+from routes import day as routes_day
+from routes import lock as routes_lock
+from routes import review as routes_review
 import store
 
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')

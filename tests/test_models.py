@@ -6,7 +6,7 @@ import shutil
 import tempfile
 import unittest
 
-import codex
+from sources import codex
 import index as idx
 import store
 

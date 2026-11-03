@@ -30,7 +30,7 @@ import urllib.request
 from datetime import datetime
 
 import store
-import to_notion as tn
+from sources import to_notion as tn
 
 MAX_DEPTH = 3            # 嵌套块（toggle、列表子项）往下读几层
 HERE = os.path.dirname(os.path.abspath(__file__))

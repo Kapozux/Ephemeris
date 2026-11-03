@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-import chatgpt_sync as gs
+from sources import chatgpt_sync as gs
 import store
 
 

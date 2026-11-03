@@ -18,7 +18,7 @@ import tempfile
 import time
 from datetime import datetime
 
-import claude_sync
+from sources import claude_sync
 import index as idx
 import store
 from chrome import Chrome

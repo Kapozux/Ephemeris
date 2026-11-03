@@ -9,7 +9,7 @@ import unittest
 import bundle
 import cards
 import llm
-import claude_code
+from sources import claude_code
 import slice as sl
 import store
 

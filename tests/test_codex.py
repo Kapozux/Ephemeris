@@ -8,7 +8,7 @@ import shutil
 import unittest
 
 import cards
-import codex
+from sources import codex
 import slice as sl
 import store
 

@@ -69,7 +69,7 @@ Claude Code / Cursor / ├─> index.py ──> chats.db ──┬─> diary.py 
                                                         「问」     屏蔽的内容在这里滤掉
                                           │
                                           ├─> 网页界面（localhost:5055）
-                                          └─> to_notion.py ─> Notion
+                                          └─> sources/to_notion.py ─> Notion
 ```
 
 - **一天怎么算**：按 UTC+8，凌晨 4 点才算结束，熬夜聊的归到当天。

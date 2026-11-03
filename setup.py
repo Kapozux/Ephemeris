@@ -19,7 +19,7 @@ import os
 import re
 
 import chrome
-import claude_sync
+from sources import claude_sync
 import daily
 import index as idx
 import llm

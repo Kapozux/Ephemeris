@@ -15,7 +15,7 @@ import unittest
 from datetime import datetime, timedelta
 
 import backup
-import claude_sync
+from sources import claude_sync
 import days
 import index as idx
 import journal

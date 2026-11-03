@@ -6,7 +6,7 @@ import shutil
 import tempfile
 import unittest
 
-import claude_sync
+from sources import claude_sync
 import index as idx
 import store
 

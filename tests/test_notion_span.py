@@ -2,7 +2,7 @@
 import _env  # noqa: F401
 import unittest
 
-import to_notion as tn
+from sources import to_notion as tn
 
 
 def blk(t, text='', emoji=None):

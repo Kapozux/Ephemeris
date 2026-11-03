@@ -33,6 +33,9 @@ _LONG = re.compile(r'(?<![A-Za-z0-9/._\-])(?=[A-Za-z0-9_\-]*\d)(?=[A-Za-z0-9_\-]
 _LABELED = re.compile(r'((?:密码|口令|密钥|秘钥|验证码|password|passwd|pwd|passcode|pin|api[ _-]?key|secret|token|private[ _-]?key|access[ _-]?key)'
                       r'\s*(?:[:：=]|是|为)\s*)(\S+)', re.I)
 _PEM = re.compile(r'-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----', re.S)
+# 带签名的临时网址（Notion 文件的 S3 下载链接）：X-Amz-Credential / Signature / Security-Token 的值、AWS 临时凭证 id
+_SIGNED = re.compile(r'((?:X-Amz-(?:Credential|Signature|Security-Token)|Signature|sig|token|access_token)=)[^&\s)\]]+', re.I)
+_AWS_TMP = re.compile(r'(?<![A-Za-z0-9])ASIA[A-Z0-9]{16}(?![A-Za-z0-9])')
 _URL_CRED = re.compile(r'(\w+://[^\s/:@]+:)[^\s/@]+@')            # https://user:密码@host
 
 
@@ -46,8 +49,10 @@ def redact(text):
         return MASK
     t = _PEM.sub(m, text or '')
     t = _URL_CRED.sub(lambda x: (m(x), x.group(1) + MASK + '@')[1], t)
+    t = _SIGNED.sub(lambda x: (m(x), x.group(1) + MASK)[1], t)
+    t = _AWS_TMP.sub(m, t)
     t = _KEYS.sub(m, t)
-    t = _LABELED.sub(lambda x: x.group(0) if x.group(2) == MASK else (m(x), x.group(1) + MASK)[1], t)
+    t = _LABELED.sub(lambda x: x.group(0) if x.group(2).startswith(MASK) else (m(x), x.group(1) + MASK)[1], t)
     t = _LONG.sub(m, t)
     return t, n
 

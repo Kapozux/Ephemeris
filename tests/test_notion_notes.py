@@ -47,6 +47,11 @@ class Redact(unittest.TestCase):
         self.assertEqual(n, 3)
         for s in ('abc12345', 'qwerty', 'Tr0ub4dor'):
             self.assertNotIn(s, out)
+        url = 'https://s3.example.com/f.pdf?X-Amz-Credential=' + 'ASIA' + 'Q' * 16 + '%2F2026&X-Amz-Signature=' + 'ab12' * 16 + '&x=1'
+        out, n = nn.redact(url)
+        self.assertNotIn('QQQQ', out)
+        self.assertNotIn('ab12ab12', out)
+        self.assertIn('&x=1', out)
         pem = '-----BEGIN RSA PRIVATE KEY-----\nMIIx\n-----END RSA PRIVATE KEY-----'
         self.assertNotIn('MIIx', nn.redact(pem)[0])
 

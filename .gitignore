@@ -46,3 +46,9 @@
 !/research/measures/
 /research/measures/*
 !/research/measures/*.py
+
+# README 用的 logo 和动图（动图是虚构人物 Sam 的演示库录的，见本地 devtools/readme_demo.py）
+!/docs/
+/docs/*
+!/docs/*.svg
+!/docs/*.gif

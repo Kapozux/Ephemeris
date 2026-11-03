@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo.svg" width="88" alt="Ephemeris logo"></p>
+
 # Ephemeris
 
 [English](README.md) | **中文**
@@ -5,6 +7,8 @@
 Built by **[Kapozux](https://github.com/Kapozux)**
 
 **把你和 AI 的长期聊天记录变成一份本机的档案，可以用自己的话去问。** Ephemeris 把你在 Claude、ChatGPT、Gemini、Claude Code 等地方的全部对话按天重新整理，而不是按窗口；每天写一篇日记，用一本账本记下你一直在推进的事，再给你一个「问」：像聊天一样问自己的过去，它去翻原始记录再回答。每条结论都附带有时间戳的原话出处，点一下就能跳回那句话。
+
+<p align="center"><img src="docs/demo.gif" width="860" alt="问一个问题，看它怎么查的，展开出处，跳回那句原话"><br><sub>演示数据：Sam 是虚构的人。动图里直接显示答好的回答，真跑大约要一分钟。</sub></p>
 
 *ἐφημερίς* 是希腊语的「逐日的记录」，后来被天文学借去指星历表：每天记下天体在哪。这个应用做的是同一件事，记的是你自己。
 

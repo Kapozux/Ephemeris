@@ -95,6 +95,19 @@ class Hidden(unittest.TestCase):
                 self.assertNotIn('secret', out)
         self.assertNotIn('qa_hidden', run('schema'))
 
+    def test_browsing_readable_but_hidden_days_dropped(self):
+        """11-03 用户：「问」要能读浏览记录；屏蔽的那天照样挡。"""
+        store.run('DELETE FROM browse_visits')
+        store.run("INSERT INTO browse_visits(id, profile, vt, date, hhmm, url, title, secs) VALUES "
+                  "('a', 'Default', 1, '2026-05-01', '10:00', 'https://x.test/elephant', '紫色网页', 1), "
+                  "('b', 'Default', 2, '2026-05-03', '10:00', 'https://x.test/open', '公开网页', 1)")
+        self.assertIn('公开网页', run('sql', 'SELECT title FROM browse_visits'))
+        self.assertIn('browse_visits', run('schema'))
+        hidden.set_('day', '2026-05-01')
+        out = run('sql', 'SELECT title FROM browse_visits')
+        self.assertIn('公开网页', out)
+        self.assertNotIn('紫色网页', out)
+
     def test_diary_side_unaffected(self):
         hidden.set_('day', '2026-05-01')
         run('stats')

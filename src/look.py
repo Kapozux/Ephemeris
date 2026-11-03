@@ -298,6 +298,8 @@ _NOTES = {
     'journal': '他自己手写的日记（Notion 拉回来的），gone_at 有值的是 Notion 上删了的',
     'checkins': '打卡：word 心情词、valence 好坏（正好负坏）、note 备注',
     'mood_scores': '每天过得怎么样的打分（valence）',
+    'browse_visits': ('Chrome 浏览记录（2026-07-22 起，只有 http(s)）：date / hhmm 按他的一天；url、title；'
+                      'title 带「Cold Turkey」的是被 Cold Turkey 拦下的页面（想打开但没打开）；secs 是 Chrome 记的停留秒数，开着不看的标签也算，别当成真看了多久'),
     'themes': '主题账本：长期在想的事；theme_days 是它出现在哪些天',
     'qa_chat': '「问」的对话记录',
     'memory_topics': '档案（记忆）的一页一页：kind = you / area，off = 1 的不给你看（别查它们的内容）',

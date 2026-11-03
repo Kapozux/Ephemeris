@@ -47,6 +47,7 @@ VIEWS = {
     'journal': f"t.page_id NOT IN ({PAGES}) AND t.date NOT IN ({DAYS})",
     'checkins': f"t.date NOT IN ({DAYS})",
     'mood_ratings': f"t.date NOT IN ({DAYS})",
+    'browse_visits': f"COALESCE(t.date, '') NOT IN ({DAYS})",     # 11-03 用户：「问」要能读浏览记录（日记照样不进）
     'memory_facts': f"NOT EXISTS (SELECT 1 FROM json_each(COALESCE(t.cites, '[]')) j WHERE j.value IN ({HIDDEN_CARDS}))",
     'themes': None, 'theme_cats': None, 'memory_topics': None, 'qa_chat': None, 'qa_threads': None,
 }

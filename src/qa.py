@@ -556,6 +556,44 @@ def run_look(args, use_memory=True):
     return (r.stdout or '') + (('\n' + r.stderr[-2000:]) if r.returncode else '') or '（没有输出）'
 
 
+SEARCH_CMDS = ('msgs', 'cards', 'convs', 'journal', 'notes', 'grep', 'moye', 'files')
+READ_CMDS = ('read', 'conv', 'note', 'file', 'day', 'diaries', 'sql', 'sum', 'stats', 'memory', 'skill', 'schema')
+SEARCH_RUN = 5                                                     # 连着搜这么多次还没读原文：提醒一句
+
+
+class LookGuard:
+    """不是 Claude 时包在 run_look 外面（11-03，r1 上 Kimi 同一件事换着词搜了二十多遍、几乎不读原文，40 步用光）：
+    - 同一条搜索（命令 + 词 + 时间范围，不分先后）再搜一遍：不重跑，告诉它第几步搜过、去读原文或换方向；
+    - 连着搜了 SEARCH_RUN 次没读原文：结果前面加一句提醒。"""
+    def __init__(self, fn):
+        self.fn, self.seen, self.run, self.step = fn, {}, 0, 0
+
+    def __call__(self, args):
+        self.step += 1
+        cmd = str((args or {}).get('command') or '').strip()
+        try:
+            parts = shlex.split(cmd)
+        except ValueError:
+            parts = cmd.split()
+        while parts and parts[0] not in LOOK_CMDS:
+            parts.pop(0)
+        verb = parts[0] if parts else ''
+        if verb in SEARCH_CMDS:
+            key = (verb, frozenset(w.lower() for w in parts[1:]))
+            if key in self.seen:
+                self.run += 1
+                return (f'这条第 {self.seen[key]} 步已经搜过了，结果跟当时一样（没再跑）。'
+                        '别换着同样的词再搜：挑前面结果里最相关的几条用 read 读前后文，或者换一个完全不同的方向。')
+            self.seen[key] = self.step
+            self.run += 1
+        elif verb in READ_CMDS:
+            self.run = 0
+        out = self.fn(args)
+        if verb in SEARCH_CMDS and self.run >= SEARCH_RUN:
+            out = (f'（提醒：你已经连着搜了 {self.run} 次还没读原文。先挑最相关的用 read 读前后文，搜到的片段只是开头一截。）\n' + out)
+        return out
+
+
 # 技能（10-22：做一个像 Claude skills 的东西给「问」）：skills/<名字>.md，第一行是什么时候用，后面是做法。
 # 提示词里只放第一行，对上了它自己 look skill 读全文；平常的问题不多花一个字。加一个技能 = 加一个文件。
 SKILLS_DIR = os.path.join(os.path.dirname(HERE), 'skills')
@@ -709,38 +747,98 @@ def _cite_text(c):
     return f"（{who}）{c.get('text') or ''}「{c.get('quote') or ''}」"[:CHECK_CHARS]
 
 
-def check_support(qid):
-    """答完在后台核一遍（11-03，照 VeriCite / CiteGuard：带了出处不等于原文撑得住）：每句话挂的出处合起来撑不撑得住这句话
-    （一句引好几条、每条撑一部分是常事，所以按句核，不按条核）。撑不住的在出了问题的出处上记 weak（原文实际说了什么），
-    整句都没依据就记在这句的每条出处上；正文不改，聊天页标出来。返回标了几条；没跑成返回 None。"""
-    if idx.env('EPHEMERIS_QA_CHECK', 'on').lower() in ('off', '0', 'false', 'no'):
-        return None
-    row = store.one('SELECT text, cites FROM qa_chat WHERE id=?', qid)
-    if not row:
-        return None
-    cites = json.loads(row['cites'] or '[]')
+def _support(text, cites):
+    """按句核出处（见 check_support）：在 cites 上就地标 weak，返回 [(那句话, 原文实际说了什么)]；没跑成返回 None。"""
     at = {c['id']: i for i, c in enumerate(cites)}
-    groups = [(claim, [k for k in keys if k in at]) for claim, keys in _claims(row['text'])]
+    groups = [(claim, [k for k in keys if k in at]) for claim, keys in _claims(text)]
     groups = [g for g in groups if g[1]]
     if not groups:
-        return 0
+        return []
     pairs = '\n\n'.join(f"[{n}] 这句话：{claim}\n" + '\n'.join(f"    出处 {j}：{_cite_text(cites[at[k]])}" for j, k in enumerate(keys, 1))
                          for n, (claim, keys) in enumerate(groups, 1))
     got = llm.ask_json(CHECK_PROMPT.format(pairs=pairs), want=dict, effort='low', purpose='qa-check')
     if not isinstance(got, dict) or not isinstance(got.get('bad'), list):
         return None
-    marked = set()
+    bad = []
     for b in got['bad']:
         try:
             claim, keys = groups[int(b.get('i')) - 1]
         except (TypeError, ValueError, IndexError, AttributeError):
             continue
-        pick = [keys[int(j) - 1] for j in b.get('src') or [] if str(j).isdigit() and 0 < int(j) <= len(keys)] or keys
-        for k in pick:
-            cites[at[k]]['weak'] = str(b.get('why') or '原文撑不住这句')[:200]
-            marked.add(k)
+        why = str(b.get('why') or '原文撑不住这句')[:200]
+        for k in [keys[int(j) - 1] for j in b.get('src') or [] if str(j).isdigit() and 0 < int(j) <= len(keys)] or keys:
+            cites[at[k]]['weak'] = why
+        bad.append((claim, why))
+    return bad
+
+
+def _off(name):
+    return idx.env(name, 'on').lower() in ('off', '0', 'false', 'no')
+
+
+def check_support(qid):
+    """答完在后台核一遍（11-03，照 VeriCite / CiteGuard：带了出处不等于原文撑得住）：每句话挂的出处合起来撑不撑得住这句话
+    （一句引好几条、每条撑一部分是常事，所以按句核，不按条核）。撑不住的在出了问题的出处上记 weak（原文实际说了什么），
+    整句都没依据就记在这句的每条出处上；正文不改，聊天页标出来。返回标了几条；没跑成返回 None。"""
+    if _off('EPHEMERIS_QA_CHECK'):
+        return None
+    row = store.one('SELECT text, cites FROM qa_chat WHERE id=?', qid)
+    if not row:
+        return None
+    cites = json.loads(row['cites'] or '[]')
+    if _support(row['text'], cites) is None:
+        return None
     store.run('UPDATE qa_chat SET cites=? WHERE id=?', json.dumps(cites, ensure_ascii=False), qid)
-    return len(marked)
+    return sum(1 for c in cites if c.get('weak'))
+
+
+# 不是 Claude 写的回答：交出去之前先核、再让它照原文改（11-03，照 VeriCite「先验再改」）。
+# r1 上 Kimi K2.6 编了 22 处、DeepSeek V4 Pro 4 处（Claude 1 处）：弱模型的毛病是凭印象写、出处标得少，标了的也常对不上。
+REVISE_PROMPT = """下面是你刚写的回答，和核对时发现的问题。改一遍，只动有问题的句子：
+- 「原文撑不住」的：照原文实际说的改，改不了就删掉这句；
+- 「出处这轮没查到过」的：去掉这个记号；这句话要么改成上面别的出处撑得住的说法，要么删掉；
+- 「没标出处的具体说法」（日期、数字、原话）：能用回答里已有的出处记号撑住就标上，不能就删掉，或者写明「没查到」。
+不要加新的事实，不要编新的出处记号（只能用回答里已经出现、而且没被点名的那些），没问题的句子一字不改，口吻照旧。
+只输出改好的完整回答正文。
+
+【回答】
+{answer}
+
+【问题】
+{problems}"""
+_SPECIFIC = re.compile(r'\d|「')                                     # 带日期 / 数字 / 原话的句子才算「具体说法」
+
+
+def _bare_claims(text, n=15):
+    """没挂出处、却写了具体日期 / 数字 / 原话的句子（图的代码块不算）。"""
+    body = re.sub(r'```.*?```', '', text or '', flags=re.S)
+    out = []
+    for sent in re.split(r'(?<=[。！？!?])|\n', body):
+        t = sent.strip(' -*>')
+        if len(t) >= 12 and _SPECIFIC.search(t) and not CITE_ANY.search(t):
+            out.append(t[:160])
+    return out[:n]
+
+
+def _revise(text, cites):
+    """核一遍（按句 + 引用锁的 unseen + 没标出处的具体说法），有问题就让模型照原文改。返回 (新正文, 改了几处问题)。
+    核不成、改不成就原样返回（宁可交原稿，也不让回答丢掉）。"""
+    if _off('EPHEMERIS_QA_REVISE'):
+        return text, 0
+    bad = _support(text, cites) or []
+    problems = [f"原文撑不住：{claim}（原文实际是：{why}）" for claim, why in bad]
+    unseen = {c['id'] for c in cites if c.get('unseen')}
+    problems += [f"出处这轮没查到过：{claim}（记号 {'、'.join(k for k in keys if k in unseen)}）"
+                 for claim, keys in _claims(text) if unseen & set(keys)]
+    problems += [f"没标出处的具体说法：{t}" for t in _bare_claims(text)]
+    if not problems:
+        return text, 0
+    out = llm.ask(REVISE_PROMPT.format(answer=text, problems='\n'.join(f'[{i}] {p}' for i, p in enumerate(problems, 1))),
+                  effort='medium', purpose='qa-revise')
+    out = no_thinking(out or '').strip()
+    if len(out) < len(text) * 0.3:                                  # 改得只剩一小截：多半是坏了，交原稿
+        return text, 0
+    return out, len(problems)
 
 
 def _snapshot(kind, ref):
@@ -959,11 +1057,23 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
 
     if not llm.claude_on():                                         # 只有 DeepSeek：它自己调 look 工具查，没有会话可接（追问靠前面的对话记录）
         prompt = deep_prompt_deepseek(name=idx.who(), today=days.today(), roots=_roots(), skills=_skills_text(), **_memory_parts('look', use_memory), history=_history_text(turns), question=_with_files(question, files, 'look'))
+        guard = LookGuard(run_look if use_memory else (lambda a: run_look(a, False)))
         try:
-            text = llm.deepseek_agent(prompt, LOOK_TOOL, run_look if use_memory else (lambda a: run_look(a, False)), on_event=say, purpose='qa-deep')
+            text = llm.deepseek_agent(prompt, LOOK_TOOL, guard, on_event=say, purpose='qa-deep')
         except llm.Cancelled:
             return done(*_deep_cites(''.join(buf).strip()), stopped=True)
-        return done(*_deep_cites(text))
+        body, cites = _deep_cites(text)
+        _lock_cites(cites, seen, '\n'.join(looked))
+        if progress:
+            progress({'k': 'look', 't': '核对出处', 'd': '不是 Claude 写的：交出去之前对一遍原文'})
+        try:
+            fixed, n = _revise(body, cites)
+        except llm.Cancelled:
+            fixed, n = body, 0
+        if n:
+            add({'k': 'say', 't': f'核对时发现 {n} 处对不上原文或没有出处，照原文改过了', 'd': ''})
+            body, cites = _deep_cites(fixed)
+        return done(body, cites)
     look = LOOK if use_memory else LOOK_NO_MEMORY
     asked = _with_files(question, files, look)
     fresh = DEEP_PROMPT.format(name=idx.who(), today=days.today(), roots=_roots(), skills=_skills_text(), **_memory_parts(look, use_memory), look=look, history=_history_text(turns), question=asked)

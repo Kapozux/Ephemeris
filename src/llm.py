@@ -465,12 +465,14 @@ def _cheap(prompt, why=None, force=False, json_mode=False, purpose=''):
     return None
 
 
-def deepseek_agent(prompt, tool, run_tool, on_event=None, max_steps=16, purpose=''):
+def deepseek_agent(prompt, tool, run_tool, on_event=None, max_steps=16, purpose='', notes=None, review=None):
     """没有 Claude 时的「深挖」：让 DeepSeek 自己调工具查资料（OpenAI 那种 function calling）。
     tool：一个工具的 JSON 描述（name / description / parameters）；run_tool(参数 dict) → 工具输出的文字。
     on_event(kind, text) 跟 claude_agent 一样：'tool'（要跑的命令，给界面报进度）、'message' / 'delta'（写好的回答）。
     最多 max_steps 轮；到了还在查就逼它用已经查到的回答。返回回答全文；失败抛异常，点了停止抛 Cancelled。
-    走第一条能用的 DeepSeek 路（聊天页选了模型就只走官方那条）；思考过程（reasoning_content）不回传，回传了 DeepSeek 会报 400。"""
+    走第一条能用的 DeepSeek 路（聊天页选了模型就只走官方那条）；思考过程（reasoning_content）不回传，回传了 DeepSeek 会报 400。
+    notes=(每几步, 提示词)：查了这么多步就让它把有用的记成笔记，之前的工具输出整段换成笔记（上下文不越堆越长，弱模型后半程不糊涂）。
+    review=提示词：第一次想交的时候先让它照这张单子过一遍，要补就接着查；回「交」就交刚才那份。"""
     import requests
     picked, chosen = _picked_deepseek(), _picked_route()
     if chosen:
@@ -485,10 +487,21 @@ def deepseek_agent(prompt, tool, run_tool, on_event=None, max_steps=16, purpose=
     max_steps = int(idx.env('EPHEMERIS_AGENT_STEPS') or max_steps)
     msgs = [{'role': 'system', 'content': CHEAP_SYSTEM}, {'role': 'user', 'content': prompt}]
     tools = [{'type': 'function', 'function': tool}]
+    draft, kept = None, []                                       # 交过一次的草稿；记下的笔记（每次一段）
+    since = 0                                                    # 上次记笔记之后又查了几步
     for step in range(max_steps + 1):
         if cancelled():
             raise Cancelled('停下了')
         last = step == max_steps
+        if notes and draft is None and not last and since >= notes[0]:
+            got = _agent_say(name, base, k, model, extra, msgs + [{'role': 'user', 'content': notes[1]}], purpose)
+            since = 0
+            if got:                                              # 没记成：工具输出照留着，过几步再试
+                kept.append(got)
+                msgs = msgs[:2] + [{'role': 'assistant', 'content': '到现在查到的（笔记）：\n\n' + '\n\n'.join(kept)},
+                                   {'role': 'user', 'content': '好，接着查；之前的工具输出已经收进笔记了，要原话再 read。'}]
+                if on_event:
+                    on_event('notes', got)
         if last:
             msgs.append({'role': 'user', 'content': '查的次数到上限了。不要再调工具，用已经查到的内容回答（照前面的要求）。'})
         body_json = {'model': model, 'messages': msgs, **extra, **({} if last else {'tools': tools})}
@@ -513,8 +526,16 @@ def deepseek_agent(prompt, tool, run_tool, on_event=None, max_steps=16, purpose=
         calls = msg.get('tool_calls') or []
         if not calls:
             text = (msg.get('content') or '').strip()
+            if draft and (not text or text.strip('「」。 ') == '交'):
+                text = draft                                     # 过完单子说没问题：交刚才那份
             if not text:
                 raise RuntimeError('DeepSeek 返回空')
+            if review and draft is None and not last:
+                draft = text
+                msgs += [{'role': 'assistant', 'content': text}, {'role': 'user', 'content': review}]
+                if on_event:
+                    on_event('review', '')
+                continue
             if on_event:
                 on_event('message', '')
                 on_event('delta', text)
@@ -537,7 +558,25 @@ def deepseek_agent(prompt, tool, run_tool, on_event=None, max_steps=16, purpose=
             if on_event:
                 on_event('result', str(out))
             msgs.append({'role': 'tool', 'tool_call_id': c.get('id'), 'content': str(out)[:12000]})
+        since += 1
     raise RuntimeError('DeepSeek 查了太多步还没回答')
+
+
+def _agent_say(name, base, k, model, extra, msgs, purpose):
+    """查到一半让它不调工具说一段话（记笔记）。失败就当没记，不打断查。"""
+    import requests
+    t = time.time()
+    try:
+        with _cheap_sem:
+            r = requests.post(base + '/chat/completions', timeout=300, headers={'Authorization': f'Bearer {k}'},
+                              json={'model': model, 'messages': msgs, **extra})
+        if r.status_code != 200:
+            raise RuntimeError(f'{r.status_code}: {r.text[:200]}')
+        body = r.json()
+    except Exception:                                            # noqa: BLE001
+        return ''
+    _api_record(name, model, purpose, body.get('usage') or {}, time.time() - t, True)
+    return (((body.get('choices') or [{}])[0].get('message') or {}).get('content') or '').strip()
 
 
 def deepseek_price(model):

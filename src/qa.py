@@ -560,6 +560,20 @@ SEARCH_CMDS = ('msgs', 'cards', 'convs', 'journal', 'notes', 'grep', 'moye', 'fi
 READ_CMDS = ('read', 'conv', 'note', 'file', 'day', 'diaries', 'sql', 'sum', 'stats', 'memory', 'skill', 'schema')
 SEARCH_RUN = 5                                                     # 连着搜这么多次还没读原文：提醒一句
 
+# 不是 Claude 时另外两道（11-03，r1：DeepSeek 查 17 步就交、漏得多；Kimi 40 步用光、后半程上下文几百万 token）
+NOTES_EVERY = 10                                                   # 每查这么多步记一次笔记，之前的工具输出换成笔记
+NOTES_PROMPT = """先停一下，不调工具。把到现在查到的、跟问题有关的东西记成笔记，之后的工具输出会只剩这份笔记：
+- 一条一行：日期、谁说的、说了什么（关键处照抄原话），后面写出处 id（像 [m:…] [c:…] [n:…]，照工具输出里的抄，不许编）；
+- 前后矛盾、时间上的变化要记下来；
+- 还没查的方向、还要读原文的几条单独列在最后「还要查」。
+跟问题无关的不记。只写笔记。"""
+REVIEW_PROMPT = """先别交。照这张单子对一遍刚才那份：
+1. 问题里问的每一点都答到了吗？问了「什么时候 / 怎么变的」就要有前后几个时间点，只查了一段时间的去查别的时间。
+2. 每个具体说法（日期、数字、原话、谁说的）都是读过原文的吗？只在搜索片段里看到半句的，去 read 前后文。
+3. 每个具体说法后面都有出处吗？出处 id 是工具输出里出现过的吗？
+4. 有没有别的解释、反过来的证据你没提？
+要补就接着调工具查，查完重新写一份完整的回答。全都没问题就只回一个字：交"""
+
 
 class LookGuard:
     """不是 Claude 时包在 run_look 外面（11-03，r1 上 Kimi 同一件事换着词搜了二十多遍、几乎不读原文，40 步用光）：
@@ -1038,6 +1052,10 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
             buf.append(text)
             if on_text:
                 on_text(text)
+        elif kind == 'notes':
+            add({'k': 'say', 't': '记一下到现在查到的', 'd': (text or '')[:1200]})
+        elif kind == 'review':
+            add({'k': 'say', 't': '交之前照单子过一遍', 'd': ''})
         elif kind == 'session' and qid:
             store.run('UPDATE qa_chat SET sid=? WHERE id=?', text, qid)
 
@@ -1059,7 +1077,9 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
         prompt = deep_prompt_deepseek(name=idx.who(), today=days.today(), roots=_roots(), skills=_skills_text(), **_memory_parts('look', use_memory), history=_history_text(turns), question=_with_files(question, files, 'look'))
         guard = LookGuard(run_look if use_memory else (lambda a: run_look(a, False)))
         try:
-            text = llm.deepseek_agent(prompt, LOOK_TOOL, guard, on_event=say, purpose='qa-deep')
+            text = llm.deepseek_agent(prompt, LOOK_TOOL, guard, on_event=say, purpose='qa-deep',
+                                      notes=None if _off('EPHEMERIS_QA_NOTES') else (NOTES_EVERY, NOTES_PROMPT),
+                                      review=None if _off('EPHEMERIS_QA_REVIEW') else REVIEW_PROMPT)
         except llm.Cancelled:
             return done(*_deep_cites(''.join(buf).strip()), stopped=True)
         body, cites = _deep_cites(text)

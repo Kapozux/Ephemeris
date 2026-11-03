@@ -41,7 +41,7 @@ import claude_gate
 import index as idx
 import store
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # 仓库根目录（代码在 src/，数据在根目录）
 GETAUDIO = os.path.join(HERE, '..', 'getAudio')
 MODELS = ('gemini-3.5-flash-lite', 'gemini-2.5-flash')
 

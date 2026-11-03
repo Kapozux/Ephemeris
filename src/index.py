@@ -26,7 +26,7 @@ from html import unescape
 import dedup
 import store
 from days import LOCAL_TZ, bucket    # 一天怎么算：days.py
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # 仓库根目录（代码在 src/，数据在根目录）
 
 
 def env(key, default=''):

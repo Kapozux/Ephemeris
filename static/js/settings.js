@@ -56,7 +56,7 @@ export async function pollLock() {
     <div class="set-row">
       <span class="set-text"><b>切走就上锁</b><span class="set-key-st${s.on ? ' ok' : ''}">${s.on ? '开着' : '没开'}</span>
         <span class="set-what">设了密码以后，这个页面一被切走（换标签、最小化、点了别的应用或窗口、新开一个 Ephemeris）就锁上，回来要输密码或按 Touch ID；一直开着看就不打扰。
-          锁着的时候接口也不给数据。忘了密码：在 ephemeris 目录运行 <code>python3 lock.py --reset</code>。</span>
+          锁着的时候接口也不给数据。忘了密码：在 ephemeris 目录运行 <code>python3 src/lock.py --reset</code>。</span>
         <span class="set-res" id="lockMsg" role="status"></span></span>
       <span class="set-act">${s.on ? pw('lockOld', '原来的密码', 'current-password') : ''}${pw('lockNew', s.on ? '新密码（换一个）' : '设一个密码', 'new-password')}
         <button class="btn-secondary btn-small" data-lk="set">${s.on ? '改密码' : '设好'}</button>

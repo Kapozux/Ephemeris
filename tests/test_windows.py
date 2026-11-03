@@ -53,10 +53,11 @@ class Windows(unittest.TestCase):
     def test_text_files_opened_as_utf8(self):
         """open(…) 读写文本都要写 encoding（二进制模式不算）：中文 Windows 上不写就按 GBK，读到中文就崩。"""
         bad = []
-        for name in sorted(os.listdir(ROOT)):
-            if not name.endswith('.py'):
-                continue
-            with open(os.path.join(ROOT, name), encoding='utf-8') as f:
+        paths = sorted(os.path.join(d, n) for d, _, fs in os.walk(os.path.join(ROOT, 'src')) for n in fs if n.endswith('.py'))
+        self.assertGreater(len(paths), 30)                     # 代码在 src/（11-03 挪的），别扫成空的
+        for path in paths:
+            name = os.path.relpath(path, ROOT)
+            with open(path, encoding='utf-8') as f:
                 tree = ast.parse(f.read())
             for n in ast.walk(tree):
                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'open':

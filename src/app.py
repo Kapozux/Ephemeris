@@ -1,6 +1,6 @@
 """Ephemeris —— 本地 Flask 单页应用。
 
-`python3 app.py` -> http://localhost:5055
+`python3 src/app.py` -> http://localhost:5055
 
 按 Verbatim 的路子：控制流全在 Python，模型只做叶子（写日记、回顾、打分……）；
 索引落 SQLite，读路径全是确定性查询。
@@ -32,9 +32,10 @@ from routes import lock as routes_lock
 from routes import review as routes_review
 import store
 
-STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # 仓库根目录（代码在 src/，数据在根目录）
+STATIC = os.path.join(ROOT, 'static')
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder=STATIC, template_folder=os.path.join(ROOT, 'templates'))
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0   # 本地工具，改完就要看到
 app.config['TEMPLATES_AUTO_RELOAD'] = True   # 上面那条只管 static；模板不加这条要重启才生效
 for _bp in (routes_day.bp, routes_review.bp, routes_checkin.bp, routes_data.bp, routes_lock.bp):
@@ -53,7 +54,7 @@ def _one_address():
         return redirect(request.url.replace('//127.0.0.1', '//localhost', 1), 302)
 
 
-REAL_DB = os.path.abspath(store.DB_PATH) == os.path.join(os.path.dirname(os.path.abspath(__file__)), 'chats.db')
+REAL_DB = os.path.abspath(store.DB_PATH) == os.path.join(ROOT, 'chats.db')
 
 
 @app.before_request

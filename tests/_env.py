@@ -5,8 +5,9 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+for _p in (ROOT, os.path.join(ROOT, 'src')):    # 代码在 src/，research/ 在根目录
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 if 'DIARY_DB' not in os.environ:
     os.environ['DIARY_DB'] = os.path.join(tempfile.mkdtemp(prefix='ephemeris-test-'), 'test.db')
 os.environ['EPHEMERIS_NO_USAGE'] = '1'          # 别往旁边 Verbatim 的真账本（usage.db）里记测试的假调用

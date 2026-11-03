@@ -22,4 +22,4 @@ if curl -s -o /dev/null "http://127.0.0.1:$PORT/api/setup" 2>/dev/null; then
   exit 0
 fi
 ( sleep 3; open "http://localhost:$PORT" 2>/dev/null || true ) &
-exec "$PY" app.py
+exec "$PY" src/app.py

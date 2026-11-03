@@ -6,15 +6,10 @@
 !/.env.example
 !/README.md
 !/README.zh-CN.md
-!/*.py
-!/touchid.swift
 !/run.sh
 !/run.bat
 !/requirements.txt
 !/*.command
-!/export_claude.js
-!/export_gemini.js
-!/export_chatgpt.js
 !/static/
 !/templates/
 !/tests/
@@ -53,10 +48,18 @@
 !/docs/*.svg
 !/docs/*.gif
 
-# 按用途分的代码目录（11-03）：页面接口、往里拉数据的同步
-!/routes/
-/routes/*
-!/routes/*.py
-!/sources/
-/sources/*
-!/sources/*.py
+# 代码都在 src/（11-03 从根目录挪进去）：页面接口 src/routes/，往里拉数据的同步 src/sources/
+!/src/
+/src/*
+!/src/*.py
+!/src/touchid.swift
+!/src/routes/
+/src/routes/*
+!/src/routes/*.py
+!/src/sources/
+/src/sources/*
+!/src/sources/*.py
+# 在浏览器控制台里跑的导出脚本
+!/scripts/
+/scripts/*
+!/scripts/*.js

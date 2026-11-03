@@ -51,7 +51,7 @@ FOLDER_FILES = 5000
 
 def uploads():
     """「问」里附的文件放哪（测试指到临时目录）。"""
-    return os.path.realpath(os.environ.get('EPHEMERIS_QA_FILES') or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'qa_files'))
+    return os.path.realpath(os.environ.get('EPHEMERIS_QA_FILES') or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'qa_files'))
 
 
 def roots():

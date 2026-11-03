@@ -27,7 +27,8 @@ def _imports(path):
 
 class Boundary(unittest.TestCase):
     def test_only_core_modules(self):
-        ephemeris = {f[:-3] for f in os.listdir(ROOT) if f.endswith('.py')}
+        ephemeris = {f[:-3] for f in os.listdir(os.path.join(ROOT, 'src')) if f.endswith('.py')}
+        self.assertIn('store', ephemeris)
         bad = []
         for d, _, files in os.walk(os.path.join(ROOT, 'research')):
             for f in files:

@@ -35,7 +35,7 @@ import index as idx
 import journal
 import localfiles
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # 仓库根目录（代码在 src/，数据在根目录）
 EVERY_DAYS = 1
 SKIP_TABLES = ('sqlite_sequence', 'backups', 'backup_files', 'backup_keys',
                'card_vecs',    # 卡的向量：二进制、能重算（不到一美元）

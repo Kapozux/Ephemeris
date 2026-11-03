@@ -109,7 +109,7 @@ $('#geminiCopy').onclick = async () => {
     const code = await fetch('/tools/export_gemini.js').then(r => { if (!r.ok) throw new Error(r.status); return r.text(); });
     await navigator.clipboard.writeText(code);
     say('　已复制，去 Gemini 页面粘贴吧');
-  } catch (e) { say('　没复制上（' + e.message + '）：直接打开 Ephemeris 文件夹里的 export_gemini.js 复制'); }
+  } catch (e) { say('　没复制上（' + e.message + '）：直接打开 Ephemeris 文件夹 scripts/ 里的 export_gemini.js 复制'); }
 };
 $('#chatgptCopy').onclick = async () => {                   // ChatGPT 同理（export_chatgpt.js，10-14）
   const say = t => { $('#chatgptCopied').textContent = t; };
@@ -117,7 +117,7 @@ $('#chatgptCopy').onclick = async () => {                   // ChatGPT 同理（
     const code = await fetch('/tools/export_chatgpt.js').then(r => { if (!r.ok) throw new Error(r.status); return r.text(); });
     await navigator.clipboard.writeText(code);
     say('　已复制，去 ChatGPT 页面粘贴吧');
-  } catch (e) { say('　没复制上（' + e.message + '）：直接打开 Ephemeris 文件夹里的 export_chatgpt.js 复制'); }
+  } catch (e) { say('　没复制上（' + e.message + '）：直接打开 Ephemeris 文件夹 scripts/ 里的 export_chatgpt.js 复制'); }
 };
 $('#importFile').onchange = e => { doImport(e.target.files); e.target.value = ''; };
 const ib = $('#importBox');

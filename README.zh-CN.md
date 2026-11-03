@@ -59,6 +59,8 @@ Ephemeris 把轴换过来：先把每一天从当天碰过的所有窗口里拼�
 
 ## 怎么运作
 
+代码都在 `src/`（页面接口 `src/routes/`、各个数据来源 `src/sources/`），在浏览器控制台跑的导出脚本在 `scripts/`。数据（`chats.db`、`imports/` 等）留在项目文件夹里，不进 git。
+
 ```
 claude.ai（每日同步）──┐
 Claude Code / Cursor / ├─> index.py ──> chats.db ──┬─> diary.py ──> ledger.py
@@ -69,7 +71,7 @@ Claude Code / Cursor / ├─> index.py ──> chats.db ──┬─> diary.py 
                                                         「问」     屏蔽的内容在这里滤掉
                                           │
                                           ├─> 网页界面（localhost:5055）
-                                          └─> sources/to_notion.py ─> Notion
+                                          └─> to_notion.py ─> Notion  
 ```
 
 - **一天怎么算**：按 UTC+8，凌晨 4 点才算结束，熬夜聊的归到当天。
@@ -83,7 +85,7 @@ Claude Code / Cursor / ├─> index.py ──> chats.db ──┬─> diary.py 
 
 ## 支持导入
 
-- claude.ai：每日自动同步，或者在浏览器控制台运行自带的 `export_claude.js`，导出 JSON / Markdown
+- claude.ai：每日自动同步，或者在浏览器控制台运行自带的 `scripts/export_claude.js`，导出 JSON / Markdown
 - Claude 无痕模式的单窗口 transcript
 - Gemini 的 `sess_*.md` 导出
 - Google Takeout 里 Gemini Apps 的 `MyActivity.json`

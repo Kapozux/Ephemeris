@@ -9,10 +9,14 @@
 """
 import json
 import os
+import sys
 
 CORE = ('speech', 'store', 'llm', 'cards')   # cards：真实数据验证要用它做卡、核对原话（realval.py）
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+_SRC = os.path.join(os.path.dirname(HERE), 'src')    # 主程序的代码在 src/（store / llm 这些）
+if _SRC not in sys.path:
+    sys.path.insert(0, _SRC)
 DATA = os.environ.get('EPHEMERIS_RESEARCH_DATA') or os.path.join(HERE, 'data')
 
 

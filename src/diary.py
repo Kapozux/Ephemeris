@@ -59,7 +59,7 @@ def as_text(d):
 
 
 CACHE_DIR = os.environ.get('DIARY_CACHE') or os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), '.cache')
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.cache')
 
 PROMPT = """下面是 __NAME__ 在 {date} 这一天，跨 {n_threads} 个不同对话窗口里发给 AI 的全部消息。
 你的任务是据此写一篇当天的日记。

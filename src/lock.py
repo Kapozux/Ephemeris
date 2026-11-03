@@ -14,7 +14,7 @@
 10-17 又加了一种、优先用它：macOS 自己的指纹框（touchid.swift，LocalAuthentication，跟 sudo 那个一样）——
 用户嫌浏览器那个通行密钥框难用、要点一下才弹也麻烦。不用登记；服务器跑在这台 Mac 上，直接弹，按对了发令牌。
 第一次用时现编译 touchid（要 Xcode 命令行工具），编不出来 / 这台没指纹就只剩上面那两种。
-忘了密码：`python3 lock.py --reset` 把锁去掉（能碰到这台电脑的文件，本来也就能直接读 chats.db）。
+忘了密码：`python3 src/lock.py --reset` 把锁去掉（能碰到这台电脑的文件，本来也就能直接读 chats.db）。
 """
 import base64
 import hashlib
@@ -315,4 +315,4 @@ if __name__ == '__main__':
         print('隐私锁去掉了。重新设：设置 → 隐私锁。（应用开着的话不用重启）')
     else:
         print('有没有设密码：', '设了' if enabled() else '没设')
-        print('忘了密码：python3 lock.py --reset')
+        print('忘了密码：python3 src/lock.py --reset')

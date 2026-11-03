@@ -59,6 +59,8 @@ Public benchmark: on [LoCoMo](https://snap-research.github.io/locomo/) (ACL 2024
 
 ## How it works
 
+Code lives in `src/` (pages in `src/routes/`, data sources in `src/sources/`); browser-console export scripts are in `scripts/`. Data (`chats.db`, `imports/` …) stays in the project folder and never goes into git.
+
 ```
 claude.ai (daily sync) ──┐
 Claude Code / Cursor /   ├─> index.py ──> chats.db ──┬─> diary.py ──> ledger.py
@@ -70,7 +72,7 @@ Manual import ───────────┘   split by day FTS5       │
                                                          Ask       hidden items are filtered out here
                                           │
                                           ├─> web UI (localhost:5055)
-                                          └─> sources/to_notion.py ─> Notion
+                                          └─> to_notion.py ─> Notion  
 ```
 
 - **What counts as a day**: UTC+8, and a day doesn't end until 4 a.m., so late-night chats belong to the day they started.
@@ -84,7 +86,7 @@ Manual import ───────────┘   split by day FTS5       │
 
 ## Supported imports
 
-- claude.ai: automatic daily sync, or run the bundled `export_claude.js` in the browser console to export JSON / Markdown
+- claude.ai: automatic daily sync, or run the bundled `scripts/export_claude.js` in the browser console to export JSON / Markdown
 - Single-window transcripts from Claude's incognito mode
 - Gemini `sess_*.md` exports
 - Gemini Apps `MyActivity.json` from Google Takeout

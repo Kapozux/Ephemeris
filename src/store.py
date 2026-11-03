@@ -18,7 +18,7 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # 仓库根目录（代码在 src/，数据在根目录）
 DB_PATH = os.environ.get('DIARY_DB') or os.path.join(HERE, 'chats.db')
 # 演示版（10-25，给 Reddit 截图）：EPHEMERIS_DEMO=1 且库不是真的 chats.db 才算。页面放行、不弹锁、角上标 DEMO，
 # 不跑调度 / 同步 / 备份。设在真库上不起作用。

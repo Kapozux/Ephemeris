@@ -28,7 +28,7 @@ def _utc_offset():
     v = os.environ.get('EPHEMERIS_UTC_OFFSET')
     if not v:
         try:
-            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'), encoding='utf-8') as f:
+            with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env'), encoding='utf-8') as f:
                 v = next((ln.split('=', 1)[1].strip().strip('"\'') for ln in f if ln.startswith('EPHEMERIS_UTC_OFFSET=')), '')
         except OSError:
             v = ''

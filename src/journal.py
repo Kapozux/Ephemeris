@@ -33,7 +33,7 @@ import store
 from sources import to_notion as tn
 
 MAX_DEPTH = 3            # 嵌套块（toggle、列表子项）往下读几层
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # 仓库根目录（代码在 src/，数据在根目录）
 FILES_DIR = os.path.join(HERE, 'journal_files')     # 日记里的图片（白名单 .gitignore 挡着，不进仓库；备份里有）
 FILES_URL = '/journal-files/'
 MAX_IMAGE = 30 * 1024 * 1024

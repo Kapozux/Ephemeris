@@ -52,13 +52,13 @@ def api_conversations_search():
 @bp.route('/tools/export_gemini.js')
 def tool_export_gemini():
     """「窗口与导入」里「复制导出脚本」拿的就是这个文件（在 gemini.google.com 的控制台里跑）。"""
-    return send_from_directory(idx.HERE, 'export_gemini.js', mimetype='text/javascript')
+    return send_from_directory(os.path.join(idx.HERE, 'scripts'), 'export_gemini.js', mimetype='text/javascript')
 
 
 @bp.route('/tools/export_chatgpt.js')
 def tool_export_chatgpt():
     """「数据来源 → 导入」里 ChatGPT 那行的「复制导出脚本」（在 chatgpt.com 的控制台里跑，2026-10-14）。"""
-    return send_from_directory(idx.HERE, 'export_chatgpt.js', mimetype='text/javascript')
+    return send_from_directory(os.path.join(idx.HERE, 'scripts'), 'export_chatgpt.js', mimetype='text/javascript')
 
 
 @bp.route('/api/imports')

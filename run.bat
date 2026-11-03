@@ -38,5 +38,5 @@ if %errorlevel%==0 (
 )
 
 start "" powershell -NoProfile -WindowStyle Hidden -Command "Start-Sleep 3; Start-Process 'http://localhost:%PORT%'"
-"venv\Scripts\python.exe" app.py
+"venv\Scripts\python.exe" src\app.py
 pause

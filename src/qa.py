@@ -551,7 +551,7 @@ def run_look(args, use_memory=True):
 
 # 技能（10-22：做一个像 Claude skills 的东西给「问」）：skills/<名字>.md，第一行是什么时候用，后面是做法。
 # 提示词里只放第一行，对上了它自己 look skill 读全文；平常的问题不多花一个字。加一个技能 = 加一个文件。
-SKILLS_DIR = os.path.join(HERE, 'skills')
+SKILLS_DIR = os.path.join(os.path.dirname(HERE), 'skills')
 
 
 def skills():

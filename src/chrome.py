@@ -21,7 +21,7 @@ import urllib.request
 
 import websocket  # websocket-client，venv 里已经有
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # 仓库根目录（代码在 src/，数据在根目录）
 PROFILE = os.path.join(HERE, '.chrome')
 
 WINDOWS = sys.platform == 'win32'

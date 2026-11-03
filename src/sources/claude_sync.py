@@ -30,7 +30,7 @@ import store
 import index as idx
 from chrome import Chrome
 
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # ephemeris 目录
+HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # 仓库根目录
 DEFAULT_SINCE = '2026-01-01'        # 头一次拉多久以前的；之后靠 updated_at 增量
 BATCH = 15                          # 一次 evaluate 拉几个对话，太多 CDP 回包会很大
 FLUSH = 120                         # 攒到这么多就落一次盘（兼顾内存和崩溃止损）

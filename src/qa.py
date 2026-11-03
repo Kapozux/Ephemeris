@@ -561,6 +561,7 @@ READ_CMDS = ('read', 'conv', 'note', 'file', 'day', 'diaries', 'sql', 'sum', 'st
 SEARCH_RUN = 5                                                     # 连着搜这么多次还没读原文：提醒一句
 
 # 不是 Claude 时另外两道（11-03，r1：DeepSeek 查 17 步就交、漏得多；Kimi 40 步用光、后半程上下文几百万 token）
+# 默认关（11-04）：r1 上 DeepSeek V4 Pro 要点 30→29、错 2→5、钱多一半，看不出有用；.env 写 EPHEMERIS_QA_NOTES / _REVIEW=on 才开
 NOTES_EVERY = 10                                                   # 每查这么多步记一次笔记，之前的工具输出换成笔记
 NOTES_PROMPT = """先停一下，不调工具。把到现在查到的、跟问题有关的东西记成笔记，之后的工具输出会只剩这份笔记：
 - 一条一行：日期、谁说的、说了什么（关键处照抄原话），后面写出处 id（像 [m:…] [c:…] [n:…]，照工具输出里的抄，不许编）；
@@ -788,6 +789,11 @@ def _support(text, cites):
 
 def _off(name):
     return idx.env(name, 'on').lower() in ('off', '0', 'false', 'no')
+
+
+def _on(name):
+    """默认关的开关：.env 里写 on 才开。"""
+    return idx.env(name, 'off').lower() in ('on', '1', 'true', 'yes')
 
 
 def check_support(qid):
@@ -1078,8 +1084,8 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
         guard = LookGuard(run_look if use_memory else (lambda a: run_look(a, False)))
         try:
             text = llm.deepseek_agent(prompt, LOOK_TOOL, guard, on_event=say, purpose='qa-deep',
-                                      notes=None if _off('EPHEMERIS_QA_NOTES') else (NOTES_EVERY, NOTES_PROMPT),
-                                      review=None if _off('EPHEMERIS_QA_REVIEW') else REVIEW_PROMPT)
+                                      notes=(NOTES_EVERY, NOTES_PROMPT) if _on('EPHEMERIS_QA_NOTES') else None,
+                                      review=REVIEW_PROMPT if _on('EPHEMERIS_QA_REVIEW') else None)
         except llm.Cancelled:
             return done(*_deep_cites(''.join(buf).strip()), stopped=True)
         body, cites = _deep_cites(text)

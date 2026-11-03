@@ -666,6 +666,65 @@ def _lock_cites(cites, seen, looked):
     return n
 
 
+CHECK_PROMPT = """下面是一段回答里的几句话，每句后面挂着它引的出处原文。逐条判断：这条原文能不能撑住这句话里它负责的那部分。
+- 撑得住：原文里有这个意思（换了说法、概括了都算）。
+- 撑不住：原文没说这个、说的是别的、或者跟这句话相反；也包括把「同时出现」写成「因为」、把 AI 说的写成他说的。
+只挑明显撑不住的，拿不准算撑得住。只回 JSON：{{"bad": [{{"i": 编号, "why": "一句话，说原文实际说了什么"}}]}}，都撑得住就 {{"bad": []}}。
+
+{pairs}"""
+CHECK_CHARS = 800                                                   # 每条出处给它看多少字原文
+
+
+def _claims(body):
+    """回答正文里每个出处记号 → 它挂着的那句话（从上一个句号 / 换行到记号，去掉别的记号）。"""
+    out = {}
+    for m in CITE_ANY.finditer(body or ''):
+        key = f'{m.group(1) or m.group(3)}:{(m.group(2) or m.group(4)).strip()}'
+        head = body[:m.start()]
+        cut = max(head.rfind(ch) for ch in '。！？!?\n；')
+        claim = re.sub(r'\s+', ' ', CITE_ANY.sub('', head[cut + 1:])).strip(' ，,、：:')
+        if claim and key not in out:
+            out[key] = claim[-200:]
+    return out
+
+
+def _cite_text(c):
+    if c['id'].startswith('m:'):
+        m = store.one('SELECT role, text FROM messages WHERE id=?', c['id'][2:])
+        if m:
+            return f"（{'他说' if m['role'] == 'human' else 'AI 说'}）" + ' '.join((m['text'] or '').split())[:CHECK_CHARS]
+    return f"（{'他说' if c.get('who') == 'me' else 'AI 说' if c.get('who') == 'ai' else '文件'}）{c.get('text') or ''}「{c.get('quote') or ''}」"[:CHECK_CHARS]
+
+
+def check_support(qid):
+    """答完在后台核一遍（11-03，照 VeriCite / CiteGuard：带了出处不等于原文撑得住）：每条出处的原文撑不撑得住它挂着的那句话。
+    撑不住的在那条出处上记 weak（原文实际说了什么），正文不改，聊天页标出来。返回撑不住的条数；没跑成返回 None。"""
+    if idx.env('EPHEMERIS_QA_CHECK', 'on').lower() in ('off', '0', 'false', 'no'):
+        return None
+    row = store.one('SELECT text, cites FROM qa_chat WHERE id=?', qid)
+    if not row:
+        return None
+    cites = json.loads(row['cites'] or '[]')
+    claims = _claims(row['text'])
+    todo = [(i, c) for i, c in enumerate(cites) if c['id'] in claims]
+    if not todo:
+        return 0
+    pairs = '\n\n'.join(f"[{n}] 这句话：{claims[c['id']]}\n    原文：{_cite_text(c)}" for n, (_, c) in enumerate(todo, 1))
+    got = llm.ask_json(CHECK_PROMPT.format(pairs=pairs), want=dict, effort='low', purpose='qa-check')
+    if not isinstance(got, dict) or not isinstance(got.get('bad'), list):
+        return None
+    n = 0
+    for b in got['bad']:
+        try:
+            i, c = todo[int(b.get('i')) - 1]
+        except (TypeError, ValueError, IndexError, AttributeError):
+            continue
+        cites[i]['weak'] = str(b.get('why') or '原文撑不住这句')[:200]
+        n += 1
+    store.run('UPDATE qa_chat SET cites=? WHERE id=?', json.dumps(cites, ensure_ascii=False), qid)
+    return n
+
+
 def _snapshot(kind, ref):
     if kind == 'f':
         return _file_snapshot(ref)
@@ -865,7 +924,9 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
             mine = sorted(seen - {c['id'] for c in cites})
             trace['seen'] = mine[:SEEN_KEEP]
             trace['unseen'] = _lock_cites(cites, seen, '\n'.join(looked))
-        _say(thread, 'assistant', body, cites, sid, trace)
+        aid = _say(thread, 'assistant', body, cites, sid, trace)
+        if cites and not stopped:                                   # 原文撑不撑得住：后台核，不拖着回答
+            threading.Thread(target=_check_quietly, args=(aid,), daemon=True).start()
         if qid:                                                     # 答上了：之后「重新跑」该从头查，别接这个会话
             store.run('UPDATE qa_chat SET sid=NULL WHERE id=?', qid)
         return {'answer': body, 'cites': cites, 'deep': True, 'thread': thread, 'trace': trace, **({'stopped': True} if stopped else {})}
@@ -893,6 +954,13 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
     except llm.Cancelled:                                           # 写到一半点了停止：留下写出来的那段
         return done(*_deep_cites(''.join(buf).strip()), stopped=True)
     return done(*_deep_cites(text), sid=new_sid)
+
+
+def _check_quietly(aid):
+    try:
+        check_support(aid)
+    except Exception as e:                                          # noqa: BLE001  核不成不影响回答
+        print(f'[qa] 核出处没成：{type(e).__name__}: {e}', flush=True)
 
 
 def _job(thread):

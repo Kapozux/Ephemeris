@@ -1,7 +1,10 @@
 """引用锁（11-03，照 Agent Zero Memory 的 citation lock）：回答里的出处要是这一轮 look 真吐出来过的；
 没看过的不删（id 是真的），标 unseen，聊天页提示「这轮没查到过」。追问时前几轮看过的照样认。"""
 import _env  # noqa: F401
+import json
+import os
 import unittest
+from unittest import mock
 
 import llm
 import qa
@@ -48,6 +51,45 @@ class CiteLock(unittest.TestCase):
 
     def test_seen_ids_regex(self):
         self.assertEqual(qa._seen_ids('[m:m1] x (原话 m:abc-1) [c:conv/2·k], m:z.'), {'m:m1', 'm:abc-1', 'c:conv/2·k', 'm:z'})
+
+
+class Support(unittest.TestCase):
+    """答完后台核：原文撑不住它挂着的那句话，就在那条出处上记 weak，正文不动。"""
+    def setUp(self):
+        seed()
+        self.t = qa.new_thread()
+        self.aid = qa._say(self.t, 'assistant', '你决定 ED 交 MIT [[m:m1]]。AI 劝你放弃申请 [[m:m2]]。',
+                           [qa._snapshot('m', 'm1'), qa._snapshot('m', 'm2')])
+        self.prompts = []
+
+    def tearDown(self):
+        llm.use(None)
+
+    def run_check(self, reply):
+        llm.use(lambda p: (self.prompts.append(p), reply)[1])
+        with mock.patch.dict(os.environ, {'EPHEMERIS_QA_CHECK': 'on'}):
+            return qa.check_support(self.aid)
+
+    def test_marks_weak(self):
+        n = self.run_check(json.dumps({'bad': [{'i': 2, 'why': 'AI 只是建议收窄论点，没劝放弃'}]}, ensure_ascii=False))
+        self.assertEqual(n, 1)
+        cites = qa.history(thread=self.t)[-1]['cites']
+        self.assertNotIn('weak', cites[0])
+        self.assertIn('收窄', cites[1]['weak'])
+        self.assertIn('AI 劝你放弃申请', self.prompts[0])               # 挂着的那句话
+        self.assertIn('（AI 说）可以，但建议你先把主文书', self.prompts[0])   # 原文全文，不是截断的快照
+
+    def test_bad_reply_changes_nothing(self):
+        self.assertIsNone(self.run_check('不是 JSON'))
+        self.assertTrue(all('weak' not in c for c in qa.history(thread=self.t)[-1]['cites']))
+
+    def test_off(self):
+        llm.use(lambda p: self.fail('关着不该调模型'))
+        self.assertIsNone(qa.check_support(self.aid))
+
+    def test_claims(self):
+        self.assertEqual(qa._claims('第一句 [[m:a]]。第二句，接着 [[m:b]][[c:x]]\n[[m:c]] 第三'),
+                         {'m:a': '第一句', 'm:b': '第二句，接着', 'c:x': '第二句，接着'})
 
 
 if __name__ == '__main__':

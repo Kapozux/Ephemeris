@@ -41,6 +41,19 @@ class Providers(unittest.TestCase):
         self.assertEqual([(x[0], x[3]) for x in r], [('siliconflow', 'Qwen/Qwen3-235B-A22B'), ('deepseek', 'deepseek-v4-flash')])
         self.assertEqual(r[0][1], 'https://api.siliconflow.cn/v1')
 
+    def test_picked_text_always_first(self):
+        """指定了写东西的模型：连着几次都先走它（以前几条路轮流先上）。"""
+        tried = []
+
+        def post(route, prompt, json_mode=False, purpose=''):
+            tried.append(route[0])
+            return '好'
+        a, b = env(EPHEMERIS_MODEL_TEXT='siliconflow:Qwen/Qwen3-235B-A22B')
+        with a, b, mock.patch.object(llm, '_cheap_post', post):
+            for _ in range(3):
+                llm._cheap('写一句')
+        self.assertEqual(tried, ['siliconflow'] * 3)
+
     def test_bad_pick_ignored(self):
         for raw in ('nope:m', 'moonshot:kimi', 'siliconflow:', 'siliconflow'):    # 不认识的家 / 没 key / 没写模型
             with self.subTest(raw=raw):

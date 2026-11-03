@@ -16,6 +16,8 @@ for _k in ('CLAUDE_GATE_WEEK_KEEP', 'CLAUDE_GATE_WEEK_KEEP_LIVE', 'CLAUDE_GATE_L
            'CLAUDE_GATE_CAP_CODEX', 'CLAUDE_GATE_RESERVE_CODEX', 'EPHEMERIS_CODEX', 'EPHEMERIS_CODEX_MODEL'):
     os.environ[_k] = ''                        # .env 里的额度设置也不带进测试（周额度那条会真去问一次 Claude）
 os.environ['EPHEMERIS_CODEX'] = 'off'         # 空串会落回 .env 里的 on（index.env 只认非空）
+for _r in ('TEXT', 'ASK', 'EMBED'):             # 本机 .env 指定的后备模型（providers 的角色）不带进测试；'off' 不是「接口名:模型」，等于没指定
+    os.environ[f'EPHEMERIS_MODEL_{_r}'] = 'off'
 os.environ['EPHEMERIS_QA_CHECK'] = 'off'      # 答完后台核出处：测试里不另起线程调模型（test_qa_cite_lock 自己开）
 os.environ['EPHEMERIS_QA_FILES'] = tempfile.mkdtemp(prefix='ephemeris-qafiles-')   # 「问」里附的文件
 os.environ['CLAUDE_GATE_CC_DIR'] = tempfile.mkdtemp(prefix='ephemeris-ccgate-')   # 也不读真的 ~/.claude 算用量

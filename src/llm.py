@@ -437,6 +437,8 @@ def _cheap(prompt, why=None, force=False, json_mode=False, purpose=''):
     with _lock:
         i = _turn[0] % max(len(routes), 1)
         _turn[0] += 1
+    if providers.pick('TEXT') and not chosen:
+        i = 0                                                # 指定了写东西用哪个（11-03）：每次先走它，别的只当后备，不轮流
     for name, base, k, model, extra in routes[i:] + routes[:i]:     # 轮流先上，失败了再试别的
         for attempt in range(tries):
             try:

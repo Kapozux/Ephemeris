@@ -124,6 +124,12 @@ CREATE INDEX IF NOT EXISTS journal_date ON journal(date);
 CREATE VIRTUAL TABLE IF NOT EXISTS journal_fts USING fts5(
   text, date UNINDEXED, page_id UNINDEXED, tokenize='unicode61'
 );
+-- Notion 笔记库（sources/notion_notes.py，11-03）：只给「问」查，不进日记 / 卡。text 是打过码的 Markdown（密钥、密码换成「〔已隐藏〕」，
+-- 原文只在 Notion）；masked 遮了几处；tags 是标签 / 选择类属性（JSON）；date 是页上的日期属性，没有就是创建那天
+CREATE TABLE IF NOT EXISTS notes (
+  page_id TEXT PRIMARY KEY, title TEXT, date TEXT, created TEXT, tags TEXT, text TEXT, chars INTEGER,
+  masked INTEGER DEFAULT 0, last_edited TEXT, fetched_at TEXT, gone_at TEXT
+);
 -- 打卡（checkin.py）。reply：记下之后 AI 回的那几句
 CREATE TABLE IF NOT EXISTS checkins (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

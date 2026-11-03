@@ -470,6 +470,8 @@ DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料�
   day   <YYYY-MM-DD>                                                                     那天有哪些窗口、那天的日记、手写日记
   stats [--since YYYY-MM-DD] [--until YYYY-MM-DD]                                       一共有多少：消息、字数、窗口、按来源、证据卡、日记、按月
   journal <词> [--since …] [--until …]                                                  搜他的手写日记
+  notes <词> [词…] [--since …] [--until …] [--n 30]                                     搜他的 Notion 笔记库（课程、项目、申请、各种记下来的东西；几个词 = 都要出现，标题 / 正文 / 标签都算）
+  note  <n:id> [--at 词] [--full]                                                         读一页 Notion 笔记（默认 6000 字，--at 跳到词附近）
   diaries [--since …] [--until …] [--full]                                              按日期读 Ephemeris 写的日记，一天一段（看一段时间过得怎样很快）
   schema                                                                                 库里有哪些表、列、各是什么（messages / conversations / cards / diaries / journal / checkins / themes …）
   sql   "<一条 SELECT 或 WITH>" [--n 30]                                                 自己写只读 SQL：统计、加总、分组、按条件筛，能算准数（改不了库，最多 500 行，60 秒）
@@ -485,6 +487,7 @@ DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料�
   或者别处算过的旧数当答案（那些可以拿来对照）：先用 convs 多换几个说法（--n 100）把候选窗口找全，看标题和小结逐个判断算不算，
   拿不准的用 conv 看一眼；再用 sum 把算进去的加起来（或者直接写 sql 按条件统计）。回答里说清楚算了哪几类窗口、排除了什么、
   「你打的」和「AI 写的」各多少（像某个爱好这种，字主要是 AI 写的）。
+- 他记在 Notion 里的东西（课程笔记、项目、申请材料、清单、计划）→ notes 搜、note 读；聊天里说「我记在 Notion 里了」的也去这里找。
 - 上网、看视频、哪些网站被拦（Cold Turkey）这类 → sql 查 browse_visits（Chrome 浏览记录，7 月下旬起；先 schema 看说明），只报次数、时段，别逐条列网址。
 - 现成命令不够用，就先 schema 看表，再用 sql 自己查：按天 / 月分组、某段时间、某些窗口、某种卡、打卡和心情……都能算。
   sql 用双引号把整条括起来，里面的字符串用单引号；别用 ; 和 ||；统计时一般排除 source = 'ask'（那是「问」自己）。
@@ -508,7 +511,7 @@ DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料�
 - 分清「那时」和「现在」（11-03，照 Zep / Graphiti 给事实记版本）：他的状态、想法、计划、关系会变，一条材料只说明它那天的样子。
   说状态类的话要带上是哪天 / 哪段时间的；同一件事前后说法不一样，就写成「那时（日期）……，后来（日期）……」，别把旧的当成现在、也别把两段混成一句。
   问「现在 / 最近」的，要用最近的材料（msgs 默认最新的在前）核一下；带「截至」日期的旧结论只说明截至那天，离今天远的也要再查最近的。
-- 有依据的话后面标出处：[[m:消息id]]、[[c:卡id]]，或者文件 [[f:路径:行号]] / [[f:路径:起-止]]，照抄工具输出里的记号（文件的行号按 file 输出左边的数），不要编。
+- 有依据的话后面标出处：[[m:消息id]]、[[c:卡id]]、Notion 笔记 [[n:页id]]，或者文件 [[f:路径:行号]] / [[f:路径:起-止]]，照抄工具输出里的记号（文件的行号按 file 输出左边的数），不要编。
 - 最后只输出给他看的回答正文，不要讲你是怎么查的。
 
 画图（可选）：
@@ -530,7 +533,7 @@ DEEP_PROMPT = """你在帮 {name} 回答一个关于他自己的问题。材料�
 问题：{question}
 """
 # 没有 Claude 时（只有 DeepSeek 的电脑，2026-10-14）深挖走 llm.deepseek_agent：同一套 look.py 命令，包成一个叫 look 的工具
-LOOK_CMDS = ('msgs', 'cards', 'read', 'conv', 'convs', 'sum', 'day', 'stats', 'journal', 'diaries', 'schema', 'sql', 'files', 'grep', 'file', 'moye', 'skill', 'memory')
+LOOK_CMDS = ('msgs', 'cards', 'read', 'conv', 'convs', 'sum', 'day', 'stats', 'journal', 'diaries', 'schema', 'sql', 'files', 'grep', 'file', 'moye', 'skill', 'memory', 'notes', 'note')
 LOOK_TOOL = {'name': 'look', 'description': '查他的聊天记录、证据卡、日记，也能只读看他电脑上的文件（files / grep / file）。command 填一条 look 命令（不带 look 本身），比如 '
              '「msgs 申请 --old」「cards 我那阵子状态怎么样 --since 2026-03-01」「sql "SELECT COUNT(*) FROM messages"」',
              'parameters': {'type': 'object', 'properties': {'command': {'type': 'string', 'description': '一条命令'}},
@@ -628,7 +631,7 @@ def _with_files(question, files, look):
 
 
 SEEN_KEEP = 3000                                                     # trace 里最多记这么多个看过的记号（追问时接着认）
-CITE_ANY = re.compile(r'\[\[\s*(?:([mc]):([^\]\s]+)|(f):([^\]]+?))\s*\]\]')     # 文件路径里可能有空格
+CITE_ANY = re.compile(r'\[\[\s*(?:([mcn]):([^\]\s]+)|(f):([^\]]+?))\s*\]\]')     # 文件路径里可能有空格
 
 
 def _deep_cites(text):
@@ -648,7 +651,7 @@ def _deep_cites(text):
 
 
 _ID_CH = r'A-Za-z0-9_\-/·.'
-SEEN_ID = re.compile(rf'(?<![{_ID_CH}])([mc]):([{_ID_CH}]*[A-Za-z0-9_\-/·])')
+SEEN_ID = re.compile(rf'(?<![{_ID_CH}])([mcn]):([{_ID_CH}]*[A-Za-z0-9_\-/·])')
 
 
 def _seen_ids(text):
@@ -732,6 +735,14 @@ def check_support(qid):
 def _snapshot(kind, ref):
     if kind == 'f':
         return _file_snapshot(ref)
+    if kind == 'n':
+        r = store.one('SELECT page_id, title, date, text FROM notes WHERE page_id=?', ref)
+        if not r:
+            return None
+        import journal                                              # 只这里用（Markdown → 纯文字）
+        t = ' '.join(journal.plain(r['text']).split())
+        return {'id': f'n:{ref}', 'date': r['date'], 'who': 'note', 'kind': 'Notion 笔记', 'text': r['title'] or '无标题',
+                'quote': t[:240] + ('…' if len(t) > 240 else ''), 'conv_id': None, 'msg_id': None, 'title': r['title'] or '无标题'}
     if kind == 'c':
         c = card(ref)
         return c and {'id': f'c:{ref}', **{k: c[k] for k in ('date', 'who', 'kind', 'text', 'quote', 'conv_id', 'msg_id', 'title')}}
@@ -767,9 +778,9 @@ def _file_snapshot(ref):
 
 STEP_LABEL = {'msgs': '搜原文', 'cards': '翻证据卡', 'read': '读原话前后', 'conv': '看一个窗口', 'convs': '找聊过的窗口',
               'sum': '加字数', 'day': '看那天', 'stats': '看总量', 'journal': '翻手写日记', 'diaries': '读日记',
-              'schema': '看库里有哪些表', 'sql': '自己算', 'files': '看文件夹', 'grep': '在文件里搜', 'file': '读文件', 'moye': '搜墨页', 'skill': '读做法', 'memory': '看档案'}
+              'schema': '看库里有哪些表', 'sql': '自己算', 'files': '看文件夹', 'grep': '在文件里搜', 'file': '读文件', 'moye': '搜墨页', 'skill': '读做法', 'memory': '看档案', 'notes': '翻 Notion 笔记', 'note': '读 Notion 笔记'}
 _TABLE_NAME = {'messages': '聊天记录', 'conversations': '窗口', 'cards': '证据卡', 'diaries': '日记', 'journal': '手写日记',
-               'checkins': '打卡', 'themes': '主题', 'card_convs': '窗口小结'}
+               'checkins': '打卡', 'themes': '主题', 'card_convs': '窗口小结', 'notes': 'Notion 笔记', 'browse_visits': '浏览记录'}
 
 
 def _flags(args):

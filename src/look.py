@@ -19,13 +19,14 @@ python look.py skill [名字]                                                   
 python look.py memory [名字]                                                            读他的档案（memory.py：每周从证据卡整理的「关于你 / 偏好 / 各领域」）的一页；不给名字列出有哪些
 python look.py moye  <词> [--n 10]                                                     搜墨页已经转好的 PDF（扫描件、课件、作业），墨页开着才行
 
-出处记号：消息是 m:<id>，卡是 c:<id>，文件是 f:<路径>:<行号> 或 f:<路径>:<起>-<止>。回答时照抄就能被 Ephemeris 认回原话。
+出处记号：消息是 m:<id>，卡是 c:<id>，Notion 笔记是 n:<id>，文件是 f:<路径>:<行号> 或 f:<路径>:<起>-<止>。回答时照抄就能被 Ephemeris 认回原话。
 文件只能看白名单目录里的（localfiles：默认 ~/Documents、~/Downloads），只读；隐藏文件、密钥、数据库看不了。
 标题写「〔小结〕…」的窗口原本没标题（Gemini 导出的 sess_xxxx），是从窗口小结取的头一句。
 「我（N 字长文…）」：他发的超长消息，常是贴进来的：课堂笔记、网页、别人或别的 AI 写的、以前的聊天记录，也可能是他在别处写好的日记——读了再判断是不是他自己的话、说的是哪天的事。
 搜原文 / 找窗口不看「问」自己的对话（来源 ask）：不然会引到自己以前的回答。
 """
 import argparse
+import json
 import os
 import re
 import sqlite3
@@ -298,6 +299,7 @@ _NOTES = {
     'journal': '他自己手写的日记（Notion 拉回来的），gone_at 有值的是 Notion 上删了的',
     'checkins': '打卡：word 心情词、valence 好坏（正好负坏）、note 备注',
     'mood_scores': '每天过得怎么样的打分（valence）',
+    'notes': 'Notion 笔记库（不是日记）：title、date（页上的日期，没有就是创建那天）、tags（标签 / 分类，JSON）、text（Markdown，密钥密码已经换成〔已隐藏〕）；gone_at 有值的是 Notion 里删了的',
     'browse_visits': ('Chrome 浏览记录（2026-07-22 起，只有 http(s)）：date / hhmm 按他的一天；url、title；'
                       'title 带「Cold Turkey」的是被 Cold Turkey 拦下的页面（想打开但没打开）；secs 是 Chrome 记的停留秒数，开着不看的标签也算，别当成真看了多久'),
     'themes': '主题账本：长期在想的事；theme_days 是它出现在哪些天',
@@ -359,6 +361,38 @@ def journal_(a):
     print(f'手写日记里「{kw}」出现在 {len(rows)} 篇（最新的在前）')
     for r in rows:
         print(f"[{r['date']}] {_around(r['text'], kw)}")
+
+
+def notes_(a):
+    """Notion 笔记库（11-03）：标题或正文里几个词都出现的页，最近改过的在前。"""
+    kws = [w for w in a.words if w] or ['']
+    like = ''.join(' AND (title LIKE ? OR text LIKE ? OR tags LIKE ?)' for _ in kws)
+    args = [x for w in kws for x in (f'%{w}%',) * 3]
+    rng, rargs = _rng(a, 'date')
+    rows = store.q(f"""SELECT page_id, title, date, tags, text, chars FROM notes WHERE (gone_at IS NULL OR gone_at = ''){like}{rng}
+                       ORDER BY last_edited DESC LIMIT ?""", *args, *rargs, a.n)
+    print(f"Notion 笔记里「{' '.join(kws)}」：{len(rows)} 页（最近改过的在前；读全文 note <n:id> [--at 词]）")
+    for r in rows:
+        tags = '；'.join(f"{k} {'、'.join(v) if isinstance(v, list) else v}" for k, v in (json.loads(r['tags'] or '{}') or {}).items() if v)
+        print(f"  [n:{r['page_id']}] {r['date']}《{r['title'] or '无标题'}》{r['chars']} 字" + (f"（{tags}）" if tags else '')
+              + f"\n      {_around(r['text'], kws[0])}")
+
+
+def note_(a):
+    nid = (a.words or [''])[0].removeprefix('n:')
+    r = store.one('SELECT page_id, title, date, tags, text, chars, masked FROM notes WHERE page_id=?', nid)
+    if not r:
+        print('没有这页（或者被屏蔽了）')
+        return
+    text, start = r['text'] or '', 0
+    if a.at:
+        start = max(0, text.lower().find(a.at.lower()) - 300) if a.at.lower() in text.lower() else 0
+    cap = None if a.full else 6000
+    body = text[start:start + cap] if cap else text[start:]
+    print(f"[n:{r['page_id']}] {r['date']}《{r['title'] or '无标题'}》（{r['chars']} 字"
+          + (f"，遮了 {r['masked']} 处密钥 / 密码" if r['masked'] else '') + '）'
+          + (f"\n从第 {start} 字起" if start else '') + '\n' + body
+          + ("\n……（后面还有，用 --at 词 跳过去）" if cap and start + cap < len(text) else ''))
 
 
 def diaries_(a):
@@ -473,7 +507,7 @@ def memory_(a):
 def main(argv=None):
     p = argparse.ArgumentParser(prog='look.py', description='只读查 Ephemeris 的聊天记录和证据卡')
     p.add_argument('cmd', choices=['msgs', 'cards', 'read', 'conv', 'convs', 'day', 'stats', 'sum', 'sql', 'schema', 'journal', 'diaries',
-                                     'files', 'grep', 'file', 'moye', 'skill', 'memory'])
+                                     'files', 'grep', 'file', 'moye', 'skill', 'memory', 'notes', 'note'])
     p.add_argument('words', nargs='*')
     p.add_argument('--since'); p.add_argument('--until')
     p.add_argument('--who', choices=['me', 'ai']); p.add_argument('--old', action='store_true')
@@ -490,7 +524,7 @@ def main(argv=None):
     try:
         {'msgs': msgs, 'cards': cards_, 'read': read, 'conv': conv, 'convs': convs, 'day': day, 'stats': stats, 'sum': sum_, 'sql': sql,
          'schema': schema, 'journal': journal_, 'diaries': diaries_, 'files': files_, 'grep': grep_, 'file': file_, 'moye': moye_,
-         'skill': skill_, 'memory': memory_}[a.cmd](a)
+         'skill': skill_, 'memory': memory_, 'notes': notes_, 'note': note_}[a.cmd](a)
     finally:
         with store.LOCK:
             hidden.unshield(db)

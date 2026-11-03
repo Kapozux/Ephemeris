@@ -31,6 +31,7 @@ from sources import codex
 from sources import cursor
 import days
 import diary
+import index as idx
 import jobs
 import llm
 import memory
@@ -178,6 +179,15 @@ def tidy(call_model):
             raise RuntimeError(r['warning'])                # 记成这一步失败，面板上看得见
         return {'fetched': r['fetched'], 'gone': r['gone'], 'failed': len(r['failed'])}
 
+    def s_notes():
+        from sources import notion_notes                   # 11-03 Notion 笔记库：只给「问」查，没设库就跳过
+        if not idx.env('NOTION_NOTES_DS'):
+            return {'skipped': '没设 NOTION_NOTES_DS'}
+        r = notion_notes.sync(say=lambda m: None)
+        if r['warning']:
+            raise RuntimeError(r['warning'])
+        return {'fetched': r['fetched'], 'gone': r['gone'], 'failed': len(r['failed']), 'masked': r['masked']}
+
     def s_hand():
         # 正文真的变了的才重新抽主题（白天打开 Ephemeris 时也可能已经把新写的拉下来了，所以不看这次同步拉了哪些）
         dates = journal.dirty_dates()
@@ -200,7 +210,7 @@ def tidy(call_model):
     def s_reflect():
         return {'rewrote': reflect_chat.weekly()}
 
-    for name, fn in (('手写日记', s_journal), ('手写进账本', s_hand), ('两个指标', s_mood),
+    for name, fn in (('手写日记', s_journal), ('Notion 笔记', s_notes), ('手写进账本', s_hand), ('两个指标', s_mood),
                      ('主题归类', s_cats), ('窗口回顾', s_windows), ('回顾面板', s_reflect)):
         _step(name, fn, out)
 

@@ -88,6 +88,26 @@ class Providers(unittest.TestCase):
         self.assertEqual(r['key_error'], 'DeepSeek 说余额不足')
         self.assertFalse(os.path.exists(setup.ENV))
 
+    def test_other_presets_verified_against_models(self):
+        """11-03「模型」那栏：硅基流动这类的 key 存之前读一次它的 /models；自定义的用页面上一起填的地址。"""
+        saved = setup.verify_preset
+        try:
+            setup.verify_preset = lambda name, k, base=None: self.asked.append((name, k, base)) or (None if k == 'good' else '无效')
+            self.assertEqual(setup.save({'SILICONFLOW_API_KEY': 'bad'})['key_error'], '无效')
+            self.assertFalse(os.path.exists(setup.ENV))
+            setup.save({'EPHEMERIS_CUSTOM_API_KEY': 'good', 'EPHEMERIS_CUSTOM_BASE_URL': 'http://gpu.example/v1'})
+            self.assertIn(('custom', 'good', 'http://gpu.example/v1'), self.asked)
+            self.assertIn('EPHEMERIS_CUSTOM_API_KEY=good', self.env_text())
+        finally:
+            setup.verify_preset = saved
+
+    def test_role_must_be_provider_colon_model(self):
+        self.assertIn('key_error', setup.save({'EPHEMERIS_MODEL_ASK': 'kimi-k2'}))
+        self.assertFalse(os.path.exists(setup.ENV))
+        setup.save({'EPHEMERIS_MODEL_ASK': 'siliconflow:moonshotai/Kimi-K2'})
+        self.assertIn('EPHEMERIS_MODEL_ASK=siliconflow:moonshotai/Kimi-K2', self.env_text())
+        self.assertNotIn('key_error', setup.save({'EPHEMERIS_MODEL_ASK': ''}))        # 清空 = 不指定
+
     def test_unknown_provider_rejected(self):
         self.assertIn('key_error', setup.save({'EPHEMERIS_PROVIDER': 'skynet'}))
         self.assertFalse(os.path.exists(setup.ENV))

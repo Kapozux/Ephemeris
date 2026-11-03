@@ -45,6 +45,70 @@ export async function pollKeys() {
   if (s) keysStatus(s);
 }
 
+// ---------------------------------------------------------------- 模型（providers.py，11-03）
+// 照 Khoj / LobeChat：先接一家（填 key，存之前读一次它的 /models 验），再给三个角色各挑一个模型（Aider 那样分角色）。
+// Claude 订阅一直先上；这里定的是它用不了时走谁。key 只进 .env，页面看不到原值。
+const ROLE_HINT = {
+  TEXT: '写日记、做卡、打分、核出处。不指定就按上面填了 key 的几家轮流，用各家默认的模型。',
+  ASK: '「问」要自己连着查几十步，得选能调工具的模型。不指定就跟上面那条一样。',
+  EMBED: '证据卡「按意思搜」用的。换了模型，旧向量不跟新的比，补向量会按新模型重算（全部重算不到一美元）。不指定就用 Google 的。',
+};
+const infoText = i => !i ? '不知道它能不能调工具（没在资料表里）'
+  : i.embed ? '向量模型' : `${i.tools ? '能调工具' : '不能调工具'}${i.ctx ? ` · 上下文 ${i.ctx}K` : ''}${i.price ? ` · 约 $${i.price[0]} 进 / $${i.price[2]} 出（每百万 token）` : ''}${i.open === false ? ' · 不开源' : ''}`;
+
+async function postEnv(body) {
+  return fetch('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(r => r.json()).catch(() => null);
+}
+
+export async function pollModels() {
+  const box = $('#modelsBox'); if (!box) return;
+  const s = await fetch('/api/setup').then(r => r.json()).catch(() => null);
+  const m = s?.models; if (!m) return;
+  const ready = m.providers.filter(p => p.ready);
+  box.innerHTML = m.providers.map(p => `
+      <div class="set-row">
+        <span class="set-text"><b>${esc(p.label)}</b><span class="set-key-st${p.ready ? ' ok' : ''}">${p.ready ? '已接' : '没接'}</span>
+          <span class="set-what">${p.custom ? '自己租的 vLLM、别的转发站……地址写到 /v1 为止。' : `默认模型 <code>${esc(p.model || '')}</code>`}${p.cn ? ' · 国内服务商（时政多的内容不给它）' : ''}</span></span>
+        ${p.custom ? field('mdlBase', 'EPHEMERIS_CUSTOM_BASE_URL', p.base || 'https://…/v1', 'text') : ''}
+        ${field('mdlKey_' + p.name, p.env, `${p.label} 的 API key`)}
+      </div>`).join('') +
+    `<div class="set-note">下面三个是「Claude 用不了时」各用哪个模型。先在上面接好一家，再在这里挑。</div>` +
+    Object.entries(m.roles).map(([r, v]) => `
+      <div class="set-row">
+        <span class="set-text"><b>${esc(v.label)}</b><span class="set-key-st${v.pick ? ' ok' : ''}">${v.pick ? esc(v.pick) : '没指定'}</span>
+          <span class="set-what">${ROLE_HINT[r]}${v.pick ? '<br>' + infoText(v.info) : ''}</span>
+          <span class="set-res" id="mdlMsg_${r}" role="status"></span></span>
+        <span class="set-act">
+          <select class="set-skip" id="mdlP_${r}"><option value="">不指定</option>${ready.map(p => `<option value="${p.name}"${v.pick.startsWith(p.name + ':') ? ' selected' : ''}>${esc(p.label)}</option>`).join('')}</select>
+          <input class="set-pw" id="mdlM_${r}" list="mdlL_${r}" placeholder="模型" value="${esc(v.pick.split(':').slice(1).join(':'))}"><datalist id="mdlL_${r}"></datalist>
+          <button class="btn-secondary btn-small" data-mdl="${r}">保存</button></span>
+      </div>`).join('');
+  bindSave(box, () => pollModels());
+  const fill = async r => {                      // 挑了哪家就去拉它的模型列表，填进输入框的下拉提示
+    const name = $('#mdlP_' + r).value, list = $('#mdlL_' + r), msg = $('#mdlMsg_' + r);
+    list.innerHTML = ''; msg.textContent = ''; msg.classList.remove('bad');
+    if (!name) return;
+    const d = await fetch('/api/models/' + name).then(x => x.json()).catch(() => null);
+    if (!d || d.error) { msg.textContent = d?.error || '拉不到模型列表'; msg.classList.add('bad'); return; }
+    const want = r === 'EMBED' ? x => x.info?.embed || /embed|bge/i.test(x.id) : r === 'ASK' ? x => !x.info || x.info.tools : () => true;
+    list.innerHTML = d.models.filter(want).map(x => `<option value="${esc(x.id)}">${esc(infoText(x.info))}</option>`).join('');
+    msg.textContent = `${name} 有 ${d.models.length} 个模型，输入框里能挑`;
+  };
+  Object.keys(m.roles).forEach(r => { $('#mdlP_' + r).onchange = () => fill(r); });
+  box.querySelectorAll('button[data-mdl]').forEach(b => b.onclick = async () => {
+    const r = b.dataset.mdl, p = $('#mdlP_' + r).value, model = $('#mdlM_' + r).value.trim(), msg = $('#mdlMsg_' + r);
+    msg.classList.remove('bad');
+    if (p && !model) { msg.textContent = '先填模型名'; return; }
+    b.disabled = true;
+    const res = await postEnv({ ['EPHEMERIS_MODEL_' + r]: p ? `${p}:${model}` : '' });
+    b.disabled = false;
+    if (!res || res.key_error) { msg.textContent = res?.key_error || '没存上'; msg.classList.add('bad'); return; }
+    await pollModels();
+    $('#mdlMsg_' + r).textContent = p ? '存好了：Claude 用不了时用它' : '清掉了';
+  });
+}
+
 // ---------------------------------------------------------------- 隐私锁（lock.py / static/lock.js）
 // 设了密码：页面一切走就锁上，回来要输密码。改 / 去掉都要先输原来的密码。
 export async function pollLock() {

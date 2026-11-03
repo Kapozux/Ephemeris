@@ -39,6 +39,7 @@ from datetime import datetime, timedelta
 
 import claude_gate
 import index as idx
+import providers
 import store
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # 仓库根目录（代码在 src/，数据在根目录）
@@ -174,12 +175,39 @@ GEMINI_EMBED = 'gemini-embedding-001'
 
 
 def embed_ready():
-    """能不能算向量：有 OpenRouter 或 Gemini 的 key（DeepSeek 没有 embedding）。没有的话证据卡只按字面找，补向量那步跳过。"""
-    return bool(_embed_override or openrouter_key() or key('GEMINI_API_KEY', 'gemini_key'))
+    """能不能算向量：指定了向量模型（EPHEMERIS_MODEL_EMBED），或者有 OpenRouter / Gemini 的 key（DeepSeek 没有 embedding）。
+    都没有的话证据卡只按字面找，补向量那步跳过。"""
+    return bool(_embed_override or providers.pick('EMBED') or openrouter_key() or key('GEMINI_API_KEY', 'gemini_key'))
 
 
 def embed_model():
+    """存向量时记的模型名：换了模型，旧向量不跟新的比（cards 按这个名字分开），补向量会按新模型重算。"""
+    own = providers.pick('EMBED')
+    if own:
+        return ':'.join(own)
     return OR_EMBED if openrouter_key() else GEMINI_EMBED
+
+
+def _embed_compat(texts):
+    """指定的向量模型（11-03，providers 的 EMBED）：OpenAI 兼容的 /embeddings。不传 dimensions（不少开源模型不认），维数按它自己的。"""
+    import requests
+    name, model = providers.pick('EMBED')
+    last = None
+    for attempt in range(3):
+        try:
+            r = requests.post(providers.base(name) + '/embeddings', timeout=120,
+                              headers={'Authorization': f'Bearer {providers.key_for(name)}'},
+                              json={'model': model, 'input': list(texts)})
+            if r.status_code != 200:
+                raise RuntimeError(f'{r.status_code}: {r.text[:200]}')
+            data = sorted(r.json()['data'], key=lambda d: d['index'])
+            if len(data) != len(texts):
+                raise RuntimeError(f'回来 {len(data)} 条，送了 {len(texts)} 条')
+            return [d['embedding'] for d in data]
+        except Exception as e:                           # noqa: BLE001
+            last = e
+            time.sleep(4 * (attempt + 1))
+    raise RuntimeError(f'embedding 失败：{last}')
 
 
 def _embed_openrouter(texts):
@@ -224,6 +252,8 @@ def embed(texts, task='RETRIEVAL_DOCUMENT'):
         rows = [_embed_override(t) for t in texts]
     elif _override:                                  # 测试换了假模型、没给假向量：别真去调
         raise RuntimeError('测试里没给假向量（llm.use_embed）')
+    elif providers.pick('EMBED'):
+        rows = _embed_compat(texts)
     elif embed_model() == OR_EMBED:
         rows = _embed_openrouter(texts)
     else:
@@ -321,19 +351,9 @@ def cheap_on():
 
 
 def _cheap_routes(all_routes=False):
+    """写东西走的路：[(名字, 地址, key, 模型, 多带的参数)]。哪几家、什么顺序、指定的模型都在 providers（11-03 起）。"""
     now = time.time()
-    out = []
-    ds = key('DASHSCOPE_API_KEY', 'dashscope_key')
-    if ds:
-        out.append(('aliyun', 'https://dashscope.aliyuncs.com/compatible-mode/v1', ds,
-                    idx.env('EPHEMERIS_CHEAP_MODEL') or 'deepseek-v4-flash-0731', {'enable_thinking': False}))
-    dk = key('DEEPSEEK_API_KEY', 'deepseek_key')
-    if dk:
-        out.append(('deepseek', 'https://api.deepseek.com/v1', dk, deepseek_model(), {}))
-    ok = openrouter_key()
-    if ok:
-        out.append(('openrouter', 'https://openrouter.ai/api/v1', ok, 'deepseek/deepseek-v4-flash',
-                    {'reasoning': {'enabled': False}, 'usage': {'include': True}}))
+    out = providers.routes()
     return out if all_routes else [r for r in out if _paused.get(r[0], 0) <= now]
 
 
@@ -364,6 +384,13 @@ def _picked_deepseek():
     """聊天页选了 DeepSeek 的某个模型（llm.using）：只走 DeepSeek 官方那条、用这个模型。"""
     m = getattr(_pick, 'model', None)
     return m if m and m.startswith('deepseek') else None
+
+
+def _picked_route():
+    """聊天页选了「接口名:模型」（choices() 里 providers 指定的那种）：只走那一条。"""
+    m = getattr(_pick, 'model', None) or ''
+    name, _, model = m.partition(':')
+    return providers.route(name, model) if model and name in providers.PRESETS and providers.key_for(name) else None
 
 
 def _cheap_post(route, prompt, json_mode=False, purpose=''):
@@ -401,8 +428,10 @@ def _cheap(prompt, why=None, force=False, json_mode=False, purpose=''):
             _cheap_state['guarded'] += 1
         return None
     routes = _cheap_routes()
-    picked = _picked_deepseek()
-    if picked:
+    picked, chosen = _picked_deepseek(), _picked_route()
+    if chosen:
+        routes = [chosen]
+    elif picked:
         routes = [(n, b, k, picked, x) for n, b, k, m, x in routes if n == 'deepseek'] or routes
     tries = 1 if gemini_ready() else CHEAP_RETRIES      # 有 Gemini 就失败一次换它；只有 DeepSeek 就多扛几下
     with _lock:
@@ -441,13 +470,17 @@ def deepseek_agent(prompt, tool, run_tool, on_event=None, max_steps=16, purpose=
     最多 max_steps 轮；到了还在查就逼它用已经查到的回答。返回回答全文；失败抛异常，点了停止抛 Cancelled。
     走第一条能用的 DeepSeek 路（聊天页选了模型就只走官方那条）；思考过程（reasoning_content）不回传，回传了 DeepSeek 会报 400。"""
     import requests
-    routes = _cheap_routes()
-    picked = _picked_deepseek()
-    if picked:
-        routes = [(n, b, k, picked, x) for n, b, k, m, x in routes if n == 'deepseek'] or routes
-    if not routes:
-        raise RuntimeError('没有能用的 DeepSeek（.env 里填 DEEPSEEK_API_KEY）')
-    name, base, k, model, extra = routes[0]
+    picked, chosen = _picked_deepseek(), _picked_route()
+    if chosen:
+        first = chosen
+    elif picked:
+        first = next(((n, b, k, picked, x) for n, b, k, m, x in _cheap_routes() if n == 'deepseek'), None) or providers.ask_route()
+    else:
+        first = providers.ask_route()                           # 指定了「问」的模型（EPHEMERIS_MODEL_ASK）就它，没指定跟写东西同一条
+    if not first:
+        raise RuntimeError('没有能用的模型（.env 里填 DEEPSEEK_API_KEY，或者在设置里接一家）')
+    name, base, k, model, extra = first
+    max_steps = int(idx.env('EPHEMERIS_AGENT_STEPS') or max_steps)
     msgs = [{'role': 'system', 'content': CHEAP_SYSTEM}, {'role': 'user', 'content': prompt}]
     tools = [{'type': 'function', 'function': tool}]
     for step in range(max_steps + 1):
@@ -506,7 +539,8 @@ def deepseek_agent(prompt, tool, run_tool, on_event=None, max_steps=16, purpose=
 
 
 def deepseek_price(model):
-    return DEEPSEEK_PRICE.get(model, DEEPSEEK_PRICE_DEFAULT)
+    """记账、估价用的单价：DeepSeek 自己的表 → providers 的模型资料 → 按 V4 Flash 估。"""
+    return DEEPSEEK_PRICE.get(model) or providers.price(model) or DEEPSEEK_PRICE_DEFAULT
 
 
 def _api_record(route, model, purpose, u, secs, ok):
@@ -1233,7 +1267,10 @@ def choices():
     if b == 'claude':
         return CLAUDE_CHOICES
     if b == 'deepseek':
-        own = deepseek_model()
+        ask = providers.pick('ASK')                           # 指定了「问」的模型：排第一（默认）
+        if ask and ask[0] != 'deepseek':
+            return ((':'.join(ask), f"{providers.PRESETS[ask[0]]['label']} · {ask[1]}"),) + DEEPSEEK_CHOICES
+        own = ask[1] if ask else deepseek_model()
         if own in dict(DEEPSEEK_CHOICES):
             return tuple(sorted(DEEPSEEK_CHOICES, key=lambda x: x[0] != own))
         return ((own, own),) + DEEPSEEK_CHOICES

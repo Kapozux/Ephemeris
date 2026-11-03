@@ -246,6 +246,19 @@ def api_setup_save():
     return jsonify(setup.save(request.get_json(silent=True) or {}))
 
 
+@bp.route('/api/models/<name>')
+def api_models(name):
+    """设置「模型」栏：这家 /models 有哪些模型，每个带模型资料（能不能调工具、价格；不认识的是 null）。"""
+    import providers
+    if name not in providers.PRESETS:
+        return jsonify({'error': '不认识这家'}), 404
+    try:
+        ids = providers.models(name)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 502
+    return jsonify({'models': [{'id': m, 'info': providers.info(m)} for m in ids]})
+
+
 # ------------------------------------------------------------------ Notion（to_notion.py）
 
 @bp.route('/api/notion/status')

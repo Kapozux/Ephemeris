@@ -23,13 +23,15 @@ from sources import claude_sync
 import daily
 import index as idx
 import llm
+import providers as prov                 # 「模型」那栏（11-03）；本模块自己有个 providers() 函数
 import store
 
 ENV = os.path.join(idx.HERE, '.env')
 PROVIDERS = ('deepseek', 'claude', 'gemini', 'openrouter', 'dashscope')
 KEY_OF = {'deepseek': 'DEEPSEEK_API_KEY', 'gemini': 'GEMINI_API_KEY', 'openrouter': 'OPENROUTER_API_KEY',
           'dashscope': 'DASHSCOPE_API_KEY'}
-FIELDS = tuple(KEY_OF.values()) + ('CLAUDE_SESSION_KEY', 'DIARY_NAME', 'EPHEMERIS_PROVIDER')
+FIELDS = tuple(dict.fromkeys(tuple(KEY_OF.values()) + ('CLAUDE_SESSION_KEY', 'DIARY_NAME', 'EPHEMERIS_PROVIDER')
+                             + prov.env_names()))     # 11-03：设置里「模型」那栏（各家的 key、自定义地址、三个角色）
 
 
 def _chrome():
@@ -76,6 +78,7 @@ def status():
         'msgs': msgs,
         'sync': sync['job'],
         'last_sync': claude_sync.last_run(),
+        'models': prov.summary(),
     }
 
 
@@ -116,6 +119,35 @@ def verify(provider, api_key):
     return f'{name} 返回 {r.status_code}，过一会儿再试'
 
 
+def verify_preset(name, api_key, base=None):
+    """providers 里那几家（11-03）的 key：带着它读一次 /models（不花钱）。能用 None，不能用给一句原因。"""
+    import requests
+    label = prov.PRESETS[name]['label']
+    url = (base or prov.base(name)).rstrip('/')
+    if not url:
+        return '先填自定义的接口地址（写到 /v1 为止）'
+    try:
+        r = requests.get(url + '/models', timeout=20, headers={'Authorization': f'Bearer {api_key}'})
+    except Exception as e:                                   # noqa: BLE001
+        return f'连不上 {label}（{type(e).__name__}）。看看地址和网络'
+    if r.status_code == 200:
+        return None
+    if r.status_code in (401, 403):
+        return f'这个 key 不对，{label} 说它无效'
+    if r.status_code == 404:
+        return f'{label} 那个地址下面没有 /models：地址要写到 /v1 为止（多了少了都会这样）'
+    return f'{label} 返回 {r.status_code}，过一会儿再试'
+
+
+def _bad_pick(raw):
+    name, _, model = (raw or '').partition(':')
+    if not raw:
+        return None                                          # 清空 = 不指定
+    if name not in prov.PRESETS or not model.strip():
+        return '模型要写成「接口名:模型」'
+    return None
+
+
 def save(fields):
     """只改给的这几行，.env 里别的行原样留着；没有 .env 就新建一个（只有自己能读）。"""
     updates = {k: re.sub(r'[\r\n]', '', str(v)).strip() for k, v in (fields or {}).items() if k in FIELDS and v is not None}
@@ -129,6 +161,16 @@ def save(fields):
             bad = verify(provider, updates[name])
             if bad:
                 return {**status(), 'key_error': bad, 'gemini_error': bad}
+    for pname, p in prov.PRESETS.items():                  # 其余几家：读一次它的 /models
+        if p['env'] in KEY_OF.values() or not updates.get(p['env']):
+            continue
+        bad = verify_preset(pname, updates[p['env']], updates.get('EPHEMERIS_CUSTOM_BASE_URL') if pname == 'custom' else None)
+        if bad:
+            return {**status(), 'key_error': bad}
+    for r in prov.ROLES:
+        bad = _bad_pick(updates.get(f'EPHEMERIS_MODEL_{r}'))
+        if bad:
+            return {**status(), 'key_error': bad}
     lines = []
     if os.path.exists(ENV):
         with open(ENV, encoding='utf-8') as f:

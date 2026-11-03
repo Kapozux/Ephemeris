@@ -71,7 +71,7 @@ class Support(unittest.TestCase):
             return qa.check_support(self.aid)
 
     def test_marks_weak(self):
-        n = self.run_check(json.dumps({'bad': [{'i': 2, 'why': 'AI 只是建议收窄论点，没劝放弃'}]}, ensure_ascii=False))
+        n = self.run_check(json.dumps({'bad': [{'i': 2, 'why': 'AI 只是建议收窄论点，没劝放弃'}]}, ensure_ascii=False))   # 第 2 句整句没依据
         self.assertEqual(n, 1)
         cites = qa.history(thread=self.t)[-1]['cites']
         self.assertNotIn('weak', cites[0])
@@ -88,9 +88,20 @@ class Support(unittest.TestCase):
         self.assertIsNone(qa.check_support(self.aid))
 
     def test_claims(self):
-        self.assertEqual(qa._claims('第一句 [[m:a]]。第二句，接着 [[m:b]][[c:x]]\n[[m:c]] 第三'),
-                         {'m:a': '第一句', 'm:b': '第二句，接着', 'c:x': '第二句，接着'})
+        self.assertEqual(qa._claims('第一句 [[m:a]]。第二句，接着 [[m:b]][[c:x]]\n[[m:c]] 第三。又引 [[m:a]]。'),
+                         [('第一句', ['m:a']), ('第二句，接着', ['m:b', 'c:x'])])
 
+    def test_one_sentence_many_cites_judged_together(self):
+        """一句引两条：按句送去核；只点名有问题的那条，另一条不标。"""
+        self.aid = qa._say(self.t, 'assistant', '你定了 ED 交 MIT，AI 也劝你收窄论点 [[m:m1]][[m:m2]]。',
+                           [qa._snapshot('m', 'm1'), qa._snapshot('m', 'm2')])
+        n = self.run_check(json.dumps({'bad': [{'i': 1, 'src': [2], 'why': 'AI 说的是建议，不是劝'}]}, ensure_ascii=False))
+        self.assertEqual(n, 1)
+        cites = qa.history(thread=self.t)[-1]['cites']
+        self.assertNotIn('weak', cites[0])
+        self.assertIn('建议', cites[1]['weak'])
+        self.assertEqual(self.prompts[0].count('这句话：'), 1)
+        self.assertIn('出处 2：（AI 说）', self.prompts[0])
 
 if __name__ == '__main__':
     unittest.main()

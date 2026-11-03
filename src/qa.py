@@ -623,6 +623,7 @@ def _with_files(question, files, look):
         f"- {f['path']}（{f['name']}，{f.get('lines', '?')} 行）" for f in files))
 
 
+SEEN_KEEP = 3000                                                     # trace 里最多记这么多个看过的记号（追问时接着认）
 CITE_ANY = re.compile(r'\[\[\s*(?:([mc]):([^\]\s]+)|(f):([^\]]+?))\s*\]\]')     # 文件路径里可能有空格
 
 
@@ -640,6 +641,29 @@ def _deep_cites(text):
                 cites.append(seen[key])
         return f'[[{key}]]' if seen[key] else ''
     return CITE_ANY.sub(rep, text or ''), cites
+
+
+_ID_CH = r'A-Za-z0-9_\-/·.'
+SEEN_ID = re.compile(rf'(?<![{_ID_CH}])([mc]):([{_ID_CH}]*[A-Za-z0-9_\-/·])')
+
+
+def _seen_ids(text):
+    """look.py 吐出来的东西里出现过的 m:/c: 记号。"""
+    return {f'{k}:{v}' for k, v in SEEN_ID.findall(text or '')}
+
+
+def _lock_cites(cites, seen, looked):
+    """引用锁（11-03，照 Agent Zero Memory 的 citation lock）：只认这一轮（或这段对话前几轮）真看过的出处。
+    seen：look 吐出来过的 m:/c: 记号；looked：吐出来的全文 + 跑过的命令（文件出处看路径在不在里面）。
+    没看过的不删（出处本身是真的），标 unseen，聊天页提示「这轮没查到过」。返回没看过的个数。"""
+    n = 0
+    for c in cites:
+        cid = c['id']
+        ok = cid in seen or (cid.startswith('f:') and re.sub(r':\d+(?:-\d+)?$', '', cid[2:]) in looked)
+        if not ok:
+            c['unseen'] = True
+            n += 1
+    return n
 
 
 def _snapshot(kind, ref):
@@ -796,6 +820,11 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
         qtrace = {**({} if use_memory else {'no_memory': True}), **({'files': [{k: f[k] for k in ('path', 'name', 'lines', 'kind', 'files') if k in f} for f in files]} if files else {})}
         qid, lost = _say(thread, 'user', question, trace=qtrace or None), None
     buf, steps, held, t0 = [], [], [], time.time()
+    seen, looked = set(), []                                        # 这轮 look 真吐出来过的出处（引用锁）
+    for t in turns:                                                 # 前几轮看过、引过的也算（追问时接着用）
+        if t['role'] == 'assistant':
+            seen.update(c['id'] for c in t.get('cites') or [])
+            seen.update((t.get('trace') or {}).get('seen') or [])
 
     def add(step):
         steps.append(step)
@@ -807,7 +836,11 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
     def say(kind, text):
         if kind == 'text':
             held[:] = [no_thinking(text)]
+        elif kind == 'result':
+            seen.update(_seen_ids(text))
+            looked.append(text or '')
         elif kind == 'tool':
+            looked.append(text or '')
             said = re.sub(r'\s+', ' ', CITE_ANY.sub('', held.pop())).strip() if held else ''
             if said and not _STRAY_TAG.fullmatch(said):              # 10-22：它偶尔吐一个「</reasoning_effort>」这种标签当一段话
                 add({'k': 'say', 't': said[:600], 'd': ''})
@@ -828,6 +861,10 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
     def done(body, cites, stopped=False, sid=None):
         """存下回答，连同这次怎么查的（步骤 + 用时，聊天页回答上面那行「查了 N 步 · 用时」点开看）。"""
         trace = {'steps': steps, 'secs': round(time.time() - t0), **({} if use_memory else {'no_memory': True})}
+        if not lost:                                                # 接着断掉的会话写：前半截看过什么不知道，不判
+            mine = sorted(seen - {c['id'] for c in cites})
+            trace['seen'] = mine[:SEEN_KEEP]
+            trace['unseen'] = _lock_cites(cites, seen, '\n'.join(looked))
         _say(thread, 'assistant', body, cites, sid, trace)
         if qid:                                                     # 答上了：之后「重新跑」该从头查，别接这个会话
             store.run('UPDATE qa_chat SET sid=NULL WHERE id=?', qid)

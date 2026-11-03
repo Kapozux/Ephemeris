@@ -169,6 +169,7 @@ sup .ch-cite:hover { color: var(--text); }
 .ch-src-n { flex: none; width: 18px; color: var(--faint); }
 .ch-src-main { flex: 1; min-width: 0; }
 .ch-src-meta { display: block; color: var(--faint); font-size: 12px; }
+.ch-src-warn { color: var(--accent); }
 .ch-src-q { color: var(--muted); }
 .ch-src-q.file { white-space: pre-wrap; overflow-wrap: anywhere; }   /* 文件引的几行：保留换行（日志、代码） */
 .ch-go { flex: none; color: var(--accent); cursor: pointer; white-space: nowrap; text-decoration: none; }

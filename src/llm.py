@@ -499,6 +499,8 @@ def deepseek_agent(prompt, tool, run_tool, on_event=None, max_steps=16, purpose=
                 out = run_tool(args)
             except Exception as e:                           # noqa: BLE001  工具出错也告诉它，让它换个查法
                 out = f'出错了：{e}'
+            if on_event:
+                on_event('result', str(out))
             msgs.append({'role': 'tool', 'tool_call_id': c.get('id'), 'content': str(out)[:12000]})
     raise RuntimeError('DeepSeek 查了太多步还没回答')
 
@@ -702,7 +704,7 @@ def uncancel():
 
 def _claude_events(args, prompt, on_event, timeout):
     """跑 claude -p --output-format stream-json，边读边报：on_event(kind, text)
-      kind = 'message'（新的一段回复开始）| 'delta'（一小段字）| 'tool'（它要跑的命令）| 'text'（一整段话写完了）
+      kind = 'message'（新的一段回复开始）| 'delta'（一小段字）| 'tool'（它要跑的命令）| 'result'（命令吐回来的东西）| 'text'（一整段话写完了）
            | 'session'（一开始就报会话 id：中途断了也知道接哪个会话）
     返回最后那个 result 事件（dict）。测试时 _claude_runner 返回 {'events': [...], **result}。"""
     def seen(ev):
@@ -723,6 +725,11 @@ def _claude_events(args, prompt, on_event, timeout):
                     on_event('tool', (b.get('input') or {}).get('command', ''))
                 elif b.get('type') == 'text' and b.get('text', '').strip():
                     on_event('text', b['text'].strip())
+        elif t == 'user':                                    # 工具跑完吐回来的东西（「问」靠它记这轮真看过哪些出处，11-03）
+            for b in (ev.get('message') or {}).get('content') or []:
+                if isinstance(b, dict) and b.get('type') == 'tool_result':
+                    c = b.get('content')
+                    on_event('result', c if isinstance(c, str) else ''.join(x.get('text', '') for x in c or [] if isinstance(x, dict)))
 
     if _claude_runner:
         d = _claude_runner(args, prompt)

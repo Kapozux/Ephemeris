@@ -63,7 +63,7 @@ function sources(cites) {
   if (!cites.length) return '';
   return `<details class="ch-src"><summary>出处 ${cites.length} 条</summary>${cites.map((c, i) => `
     <div class="ch-src-row" data-n="${i + 1}"><span class="ch-src-n">${i + 1}</span>
-      <span class="ch-src-main"><span class="ch-src-meta">${c.date} · ${isFile(c) ? '文件' : isJournal(c) ? '你写的' : c.who === 'me' ? '你说' : 'AI 说'} · ${esc(c.title || '')}</span>
+      <span class="ch-src-main"><span class="ch-src-meta">${c.date} · ${isFile(c) ? '文件' : isJournal(c) ? '你写的' : c.who === 'me' ? '你说' : 'AI 说'} · ${esc(c.title || '')}${c.unseen ? ' · <span class="ch-src-warn" title="它这次没查到过这条，是凭记忆写的记号（出处本身是真的，对一下原话）">这轮没查到过</span>' : ''}</span>
         ${c.kind === '原话' ? '' : esc(c.text) + ' '}<span class="ch-src-q${isFile(c) ? ' file' : ''}">「${esc(c.quote)}」</span></span>
       ${isFile(c) ? '' : `<a class="ch-go" href="${isJournal(c) ? `/#/day/${c.date}/journal` : `/#/day/${c.date}/conv/${encodeURIComponent(c.conv_id)}/msg/${encodeURIComponent(c.msg_id)}`}">${isJournal(c) ? '去日记' : '去原话'} →</a>`}</div>`).join('')}</details>`;
 }

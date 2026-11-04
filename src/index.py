@@ -45,7 +45,11 @@ def env(key, default=''):
 
 
 def who():
-    """prompt 里怎么称呼你。在 .env 里设 DIARY_NAME。"""
+    """prompt 里怎么称呼你。在 .env 里设 DIARY_NAME。
+    演示版（EPHEMERIS_DEMO=1，README 动图用）不认 DIARY_NAME（11-04：聊天页招呼语露过真名——Flask 的 app.run 会把 .env 读进环境变量），
+    只认 EPHEMERIS_DEMO_NAME，默认 Sam。"""
+    if os.environ.get('EPHEMERIS_DEMO') == '1':
+        return (os.environ.get('EPHEMERIS_DEMO_NAME') or 'Sam').strip()
     return env('DIARY_NAME', '用户')
 IMPORT_DIR = os.path.join(HERE, 'imports')
 

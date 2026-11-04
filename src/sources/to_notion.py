@@ -49,6 +49,8 @@ class NotionError(RuntimeError):
 
 
 def _req(method, url, payload=None, retries=5):
+    if store.DEMO:                       # 11-04：演示版打开日记页会悄悄拉 Notion，把真的手写日记拉进了演示库
+        raise NotionError('演示版不连 Notion')
     tok = token()
     if not tok:
         raise NotionError('没有 NOTION_TOKEN，先在 ephemeris/.env 里设上')

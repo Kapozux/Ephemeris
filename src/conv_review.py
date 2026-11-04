@@ -280,7 +280,7 @@ def _generate(st, conv_id, refresh, progress, only=None):
         if not body:
             continue
         p = NOTE_PROMPT.format(date=d['date'], since=days[0]['date'], n_days=len(days),
-                               prior=_prior(notes, days, i), body=body)
+                               prior=_prior(notes, days, i), body=body) + idx.write_in()
         txt = (_call_model(p) or '').strip().strip('"').strip('「」').split('\n')[0][:200]
         st['done'] += 1
         if progress:
@@ -294,7 +294,7 @@ def _generate(st, conv_id, refresh, progress, only=None):
     joined = '\n'.join(f"{d['date']}：{notes.get(d['date'], '')}" for d in days
                        if notes.get(d['date']))
     title = w['conv'].get('title') or w['conv'].get('title_fallback') or ''
-    arc = (_call_model(ARC_PROMPT.format(n_days=len(days), title=title, notes=joined)) or '').strip().strip('"').strip('「」')[:800]
+    arc = (_call_model(ARC_PROMPT.format(n_days=len(days), title=title, notes=joined) + idx.write_in()) or '').strip().strip('"').strip('「」')[:800]
     if arc:                                            # 没回就留着原来的汇总（下次再补）
         _save(conv_id, '', arc)
     st['done'] += 1

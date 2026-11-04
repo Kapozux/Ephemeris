@@ -7,6 +7,7 @@ import tempfile
 import unittest
 import unittest.mock
 
+import index as idx
 import llm
 import setup
 import store
@@ -60,9 +61,19 @@ class Setup(unittest.TestCase):
         self.assertFalse(os.path.exists(setup.ENV))
         with unittest.mock.patch.dict(os.environ, {'EPHEMERIS_LANG': 'zh'}):
             self.assertEqual(setup.save({'EPHEMERIS_LANG': 'en'})['lang'], 'en')
-            self.assertEqual(setup.lang(), 'en')
+            self.assertEqual(idx.lang(), 'en')
         with unittest.mock.patch.dict(os.environ, {'EPHEMERIS_LANG': 'xx'}):
-            self.assertEqual(setup.lang(), 'zh')                         # 不认识的当中文
+            self.assertEqual(idx.lang(), 'zh')                         # 不认识的当中文
+
+    def test_model_writes_in_the_chosen_language(self):
+        """中文界面提示词原样；英文界面末尾加一句写英文（心情词这些固定值照旧）。"""
+        with unittest.mock.patch.dict(os.environ, {'EPHEMERIS_LANG': 'zh'}):
+            self.assertEqual(idx.write_in(), '')
+            self.assertEqual(idx.write_in(ask=True), '')
+        with unittest.mock.patch.dict(os.environ, {'EPHEMERIS_LANG': 'en'}):
+            self.assertIn('English', idx.write_in())
+            self.assertIn('mood', idx.write_in())
+            self.assertIn('question itself', idx.write_in(ask=True))
 
     def test_status_never_returns_the_values(self):
         setup.save({'CLAUDE_SESSION_KEY': 'sk-ant-secret'})

@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 
 import store
 import days
+import index as idx
 
 # 词 → 分数（-2..+2）。顺序就是界面上的顺序：从好到糟
 WORDS = [('兴奋', 2), ('开心', 1.5), ('满足', 1), ('平稳', 0), ('说不上来', 0), ('疲惫', -0.5),
@@ -145,9 +146,9 @@ def month_note(month, call_model=None, refresh=False):
         return have[0]['text'] if have else ''
     _note_tried[month] = week
     prompt = NOTE_PROMPT.format(month=month, prev=_prev_month(month), cur=json.dumps(cur, ensure_ascii=False),
-                                prv=json.dumps(prv, ensure_ascii=False) if prv else '没有数据')
+                                prv=json.dumps(prv, ensure_ascii=False) if prv else '没有数据') + idx.write_in()
     text = (call_model(prompt) or call_model(prompt) or '').strip()      # 模型偶尔回空，再试一次
-    text = text.strip('「」"“”').split('\n')[0][:80]
+    text = text.strip('「」"“”').split('\n')[0][:80 if idx.lang() == 'zh' else 200]
     if text:
         with store.LOCK:
             db = store.connect()
@@ -242,7 +243,7 @@ def oracle(cid, call_model):
     recent, themes, yesterday = _oracle_context(r['date'])
     prompt = ORACLE_PROMPT.format(word=r['word'], note=f"——「{r['note']}」" if r['note'] else '（没写话）',
                                   earlier='；'.join(earlier) or '（没有）', recent=recent,
-                                  themes=themes, yesterday=yesterday)
+                                  themes=themes, yesterday=yesterday) + idx.write_in()
     text = (call_model(prompt) or call_model(prompt) or '').strip().strip('「」"“”')
     if text:
         with store.LOCK:

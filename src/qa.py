@@ -278,10 +278,10 @@ def autotitle(thread):
     if not r or r['named'] or not any(t['role'] != 'user' for t in turns):
         return None
     text = '\n\n'.join(('我：' if t['role'] == 'user' else '回答：') + re.sub(r'\[\[[^\]]*\]\]', '', no_viz(t['text']))[:600] for t in turns)
-    out = llm.ask(TITLE_PROMPT.format(turns=text), effort='low', purpose='问·起标题')
+    out = llm.ask(TITLE_PROMPT.format(turns=text) + idx.write_in(), effort='low', purpose='问·起标题')
     title = (out or '').strip().splitlines()[0] if (out or '').strip() else ''
     title = re.sub(r'</?[A-Za-z_][\w-]*[^>]*>', '', title).strip(' "\'“”「」《》#*。.！!？?')    # 10-25：起出过一个「<claude_wrapper>」
-    if not title or len(title) > 30:
+    if not title or len(title) > (30 if idx.lang() == 'zh' else 60):      # 英文标题字数多
         return None
     if store.one('SELECT named FROM qa_threads WHERE id=?', thread)['named']:   # 起的这几秒里用户自己改了
         return None
@@ -412,7 +412,7 @@ def _answer(question, on_text, thread, effort, again=False):
         alias = {i: c for i, c in enumerate(picked, 1)}
         prompt = ANSWER_PROMPT.format(today=days.today(), history=htext, question=plan.get('q') or question,
                                       cards='\n'.join(_card_line(i, c) for i, c in alias.items()),
-                                      summaries=_summaries(picked))
+                                      summaries=_summaries(picked)) + idx.write_in(ask=True)
         buf = []
         try:
             raw = llm.ask_stream(prompt, lambda x: (buf.append(x), on_text(x)), effort=effort, purpose='qa') if on_text else \
@@ -1080,7 +1080,7 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
         return {'answer': body, 'cites': cites, 'deep': True, 'thread': thread, 'trace': trace, **({'stopped': True} if stopped else {})}
 
     if not llm.claude_on():                                         # 只有 DeepSeek：它自己调 look 工具查，没有会话可接（追问靠前面的对话记录）
-        prompt = deep_prompt_deepseek(name=idx.who(), today=days.today(), roots=_roots(), skills=_skills_text(), **_memory_parts('look', use_memory), history=_history_text(turns), question=_with_files(question, files, 'look'))
+        prompt = deep_prompt_deepseek(name=idx.who(), today=days.today(), roots=_roots(), skills=_skills_text(), **_memory_parts('look', use_memory), history=_history_text(turns), question=_with_files(question, files, 'look')) + idx.write_in(ask=True)
         guard = LookGuard(run_look if use_memory else (lambda a: run_look(a, False)))
         try:
             text = llm.deepseek_agent(prompt, LOOK_TOOL, guard, on_event=say, purpose='qa-deep',
@@ -1102,7 +1102,7 @@ def _answer_deep(question, progress, on_text, thread, effort, again=False, fresh
         return done(body, cites)
     look = LOOK if use_memory else LOOK_NO_MEMORY
     asked = _with_files(question, files, look)
-    fresh = DEEP_PROMPT.format(name=idx.who(), today=days.today(), roots=_roots(), skills=_skills_text(), **_memory_parts(look, use_memory), look=look, history=_history_text(turns), question=asked)
+    fresh = DEEP_PROMPT.format(name=idx.who(), today=days.today(), roots=_roots(), skills=_skills_text(), **_memory_parts(look, use_memory), look=look, history=_history_text(turns), question=asked) + idx.write_in(ask=True)
     first = RESUME_PROMPT if lost else FOLLOW_PROMPT.format(question=asked) if sid else fresh
     try:
         try:

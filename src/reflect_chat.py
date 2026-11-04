@@ -203,7 +203,7 @@ def _generate(d):
     topics = '\n'.join(f"{k} {v}" for k, v in d['raw_tags'][:200])   # 按次数降序，长尾靠 keywords
     prompt = PROMPT.format(start=d['period']['start'], end=d['period']['end'],
                            topics=topics or '（还没有日记）', items=items or '（无）', n=len(d['_diaries']),
-                           voice=_voice(d) or '（无）')
+                           voice=_voice(d) or '（无）') + _index.write_in()
     voice = _voice(d)
     best = None
     for _ in range(3):                       # 长区间输出长，偶尔 JSON 断掉；引用对不上原话也重来

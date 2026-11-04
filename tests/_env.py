@@ -22,6 +22,7 @@ os.environ['EPHEMERIS_QA_CHECK'] = 'off'      # 答完后台核出处：测试�
 for _k in ('REVISE', 'NOTES', 'REVIEW'):        # 不是 Claude 时的护栏（先核再改 / 记笔记 / 交前过单子）都要另调模型：默认关，test_qa_revise 自己开
     os.environ[f'EPHEMERIS_QA_{_k}'] = 'off'
 os.environ['EPHEMERIS_QA_FILES'] = tempfile.mkdtemp(prefix='ephemeris-qafiles-')   # 「问」里附的文件
+os.environ['EPHEMERIS_LANG'] = 'zh'           # 本机 .env 设了英文界面也别影响测试里的提示词
 os.environ['CLAUDE_GATE_CC_DIR'] = tempfile.mkdtemp(prefix='ephemeris-ccgate-')   # 也不读真的 ~/.claude 算用量
 os.environ['EPHEMERIS_CC_DIR'] = tempfile.mkdtemp(prefix='ephemeris-cc-')   # Claude Code 的对话：测试里是空目录，不读真的 ~/.claude
 os.environ['EPHEMERIS_CURSOR_DB'] = os.path.join(tempfile.mkdtemp(prefix='ephemeris-cursor-'), 'state.vscdb')   # Cursor：测试里没有，不读真的

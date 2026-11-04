@@ -199,9 +199,9 @@ def generate(day, refresh=False, char_budget=60000, prev=None, ledger=''):
     sess = session_for(day['date'], day) if char_budget == 60000 else None
     if sess:                                         # 当天记录已经在会话里：只送写法要求
         parsed = llm.parse_json(sess.ask(PROMPT.replace('下面是', '前面那段是', 1).format(body='（就是前面那段，不再重复。）',
-                                                                                    **fields)), dict)
+                                                                                    **fields) + idx.write_in()), dict)
     else:
-        parsed = llm.ask_json(PROMPT.format(body=render_day(day, char_budget=char_budget), **fields), dict, tries=1)
+        parsed = llm.ask_json(PROMPT.format(body=render_day(day, char_budget=char_budget), **fields) + idx.write_in(), dict, tries=1)
     if not parsed:
         return None
     parsed = _shorten(parsed, sess.ask if sess else llm.ask)

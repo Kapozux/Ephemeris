@@ -44,6 +44,29 @@ def env(key, default=''):
     return default
 
 
+LANGS = ('zh', 'en')                       # 界面语言（11-04）：.env 的 EPHEMERIS_LANG，默认中文；设置页改（setup.save）
+LANG_NAME = {'en': 'English'}
+
+
+def lang():
+    """界面用哪种语言。没设或不认识就是中文。"""
+    v = (env('EPHEMERIS_LANG') or 'zh').lower()
+    return v if v in LANGS else 'zh'
+
+
+def write_in(ask=False):
+    """模型写给他看的东西用哪种语言（11-04 用户 ok：英文界面下日记、回顾、回答也写英文）。
+    中文界面返回空串，提示词原样；别的语言在提示词末尾加一句。固定的词（心情词、JSON 的键）照提示词里写的，代码要认。
+    ask=True 是「问」：他用别的语言问就跟着他。"""
+    name = LANG_NAME.get(lang())
+    if not name:
+        return ''
+    if ask:
+        return f'\n\nLanguage: answer in {name} (overrides the Chinese default above), unless the question itself is in another language — then use that.'
+    return (f'\n\nLanguage: write every free-text part of your output (titles, sentences, names of things) in {name}. '
+            'Keep fixed values exactly as specified above (e.g. the one-word mood from the given list, JSON keys).')
+
+
 def who():
     """prompt 里怎么称呼你。在 .env 里设 DIARY_NAME。
     演示版（EPHEMERIS_DEMO=1，README 动图用）不认 DIARY_NAME（11-04：聊天页招呼语露过真名——Flask 的 app.run 会把 .env 读进环境变量），

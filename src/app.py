@@ -25,7 +25,7 @@ import daily
 import llm
 import lock
 import reflect_chat
-import setup
+import index as idx
 from routes import checkin as routes_checkin
 from routes import data as routes_data
 from routes import day as routes_day
@@ -105,7 +105,7 @@ def _static_version():
     """模板里的 {{ v }}：static 下最新的修改时间，拼在 ?v= 上。改了任何前端文件，浏览器就拿新的。"""
     newest = max(os.path.getmtime(os.path.join(root, f)) for root, _, files in os.walk(STATIC) for f in files)
     return {'v': int(newest), 'demo': store.DEMO, 'lock_on': not store.DEMO and lock.enabled(), 'lock_ping': lock.PING, 'lock_touch': bool(lock.touch_ids()),
-            'lock_native': lock.native_ok(), 'lang': setup.lang()}
+            'lock_native': lock.native_ok(), 'lang': idx.lang()}
 
 
 if __name__ == '__main__':

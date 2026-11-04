@@ -30,7 +30,6 @@ ENV = os.path.join(idx.HERE, '.env')
 PROVIDERS = ('deepseek', 'claude', 'gemini', 'openrouter', 'dashscope')
 KEY_OF = {'deepseek': 'DEEPSEEK_API_KEY', 'gemini': 'GEMINI_API_KEY', 'openrouter': 'OPENROUTER_API_KEY',
           'dashscope': 'DASHSCOPE_API_KEY'}
-LANGS = ('zh', 'en')                       # 界面语言（11-04）：static/i18n.js + static/i18n/<语言>.js；默认中文
 FIELDS = tuple(dict.fromkeys(tuple(KEY_OF.values()) + ('CLAUDE_SESSION_KEY', 'DIARY_NAME', 'EPHEMERIS_PROVIDER', 'EPHEMERIS_LANG')
                              + prov.env_names()))     # 11-03：设置里「模型」那栏（各家的 key、自定义地址、三个角色）
 
@@ -62,12 +61,6 @@ def chosen():
     return next((p for p in PROVIDERS if have[p]), '')
 
 
-def lang():
-    """界面用哪种语言：.env 的 EPHEMERIS_LANG，没设或不认识就是中文。"""
-    v = (idx.env('EPHEMERIS_LANG') or 'zh').lower()
-    return v if v in LANGS else 'zh'
-
-
 def status():
     msgs = store.one('SELECT COUNT(*) n FROM messages')['n']
     ready = llm.check() is None
@@ -82,7 +75,7 @@ def status():
         'claude': bool(idx.env('CLAUDE_SESSION_KEY')),     # claude.ai 的 sessionKey（自动下载用），不是 Claude Code
         'chrome': _chrome(),
         'name': idx.who() if store.DEMO else idx.env('DIARY_NAME'),
-        'lang': lang(),
+        'lang': idx.lang(),
         'msgs': msgs,
         'sync': sync['job'],
         'last_sync': claude_sync.last_run(),
@@ -161,7 +154,7 @@ def save(fields):
     updates = {k: re.sub(r'[\r\n]', '', str(v)).strip() for k, v in (fields or {}).items() if k in FIELDS and v is not None}
     if 'EPHEMERIS_PROVIDER' in updates and updates['EPHEMERIS_PROVIDER'] not in PROVIDERS:
         return {**status(), 'key_error': '不认识这家模型'}
-    if 'EPHEMERIS_LANG' in updates and updates['EPHEMERIS_LANG'] not in LANGS:
+    if 'EPHEMERIS_LANG' in updates and updates['EPHEMERIS_LANG'] not in idx.LANGS:
         return {**status(), 'key_error': '不认识这个语言'}
     if not updates:
         return status()

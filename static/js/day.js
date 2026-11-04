@@ -94,9 +94,9 @@ function renderDiary(r) {
     return `<a class="diary-chip${t.nth === 1 ? ' new' : ''}${t.gap > 7 ? ' back' : ''}" data-theme="${t.id}" title="${esc(t.note || '')}">${esc(t.name)}<em>${extra}</em></a>`;
   }).join('');
   box.innerHTML = `
-    <h2>${esc(d.headline || '')}</h2>
+    <h2 translate="no">${esc(d.headline || '')}</h2>
     ${chips ? `<div class="diary-chips">${chips}</div>` : ''}
-    ${(d.narrative || '').split('\n\n').filter(Boolean).map(p => `<p>${esc(p)}</p>`).join('')}
+    ${(d.narrative || '').split('\n\n').filter(Boolean).map(p => `<p translate="no">${esc(p)}</p>`).join('')}
     <div class="diary-lists">${list('做出来的', d.artifacts)}${list('没做完的', d.open_loops)}</div>
     <div class="diary-foot">
       <span class="diary-topics">${(d.topics || []).map(esc).join(' · ')}</span>
@@ -141,7 +141,7 @@ export function msgHtml(m, target, q) {
   if (tables) return blocksHtml(m, tables, text, m.id && m.id === target, q, 'msg', 'msg-text');
   if (m.id && m.id === target) {
     return `<div class="msg target" id="msg-${m.id}">
-            <span class="msg-time">${m.hhmm}</span><span class="msg-text">${markHits(esc(text), q)}</span></div>`;
+            <span class="msg-time">${m.hhmm}</span><span class="msg-text" translate="no">${markHits(esc(text), q)}</span></div>`;
   }
   let cut = CLIP;
   for (let i = 0, n = 0; i < Math.min(text.length, CLIP); i++) if (text[i] === '\n' && ++n === CLIP_LINES) { cut = i; break; }
@@ -149,7 +149,7 @@ export function msgHtml(m, target, q) {
     ? `${esc(text.slice(0, cut))}<span class="msg-clip">…</span><a class="msg-more" data-full="1">展开 ${text.length} 字</a><span class="msg-full hidden">${esc(text.slice(cut))}</span>`
     : esc(text);
   return `<div class="msg ${m.role === 'human' ? '' : 'ai'}" id="msg-${m.id}">
-            <span class="msg-time">${m.hhmm}</span><span class="msg-text">${body}</span></div>`;
+            <span class="msg-time">${m.hhmm}</span><span class="msg-text" translate="no">${body}</span></div>`;
 }
 
 function aiMsgHtml(m, text, isTarget, q) {
@@ -170,7 +170,7 @@ function blocksHtml(m, blocks, text, isTarget, q, cls, inner) {
     ? `${html(blocks.slice(0, k))}<span class="msg-clip">…</span><a class="msg-more" data-full="1">展开 ${text.length} 字</a><div class="msg-full hidden">${html(blocks.slice(k))}</div>`
     : isTarget ? markHits(html(blocks), q) : html(blocks);
   return `<div class="${cls}${isTarget ? ' target' : ''}" id="msg-${m.id}">
-            <span class="msg-time">${m.hhmm}</span><div class="${inner}">${body}</div></div>`;
+            <span class="msg-time">${m.hhmm}</span><div class="${inner}" translate="no">${body}</div></div>`;
 }
 
 const SRC_NAME = { claude: 'Claude', gemini: 'Gemini', cc: 'Claude Code', cursor: 'Cursor', codex: 'Codex', chatgpt: 'ChatGPT', deepseek: 'DeepSeek', lobehub: 'LobeHub', ask: '问' };
@@ -189,7 +189,7 @@ function renderThreads(threads, focus) {
       <div class="thread-head" data-i="${i}">
         <span class="thread-time">${t.first}</span>
         <span class="src ${t.source}"></span>
-        <span class="thread-title">${esc(t.title)}</span>
+        <span class="thread-title" translate="no">${esc(t.title)}</span>
         <span class="thread-right">${HID.convs.has(t.conv_id) ? '<span class="thread-hid" title="「问」查不到这个窗口">问看不到</span>' : ''}${t.multi_day ? `<button type="button" class="thread-span" data-conv="${t.conv_id}" title="这个窗口横跨了 ${t.span_from} → ${t.span_to}，点开看是哪几天">跨 ${spanDays(t.span_from, t.span_to)} 天</button>` : ''}<span class="thread-count">${t.n_msgs} 条 · ${(t.chars || 0).toLocaleString()} 字</span></span>
       </div>
       <div class="thread-body ${open ? '' : 'hidden'}" id="tb${i}">
@@ -237,7 +237,7 @@ async function showSpan(convId, anchor) {
   const c = r.conversation;
   const pop = $('#pop');
   pop.innerHTML = `
-    <h6>${esc(c.title)}</h6>
+    <h6 translate="no">${esc(c.title)}</h6>
     <div class="pop-sub">${c.first_ts.slice(0, 10)} → ${c.last_ts.slice(0, 10)} · 活跃 ${r.days.length} 天 · ${c.n_msgs} 条</div>
     <div class="pop-days">${r.days.map(d =>
       `<a data-d="${d.date}" class="${d.date === S.sel ? 'cur' : ''}" title="${d.msgs} 条 · ${d.chars.toLocaleString()} 字">${d.date.slice(5)}</a>`).join('')}</div>

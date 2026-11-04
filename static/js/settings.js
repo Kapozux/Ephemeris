@@ -3,6 +3,24 @@
 import { $, esc, rel, ask } from './util.js';
 import { field, bindSave } from './setup.js';
 
+// ---------------------------------------------------------------- 语言（11-04）
+// 存进 .env 的 EPHEMERIS_LANG（setup.save），整页重新加载生效（static/i18n.js）。两种写法都给，看不懂当前语言也找得到。
+const LANG_NAMES = [['zh', '中文'], ['en', 'English']];
+
+export async function pollLang() {
+  const box = $('#langBox'); if (!box || box.firstElementChild) return;
+  const cur = (window.I18N && window.I18N.lang) || 'zh';
+  box.innerHTML = `<div class="set-row"><span class="set-text"><b>界面语言</b>
+      <span class="set-what">聊天原话、日记和回答不跟着换</span></span>
+    <select class="set-skip" id="setLang" aria-label="Language" translate="no">${LANG_NAMES.map(([v, n]) =>
+      `<option value="${v}"${v === cur ? ' selected' : ''}>${n}</option>`).join('')}</select></div>`;
+  $('#setLang').onchange = async e => {
+    const r = await fetch('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ EPHEMERIS_LANG: e.target.value }) }).then(r => r.json()).catch(() => null);
+    if (r && r.lang === e.target.value) location.reload();
+  };
+}
+
 // ---------------------------------------------------------------- 账号与密钥
 // 页面拿不回原值，只显示「填了没有」。sessionKey 过期是最常见的：数据来源栏的同步报错会链到这里。
 const KEYS = [
@@ -349,7 +367,7 @@ const md = d => (d || '').slice(5, 10);
 function memFact(f, old) {
   const src = (f.src || []).map((c, i) => `<a class="set-mem-src" href="#/day/${c.date}/conv/${encodeURIComponent(c.conv_id)}/msg/${encodeURIComponent(c.msg_id)}" title="${c.date}">${i + 1}</a>`).join('');
   const why = !old ? '' : f.old_by === -1 ? '你划掉的' : f.old_by === 0 ? '整理时没再写' : '被新的换下';
-  return `<li class="set-mem-f${old ? ' old' : ''}"><span class="set-mem-ft">${esc(f.text)}</span>
+  return `<li class="set-mem-f${old ? ' old' : ''}"><span class="set-mem-ft" translate="no">${esc(f.text)}</span>
     <span class="set-mem-fm tnum">${f.by === 'hand' ? '你写的 · ' : ''}截至 ${md(f.as_of) || '?'}${src ? ` · 出处 ${src}` : ''}${why ? ` · ${why}` : ''}</span>
     ${old ? '' : `<button type="button" class="set-lc-x" data-strike="${f.id}" title="划掉（折进以前的）" aria-label="划掉">×</button>`}</li>`;
 }

@@ -20,8 +20,8 @@ export async function openFlashback(mode) {
   if (!c) { $('#fbBody').innerHTML = '<div class="fb-loading">还没有能翻的日子</div>'; return; }
   const feel = c.feel ? `<span class="fb-feel"><i style="background:${feelColor(c.feel.v)}"></i>${esc(c.feel.word)}</span>` : '';
   const quote = c.quote
-    ? `<blockquote class="fb-q">${esc(c.quote)}</blockquote>${c.headline ? `<div class="fb-sub">那天的日记：${esc(c.headline)}</div>` : ''}`
-    : c.headline ? `<blockquote class="fb-q">${esc(c.headline)}</blockquote>` : '';
+    ? `<blockquote class="fb-q" translate="no">${esc(c.quote)}</blockquote>${c.headline ? `<div class="fb-sub">那天的日记：${esc(c.headline)}</div>` : ''}`
+    : c.headline ? `<blockquote class="fb-q" translate="no">${esc(c.headline)}</blockquote>` : '';
   const th = c.threads.length ? `<div class="fb-sec"><h5>那时候你在弄</h5>${c.threads.map(t =>
       `<div class="fb-t"><b>${esc(t.name)}</b><span class="dim">第 ${t.nth} 天</span></div>`).join('')}</div>
     <div class="fb-sec"><h5>后来</h5>${c.threads.map(t =>

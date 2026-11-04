@@ -53,6 +53,17 @@ class Setup(unittest.TestCase):
         self.assertEqual(text, '# 注释\nNOTION_TOKEN=abc\nGEMINI_API_KEY=new\nDIARY_NAME=小明\n')
         self.assertEqual(stat.S_IMODE(os.stat(setup.ENV).st_mode), 0o600)
 
+    def test_language_only_known_and_takes_effect_now(self):
+        """11-04 英文界面：只认 zh / en；Flask 启动时把 .env 读进了环境变量，存的时候一起改，不用重启。"""
+        r = setup.save({'EPHEMERIS_LANG': 'fr'})
+        self.assertEqual(r['key_error'], '不认识这个语言')
+        self.assertFalse(os.path.exists(setup.ENV))
+        with unittest.mock.patch.dict(os.environ, {'EPHEMERIS_LANG': 'zh'}):
+            self.assertEqual(setup.save({'EPHEMERIS_LANG': 'en'})['lang'], 'en')
+            self.assertEqual(setup.lang(), 'en')
+        with unittest.mock.patch.dict(os.environ, {'EPHEMERIS_LANG': 'xx'}):
+            self.assertEqual(setup.lang(), 'zh')                         # 不认识的当中文
+
     def test_status_never_returns_the_values(self):
         setup.save({'CLAUDE_SESSION_KEY': 'sk-ant-secret'})
         self.assertNotIn('sk-ant-secret', repr(setup.status()))

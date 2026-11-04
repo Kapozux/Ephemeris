@@ -92,11 +92,11 @@ function renderReflect() {
   const narrative = noDiary ? '先在侧栏点「补全日记」，回顾是基于日记写的。' : (d.generated ? d.narrative : '');
   const topics = d.topics || [];
   const bar = topics.map((x, i) => `<i style="flex:${x.percent};background:${SHADES[Math.min(i, SHADES.length - 1)]}"></i>`).join('');
-  const list = topics.map((x, i) => `<div class="reflect-topic"><span class="reflect-topic-dot" style="background:${SHADES[Math.min(i, SHADES.length - 1)]}"></span><span class="reflect-topic-name">${esc(x.name)}</span><span class="reflect-topic-pct">${x.percent}%</span><div class="reflect-topic-desc">${esc(x.desc || `出现在 ${x.count} 天的日记里`)}</div></div>`).join('');
+  const list = topics.map((x, i) => `<div class="reflect-topic"><span class="reflect-topic-dot" style="background:${SHADES[Math.min(i, SHADES.length - 1)]}"></span><span class="reflect-topic-name" translate="no">${esc(x.name)}</span><span class="reflect-topic-pct">${x.percent}%</span><div class="reflect-topic-desc"${x.desc ? ' translate="no"' : ''}>${esc(x.desc || `出现在 ${x.count} 天的日记里`)}</div></div>`).join('');
   box.innerHTML = `
     ${d.regenerating ? '<div class="reflect-updating"><i></i>正在重写这段时间的回顾，先给你看上一版</div>' : ''}
-    <div class="reflect-headline">${esc(headline)}</div>
-    ${narrative ? `<p class="reflect-narrative${d.generated ? '' : ' draft'}">${esc(narrative)}</p>` : ''}
+    <div class="reflect-headline"${d.generated ? ' translate="no"' : ''}>${esc(headline)}</div>
+    ${narrative ? `<p class="reflect-narrative${d.generated ? '' : ' draft'}"${d.generated ? ' translate="no"' : ''}>${esc(narrative)}</p>` : ''}
     ${d.generated && d.generated_at ? `<div class="reflect-when" title="有新东西的话每周重写一次；下面的数字和图是实时的">基于日记写的 · 写于 ${rDate(d.generated_at.slice(0, 10))}</div>` : ''}
     <div class="pane-kpis">
       <div class="pane-kpi"><b class="text">${d.most_active_weekday == null ? '—' : WD[d.most_active_weekday]}</b><span>最常聊的一天</span></div>

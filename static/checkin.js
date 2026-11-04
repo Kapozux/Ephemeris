@@ -92,7 +92,7 @@ function renderNow() {
       <div class="ck-item${S.editing === x.id ? ' editing' : ''}">
         <span class="ck-item-t">${(x.created_at || '').slice(11, 16)}</span>
         <span class="ck-item-w" style="color:${vcol(x.valence, x.word)}">${esc(x.word)}</span>
-        <span class="ck-item-n">${esc(x.note || '')}</span>
+        <span class="ck-item-n" translate="no">${esc(x.note || '')}</span>
         <span class="ck-item-ops"><button type="button" class="ck-link" data-e="${x.id}">改</button><button type="button" class="ck-link" data-d="${x.id}">删</button></span>
         ${x.reply && x.id !== S.oracleId ? `<div class="ck-item-r">${esc(x.reply)}</div>` : ''}
       </div>`).join('')

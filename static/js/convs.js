@@ -17,7 +17,7 @@ function renderConvs() {
     const title = c.title_fallback ? esc((c.preview || c.title || '').replace(/\s+/g, ' ').slice(0, 60)) : esc(c.title);
     return `<div class="cv-row" data-d="${h?.date || c.last_date}" data-c="${c.id}"${h?.msg_id ? ` data-m="${h.msg_id}"` : ''}>
       <span class="src ${c.source}"></span>
-      <span class="cv-title ${c.title_fallback ? 'cv-untitled' : ''}">${title}${multi ? `<span class="cv-span">${c.n_days} 天</span>` : ''}${c.last_import && c.first_import !== c.last_import ? '<small>已合并</small>' : ''}</span>
+      <span class="cv-title ${c.title_fallback ? 'cv-untitled' : ''}"><span translate="no">${title}</span>${multi ? `<span class="cv-span">${c.n_days} 天</span>` : ''}${c.last_import && c.first_import !== c.last_import ? '<small>已合并</small>' : ''}</span>
       <span class="cv-meta">${multi ? c.first_date.slice(5) + ' → ' : ''}${c.last_date}</span>
       <span class="cv-meta">${c.n_msgs} 条</span>
       <span class="cv-meta">${fmtW(c.chars || 0)} 字</span>

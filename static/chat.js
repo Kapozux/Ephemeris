@@ -49,8 +49,8 @@ function body(text, cites) {
   return place(h.split(/\n{2,}/).filter(p => p.trim()).map(p => {
     const lines = p.split('\n');
     return lines.every(l => /^\s*[-•]\s/.test(l))
-      ? `<ul>${lines.map(l => `<li>${l.replace(/^\s*[-•]\s/, '')}</li>`).join('')}</ul>`
-      : `<p>${lines.join('<br>')}</p>`;
+      ? `<ul translate="no">${lines.map(l => `<li>${l.replace(/^\s*[-•]\s/, '')}</li>`).join('')}</ul>`
+      : `<p translate="no">${lines.join('<br>')}</p>`;
   }).join(''), codes);
 }
 
@@ -66,8 +66,8 @@ function sources(cites) {
   if (!cites.length) return '';
   return `<details class="ch-src"><summary>出处 ${cites.length} 条</summary>${cites.map((c, i) => `
     <div class="ch-src-row" data-n="${i + 1}"><span class="ch-src-n">${i + 1}</span>
-      <span class="ch-src-main"><span class="ch-src-meta">${c.date} · ${isFile(c) ? '文件' : isNote(c) ? 'Notion 笔记' : isJournal(c) ? '你写的' : c.who === 'me' ? '你说' : 'AI 说'} · ${esc(c.title || '')}${c.unseen ? ' · <span class="ch-src-warn" title="它这次没查到过这条，是凭记忆写的记号（出处本身是真的，对一下原话）">这轮没查到过</span>' : ''}${c.weak ? ` · <span class="ch-src-warn">原文撑不住这句：${esc(c.weak)}</span>` : ''}</span>
-        ${c.kind === '原话' || isNote(c) ? '' : esc(c.text) + ' '}<span class="ch-src-q${isFile(c) ? ' file' : ''}">「${esc(c.quote)}」</span></span>
+      <span class="ch-src-main"><span class="ch-src-meta">${c.date} · ${isFile(c) ? '文件' : isNote(c) ? 'Notion 笔记' : isJournal(c) ? '你写的' : c.who === 'me' ? '你说' : 'AI 说'} · <span translate="no">${esc(c.title || '')}</span>${c.unseen ? ' · <span class="ch-src-warn" title="它这次没查到过这条，是凭记忆写的记号（出处本身是真的，对一下原话）">这轮没查到过</span>' : ''}${c.weak ? ` · <span class="ch-src-warn">原文撑不住这句：</span><span translate="no">${esc(c.weak)}</span>` : ''}</span>
+        ${c.kind === '原话' || isNote(c) ? '' : `<span translate="no">${esc(c.text)}</span> `}<span translate="no" class="ch-src-q${isFile(c) ? ' file' : ''}">「${esc(c.quote)}」</span></span>
       ${isFile(c) ? '' : isNote(c) ? `<a class="ch-go" href="${noteUrl(c)}" target="_blank" rel="noopener">去 Notion →</a>` : `<a class="ch-go" href="${isJournal(c) ? `/#/day/${c.date}/journal` : `/#/day/${c.date}/conv/${encodeURIComponent(c.conv_id)}/msg/${encodeURIComponent(c.msg_id)}`}">${isJournal(c) ? '去日记' : '去原话'} →</a>`}</div>`).join('')}</details>`;
 }
 
@@ -93,7 +93,7 @@ function stepHtml(s, live) {
   s = asStep(s);
   if (s.k === 'say') return `<li class="ch-step say"><span class="ch-step-i"><i></i></span><span class="ch-step-b">${esc(s.t)}</span></li>`;
   return `<li class="ch-step${live ? ' live' : ''}"><span class="ch-step-i">${icon(s.k)}</span><span class="ch-step-b">`
-    + `<span class="ch-step-t">${esc(s.t)}</span>${s.d ? `<span class="ch-step-d">${esc(s.d)}</span>` : ''}</span></li>`;
+    + `<span class="ch-step-t">${esc(s.t)}</span>${s.d ? `<span class="ch-step-d" translate="no">${esc(s.d)}</span>` : ''}</span></li>`;
 }
 
 function trailHtml(steps, running) {
@@ -115,7 +115,7 @@ function traceHtml(trace) {
     + trailHtml(steps, false) + '</details>';
 }
 
-const qHtml = (t, files) => `<div class="ch-q"><div>${esc(t)}</div></div>` + (files?.length ? `<div class="ch-qfiles">${files.map(f => fchip(f)).join('')}</div>` : '');
+const qHtml = (t, files) => `<div class="ch-q"><div translate="no">${esc(t)}</div></div>` + (files?.length ? `<div class="ch-qfiles">${files.map(f => fchip(f)).join('')}</div>` : '');
 // 附的文件（11-01）：输入框上面、问题气泡下面那种小卡片
 const fchip = (f, i) => `<span class="ch-fchip${f.error ? ' bad' : ''}" title="${esc(f.path || f.name)}"><span class="ch-fchip-t"><span class="ch-fchip-n">${esc(f.name)}</span>`
   + `<span class="ch-fchip-m">${f.error ? esc(f.error) : f.up ? (f.picking ? '在访达里选…' : '上传中…')
@@ -406,7 +406,7 @@ function renderThreads(list) {
   document.title = (cur ? cur.title + ' · ' : '') + '问 · Ephemeris';
   if (EDITING) return;                                      // 正在改名：别把输入框冲掉，改完再画
   const row = t => `<div class="ch-trow${t.id === THREAD ? ' on' : ''}" data-id="${t.id}">
-    <button class="ch-thread${BUSY_THREADS.includes(t.id) ? ' live' : ''}" data-id="${t.id}" title="${esc(t.title)}">${esc(t.title || '新对话')}</button>
+    <button class="ch-thread${BUSY_THREADS.includes(t.id) ? ' live' : ''}" data-id="${t.id}" title="${esc(t.title)}"${t.title ? ' translate="no"' : ''}>${esc(t.title || '新对话')}</button>
     <button type="button" class="ch-tmore" data-id="${t.id}" aria-label="更多" aria-haspopup="menu">${DOTS}</button></div>`;
   const pinned = list.filter(t => t.pinned), rest = list.filter(t => !t.pinned);
   $('#chThreads').innerHTML = (pinned.length ? '<div class="ch-sec">置顶</div>' + pinned.map(row).join('') : '')

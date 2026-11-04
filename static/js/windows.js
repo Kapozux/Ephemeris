@@ -43,7 +43,7 @@ function tlRow(d) {
   return `<div class="tl-row ${d.note ? '' : 'nonote'}" data-d="${d.date}">
     <div class="tl-date"><span class="tl-day">${d.date.slice(5)}</span><span class="tl-year">${d.date.slice(0, 4)}</span></div>
     <div class="tl-main">
-      <div class="tl-note">${d.note ? esc(d.note) : '<span class="dim">还没生成小结</span>'}${d.stale ? '<span class="tl-stale">这天后来又聊了，下次补的时候重写</span>' : ''}</div>
+      <div class="tl-note">${d.note ? `<span translate="no">${esc(d.note)}</span>` : '<span class="dim">还没生成小结</span>'}${d.stale ? '<span class="tl-stale">这天后来又聊了，下次补的时候重写</span>' : ''}</div>
       <div class="tl-meta">${d.msgs} 条 · ${(d.chars || 0).toLocaleString()} 字 · ${d.a}–${d.b}
         <a class="tl-open" data-d="${d.date}">展开原文</a>
         ${d.has_diary ? `<a class="tl-diary" data-day="${d.date}">看这天的日记</a>` : ''}</div>

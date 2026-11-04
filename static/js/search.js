@@ -15,9 +15,9 @@ $('#q').addEventListener('input', e => {
     box.innerHTML = `<div class="sb-results-head"><span>${r.hits.length} 条${r.hits.length >= 100 ? '（只显示前 100）' : ''}</span><a id="rclose">关闭</a></div>` +
       (r.hits.length
         ? r.hits.map(h => h.kind === 'journal'
-            ? `<div class="sb-hit sb-hit-journal" data-d="${h.date}" data-j="1"><b>${h.date}　手写日记</b>${h.snip}</div>`
+            ? `<div class="sb-hit sb-hit-journal" data-d="${h.date}" data-j="1"><b>${h.date}　手写日记</b><span translate="no">${h.snip}</span></div>`
             : `<div class="sb-hit" data-d="${h.date}" data-c="${h.conv_id}" data-m="${h.msg_id}">
-             <b>${h.date} ${h.hhmm}　${esc(h.conv_title || '')}</b>${h.snip}</div>`).join('')
+             <b translate="no">${h.date} ${h.hhmm}　${esc(h.conv_title || '')}</b><span translate="no">${h.snip}</span></div>`).join('')
         : '<div class="sb-hit"><b>没找到</b></div>');
     box.onclick = ev => {
       if (ev.target.id === 'rclose') { closeResults(); return; }

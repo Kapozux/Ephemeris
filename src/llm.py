@@ -666,7 +666,7 @@ _qa_sem = threading.BoundedSemaphore(QA_PARALLEL)
 def _local_slot(purpose):
     return _qa_sem if _prio(purpose) == 'live' else _claude_sem
 _claude_runner = None            # 测试用：use_claude(fn)，fn(args, stdin) -> claude -p 的 JSON（dict）
-_LIMIT = re.compile(r'usage limit|limit reached|rate limit|resets?|Not logged in|/login|credit balance', re.I)
+_LIMIT = re.compile(r'usage limit|limit reached|rate limit|(?<![A-Za-z])resets?(?![A-Za-z])|Not logged in|/login|credit balance', re.I)
 
 
 # 三个应用（Verbatim / Ephemeris / 墨页）共用一份额度时的分配器：claude_gate（CLAUDE_GATE 没设就不起作用）。

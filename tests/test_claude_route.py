@@ -44,6 +44,12 @@ class ClaudeRoute(unittest.TestCase):
         llm.ask('再写一篇')
         self.assertEqual(len(self.calls), 1)                     # 停着的时候不再去碰 Claude
 
+    def test_network_error_does_not_pause(self):
+        """11-04：断网报的「ECONNRESET」里有 RESET，被当成「额度重置」停了 Claude 半小时，聊天页悄悄换成后备模型。"""
+        self.fake({'is_error': True, 'result': 'API Error: Connection dropped (ECONNRESET). A VPN, firewall, or security software can cause this'})
+        self.assertEqual(llm.ask('写日记'), 'deepseek 回的')        # 这次照样退到后备
+        self.assertTrue(llm.claude_on())                         # 但不停：下次还先走 Claude
+
     def test_cheap_route_skips_claude(self):
         self.fake({'result': '不该走到这'})
         self.assertEqual(llm.ask('一次性的大批量活', route='cheap'), 'deepseek 回的')

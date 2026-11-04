@@ -258,7 +258,7 @@ sup .ch-cite:hover { color: var(--text); }
 .ch-menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 10px; }
 .ch-mi { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border-radius: 9px; font-size: 15px; text-align: left; color: var(--text); }
 .ch-mi:hover, .ch-mi:focus-visible, .ch-mi.open { background: var(--hover); outline: none; }
-.ch-mi-t { flex: 1; min-width: 0; white-space: nowrap; }
+.ch-mi-t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }   /* 11-04：「OpenRouter · deepseek/deepseek-v4-pro」这种长名字压到对勾上 */
 .ch-mi-v { color: var(--faint); font-size: 14px; }
 .ch-mi svg { width: 16px; height: 16px; flex: none; }
 .ch-gt { color: var(--faint); }

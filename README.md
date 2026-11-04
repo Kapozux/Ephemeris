@@ -8,7 +8,7 @@ Built by **[Kapozux](https://github.com/Kapozux)**
 
 **Turn your long-running AI chat history into a local archive you can question in your own words.** Ephemeris reorganizes all your conversations from Claude, ChatGPT, Gemini, Claude Code and more by day instead of by window. It writes a diary entry every day, keeps a ledger of the things you keep working on, and gives you **Ask**: chat with your own past, and it digs through the original records before answering. Every conclusion comes with a timestamped quote; click it to jump straight back to that message.
 
-<p align="center"><img src="docs/demo.gif" width="860" alt="Ask a question, see how it searched, open the sources, jump to the exact message"><br><sub>Demo data: Sam is a fictional person. The answer is shown already finished; a real one takes about a minute.</sub></p>
+<p align="center"><img src="docs/demo-en.gif" width="860" alt="Ask a question, see how it searched, open the sources, jump to the exact message"><br><sub>Demo data: Sam is a fictional person. The answer is shown already finished; a real one takes about a minute. The interface comes in English and Chinese (Settings → Language).</sub></p>
 
 *ἐφημερίς* is Greek for "a daily record". Astronomy later borrowed the word for the ephemeris, a table of where the celestial bodies are each day. This app does the same thing, except what it tracks is you.
 
